@@ -298,89 +298,38 @@ html:has(.fi-body:not(.fi-body-has-topbar)) body {
     padding-inline-end: 2.75rem !important;
 }
 
-/* ===== Mobile Responsive Navigation ===== */
-/* On mobile screens, transform sidebar to top navigation style */
+/* ===== Mobile Enhancements ===== */
+/* Simple mobile enhancements - let Filament handle navigation natively */
 @media (max-width: 767px) {
-    /* When mobile nav is active, force topbar-like layout */
-    body.fi-mobile-nav {
-        /* Remove sidebar margin */
-        --sidebar-width: 0px !important;
-    }
-    
-    /* Force topbar to show on mobile even when using sidebar mode */
-    body.fi-mobile-nav .fi-topbar {
-        display: flex !important;
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 50 !important;
-        background: rgb(15 23 42) !important;
-    }
-    
-    /* Create a fake topbar for sidebar mode */
-    body.fi-mobile-nav:not(.fi-body-has-topbar)::before {
-        content: '';
-        display: block;
-        height: 0;
-    }
-    
-    /* Hide sidebar by default on mobile, show only when hamburger clicked */
-    body.fi-mobile-nav .fi-sidebar[data-mobile-hidden="true"] {
-        transform: translateX(-100%) !important;
-    }
-    
-    /* Ensure main content takes full width on mobile */
-    body.fi-mobile-nav .fi-main-ctn {
-        margin-inline-start: 0 !important;
-        width: 100% !important;
-    }
-    
     /* Hide dynamic island footer on mobile */
-    body.fi-mobile-nav .fi-sidebar-footer {
+    .fi-sidebar-footer {
         display: none !important;
     }
     
     /* Hide QR scanner floating button on mobile */
-    body.fi-mobile-nav .fi-sidebar.fi-main-sidebar>div:has(button[title="Scan QR Code"]) {
+    .fi-sidebar.fi-main-sidebar>div:has(button[title="Scan QR Code"]) {
         display: none !important;
-    }
-    
-    /* Mobile navigation menu styling when opened */
-    body.fi-mobile-nav .fi-sidebar-nav {
-        max-height: 70vh !important;
-        overflow-y: auto !important;
-    }
-    
-    /* Improve sidebar overlay on mobile */
-    body.fi-mobile-nav .fi-sidebar-close-overlay {
-        background: rgba(0, 0, 0, 0.5) !important;
-        display: block !important;
     }
     
     /* Compact navigation items on mobile */
-    body.fi-mobile-nav .fi-sidebar-nav-groups {
+    .fi-sidebar-nav-groups {
         padding: 0.5rem !important;
     }
     
-    body.fi-mobile-nav .fi-sidebar-item {
-        padding: 0.5rem 0.75rem !important;
-    }
-    
     /* Better touch targets on mobile */
-    body.fi-mobile-nav .fi-sidebar-nav a,
-    body.fi-mobile-nav .fi-sidebar-nav button {
+    .fi-sidebar-nav a,
+    .fi-sidebar-nav button {
         min-height: 44px !important;
-        display: flex !important;
-        align-items: center !important;
     }
     
     /* Hide breadcrumbs on mobile to save space */
-    body.fi-mobile-nav .fi-breadcrumbs {
+    .fi-breadcrumbs {
         display: none !important;
     }
     
-    /* Ensure hamburger menu is visible */
-    body.fi-mobile-nav .fi-sidebar-open-btn {
-        display: flex !important;
+    /* Reduce main content padding on mobile */
+    .fi-main {
+        padding: 0.5rem !important;
     }
 }
 
