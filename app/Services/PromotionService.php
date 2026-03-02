@@ -94,6 +94,8 @@ class PromotionService
      */
     public static function getActivePromotionsSummary(): array
     {
+        $promos = [];
+        
         $dailyDiscounts = DailyDiscount::where('is_active', true)
             ->where(function ($q) {
                 $q->whereNull('start_date')->orWhere('start_date', '<=', now());
@@ -102,11 +104,11 @@ class PromotionService
                 $q->whereNull('end_date')->orWhere('end_date', '>=', now());
             })
             ->orderBy('min_days')
-            ->get()
-            ->map(fn ($d) => [
-                'name' => $d->name,
-                'description' => "Sewa {$d->min_days} hari, gratis {$d->free_days} hari",
-            ]);
+            ->get();
+
+        foreach ($dailyDiscounts as $d) {
+            $promos[] = "{$d->name}: Sewa {$d->min_days} hari, gratis {$d->free_days} hari";
+        }
 
         $datePromotions = DatePromotion::where('is_active', true)
             ->get()
@@ -115,16 +117,15 @@ class PromotionService
                     return true; // Always show recurring
                 }
                 return $promo->promo_date->isFuture() || $promo->promo_date->isToday();
-            })
-            ->map(fn ($d) => [
-                'name' => $d->name,
-                'description' => ($d->type === 'percentage' ? $d->value . '%' : 'Rp ' . number_format($d->value, 0, ',', '.')) 
-                    . ' pada ' . $d->promo_date->format('d M'),
-            ]);
+            });
 
-        return [
-            'daily_discounts' => $dailyDiscounts->toArray(),
-            'date_promotions' => $datePromotions->toArray(),
-        ];
+        foreach ($datePromotions as $d) {
+            $discount = $d->type === 'percentage' 
+                ? $d->value . '%' 
+                : 'Rp ' . number_format($d->value, 0, ',', '.');
+            $promos[] = "{$d->name}: {$discount} pada " . $d->promo_date->format('d M');
+        }
+
+        return $promos;
     }
 }
