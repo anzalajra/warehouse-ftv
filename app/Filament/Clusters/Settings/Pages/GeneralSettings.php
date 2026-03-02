@@ -148,10 +148,7 @@ class GeneralSettings extends Page implements HasForms
         $newMode = $data['finance_mode'] ?? 'simple';
         
         foreach ($data as $key => $value) {
-            Setting::updateOrCreate(
-                ['key' => $key],
-                ['value' => $value]
-            );
+            Setting::set($key, $value);
         }
 
         Notification::make()
