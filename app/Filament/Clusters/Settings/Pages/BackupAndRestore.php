@@ -10,8 +10,6 @@ use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Filament\Schemas\Components\Wizard;
-use Filament\Schemas\Components\Wizard\Step;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -21,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use ZipArchive;
 use Carbon\Carbon;
 
@@ -66,15 +65,16 @@ class BackupAndRestore extends Page implements HasTable
                     ->action(function (BackupHistory $record) {
                         return response()->download(storage_path('app/backups/' . $record->filename));
                     })
-                    ->visible(fn (BackupHistory $record) => Storage::exists('backups/' . $record->filename)),
+                    ->visible(fn (BackupHistory $record) => File::exists(storage_path('app/backups/' . $record->filename))),
                 Action::make('delete')
                     ->label('Delete')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
                     ->requiresConfirmation()
                     ->action(function (BackupHistory $record) {
-                        if (Storage::exists('backups/' . $record->filename)) {
-                            Storage::delete('backups/' . $record->filename);
+                        $path = storage_path('app/backups/' . $record->filename);
+                        if (File::exists($path)) {
+                            File::delete($path);
                         }
                         $record->delete();
                         Notification::make()->title('Backup deleted')->success()->send();
@@ -93,6 +93,11 @@ class BackupAndRestore extends Page implements HasTable
                     CheckboxList::make('options')
                         ->options([
                             'full' => 'Full Backup (Recommended)',
+                            'products' => 'Products & Categories',
+                            'customers' => 'Customers',
+                            'rentals' => 'Rentals',
+                            'finance' => 'Finance & Invoices',
+                            'settings' => 'Settings & CMS',
                         ])
                         ->default(['full'])
                         ->required(),
@@ -120,16 +125,34 @@ class BackupAndRestore extends Page implements HasTable
         ];
     }
 
+    protected function getTableCategories(): array
+    {
+        return [
+            'products' => ['products', 'categories', 'brands', 'product_units', 'product_variations', 'unit_kits', 'product_components', 'warehouses'],
+            'customers' => ['customers', 'customer_categories', 'customer_documents', 'document_types', 'customer_category_document_type'],
+            'rentals' => ['rentals', 'rental_items', 'rental_item_kits'],
+            'finance' => ['finance_accounts', 'finance_transactions', 'bills', 'quotations', 'invoices', 'depreciation_runs', 'accounts', 'category_mappings'],
+            'settings' => ['settings', 'posts', 'navigations', 'navigation_menus', 'media', 'permissions'],
+        ];
+    }
+
+    protected function getExcludedTables(): array
+    {
+        return ['migrations', 'backup_histories', 'jobs', 'failed_jobs', 'sessions', 'cache', 'cache_locks', 'job_batches'];
+    }
+
     public function processBackup(array $options)
     {
         $this->isProcessing = true;
         $this->currentOperation = 'Creating Backup';
         $this->progressMessage = 'Initializing...';
-        
+
         try {
+            $isFullBackup = in_array('full', $options);
+            $type = $isFullBackup ? 'full' : implode(', ', $options);
             $filename = 'backup-' . Carbon::now()->format('Y-m-d-H-i-s') . '.zip';
             $zipPath = storage_path('app/backups/' . $filename);
-            
+
             if (!File::exists(dirname($zipPath))) {
                 File::makeDirectory(dirname($zipPath), 0755, true);
             }
@@ -139,30 +162,40 @@ class BackupAndRestore extends Page implements HasTable
                 throw new \Exception("Cannot create zip file");
             }
 
-            // Get all tables
-            $tables = Schema::getTableListing();
-            $excludeTables = ['migrations', 'backup_histories', 'jobs', 'failed_jobs', 'sessions', 'cache', 'cache_locks', 'job_batches'];
+            // Determine which tables to backup
+            $allTables = Schema::getTableListing();
+            $excludeTables = $this->getExcludedTables();
 
-            foreach ($tables as $table) {
-                if (in_array($table, $excludeTables)) {
-                    continue;
+            if ($isFullBackup) {
+                $tablesToBackup = array_diff($allTables, $excludeTables);
+            } else {
+                $categories = $this->getTableCategories();
+                $tablesToBackup = [];
+                foreach ($options as $option) {
+                    if (isset($categories[$option])) {
+                        $tablesToBackup = array_merge($tablesToBackup, $categories[$option]);
+                    }
                 }
+                // Only include tables that actually exist
+                $tablesToBackup = array_intersect($tablesToBackup, $allTables);
+            }
 
+            $tableCount = 0;
+            foreach ($tablesToBackup as $table) {
                 $this->progressMessage = "Backing up table: $table";
-                
-                // Get data
+
                 $rows = DB::table($table)->get();
                 $jsonData = json_encode($rows->toArray(), JSON_PRETTY_PRINT);
-                
+
                 $zip->addFromString("$table.json", $jsonData);
+                $tableCount++;
             }
 
             $zip->close();
 
-            // Record history
             BackupHistory::create([
                 'user_id' => Auth::id(),
-                'type' => 'manual',
+                'type' => $type,
                 'filename' => $filename,
                 'size' => File::size($zipPath),
                 'status' => 'success',
@@ -170,6 +203,7 @@ class BackupAndRestore extends Page implements HasTable
 
             Notification::make()
                 ->title('Backup Created Successfully')
+                ->body("Backed up $tableCount tables.")
                 ->success()
                 ->send();
 
@@ -179,10 +213,10 @@ class BackupAndRestore extends Page implements HasTable
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
-            
+
             BackupHistory::create([
                 'user_id' => Auth::id(),
-                'type' => 'manual',
+                'type' => $type ?? 'unknown',
                 'filename' => $filename ?? 'failed.zip',
                 'size' => 0,
                 'status' => 'failed',
@@ -196,73 +230,107 @@ class BackupAndRestore extends Page implements HasTable
     {
         $this->isProcessing = true;
         $this->currentOperation = 'Restoring Backup';
-        
+
+        $driver = DB::connection()->getDriverName();
+
         try {
-            // Check if path exists
-            if (!Storage::disk('local')->exists($backupFile)) {
+            $fullPath = Storage::disk('local')->path($backupFile);
+
+            if (!File::exists($fullPath)) {
                 throw new \Exception("Backup file not found: " . $backupFile);
             }
-            $fullPath = Storage::disk('local')->path($backupFile);
 
             $zip = new ZipArchive();
             if ($zip->open($fullPath) !== true) {
                 throw new \Exception("Cannot open zip file");
             }
 
-            // Disable foreign keys
-            DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+            // Disable foreign key checks based on DB driver
+            if ($driver === 'mysql') {
+                DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+            } elseif ($driver === 'pgsql') {
+                DB::statement("SET session_replication_role = 'replica';");
+            }
 
-            // Iterate through zip files
+            $restoredCount = 0;
+            $skippedTables = [];
+
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $filename = $zip->getNameIndex($i);
+
+                // Skip non-JSON files and directories
+                if (pathinfo($filename, PATHINFO_EXTENSION) !== 'json') {
+                    continue;
+                }
+
                 $tableName = pathinfo($filename, PATHINFO_FILENAME);
-                
                 $this->progressMessage = "Restoring table: $tableName";
-                
-                // Read JSON
+
                 $json = $zip->getFromIndex($i);
                 $data = json_decode($json, true);
-                
-                if (is_array($data)) {
-                    // Truncate table
-                    try {
-                        DB::table($tableName)->truncate();
-                        
-                        // Insert in chunks
+
+                if (!is_array($data)) {
+                    $skippedTables[] = $tableName;
+                    continue;
+                }
+
+                // Check if table exists in database
+                if (!Schema::hasTable($tableName)) {
+                    $skippedTables[] = $tableName;
+                    Log::warning("Restore skipped: table '$tableName' does not exist.");
+                    continue;
+                }
+
+                try {
+                    DB::table($tableName)->truncate();
+
+                    if (count($data) > 0) {
                         foreach (array_chunk($data, 100) as $chunk) {
                             DB::table($tableName)->insert($chunk);
                         }
-                    } catch (\Exception $e) {
-                        // Table might not exist or other error
-                        \Illuminate\Support\Facades\Log::warning("Could not restore table $tableName: " . $e->getMessage());
                     }
+
+                    $restoredCount++;
+                } catch (\Exception $e) {
+                    $skippedTables[] = $tableName;
+                    Log::warning("Could not restore table $tableName: " . $e->getMessage());
                 }
             }
 
-            // Enable foreign keys
-            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
-            
             $zip->close();
-            
-            // Cleanup
-            Storage::disk('local')->delete($backupFile);
+
+            // Cleanup uploaded file
+            if (File::exists($fullPath)) {
+                File::delete($fullPath);
+            }
+
+            $body = "Restored $restoredCount tables.";
+            if (count($skippedTables) > 0) {
+                $body .= " Skipped: " . implode(', ', $skippedTables);
+            }
 
             Notification::make()
                 ->title('Restore Completed Successfully')
+                ->body($body)
                 ->success()
                 ->send();
-            
-            // Reload page
+
             return redirect()->to(request()->header('Referer'));
 
         } catch (\Exception $e) {
-            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
             Notification::make()
                 ->title('Restore Failed')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
         } finally {
+            // Re-enable foreign key checks
+            if ($driver === 'mysql') {
+                DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+            } elseif ($driver === 'pgsql') {
+                DB::statement("SET session_replication_role = 'DEFAULT';");
+            }
+
             $this->isProcessing = false;
         }
     }
