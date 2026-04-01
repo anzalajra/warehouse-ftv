@@ -112,6 +112,17 @@ if (!$isInstalled) {
         Route::get('/admin/documents/{document}/{filename?}', [App\Http\Controllers\CustomerDocumentController::class, 'viewForAdmin'])->name('admin.documents.view');
     });
 
+    // Backup Download
+    Route::middleware(['auth'])->group(function () {
+        Route::get('/admin/backup/download/{backupHistory}', function (\App\Models\BackupHistory $backupHistory) {
+            $path = storage_path('app/backups/' . $backupHistory->filename);
+            if (!File::exists($path)) {
+                abort(404, 'Backup file not found.');
+            }
+            return response()->download($path);
+        })->name('backup.download');
+    });
+
     // Public Signed Documents
     Route::prefix('public-documents')->name('public-documents.')->group(function () {
         Route::get('/rental/{rental}/checklist', [PublicDocumentController::class, 'rentalChecklist'])->name('rental.checklist');

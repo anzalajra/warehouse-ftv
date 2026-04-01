@@ -62,9 +62,7 @@ class BackupAndRestore extends Page implements HasTable
                 Action::make('download')
                     ->label('Download')
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->action(function (BackupHistory $record) {
-                        return response()->download(storage_path('app/backups/' . $record->filename));
-                    })
+                    ->url(fn (BackupHistory $record) => route('backup.download', $record))
                     ->visible(fn (BackupHistory $record) => File::exists(storage_path('app/backups/' . $record->filename))),
                 Action::make('delete')
                     ->label('Delete')
