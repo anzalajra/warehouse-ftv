@@ -24,6 +24,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+
+         \Illuminate\Support\Facades\URL::forceScheme('https');
+         
         Rental::observe(RentalObserver::class);
         FinanceTransaction::observe(FinanceTransactionObserver::class);
         JournalEntryItem::observe(JournalEntryItemObserver::class);
