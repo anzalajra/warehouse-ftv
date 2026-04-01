@@ -18,6 +18,7 @@ use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\File;
 use ZipArchive;
@@ -139,7 +140,7 @@ class BackupAndRestore extends Page implements HasTable
             }
 
             // Get all tables
-            $tables = DB::connection()->getDoctrineSchemaManager()->listTableNames();
+            $tables = Schema::getTableListing();
             $excludeTables = ['migrations', 'backup_histories', 'jobs', 'failed_jobs', 'sessions', 'cache', 'cache_locks', 'job_batches'];
 
             foreach ($tables as $table) {
