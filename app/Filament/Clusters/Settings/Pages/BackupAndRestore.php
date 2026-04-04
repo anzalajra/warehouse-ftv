@@ -96,6 +96,7 @@ class BackupAndRestore extends Page implements HasTable
                             'rentals' => 'Rentals',
                             'finance' => 'Finance & Invoices',
                             'settings' => 'Settings & CMS',
+                            'files' => 'Files & Media (Images, Documents)',
                         ])
                         ->default(['full'])
                         ->required(),
@@ -137,6 +138,17 @@ class BackupAndRestore extends Page implements HasTable
     protected function getExcludedTables(): array
     {
         return ['migrations', 'backup_histories', 'jobs', 'failed_jobs', 'sessions', 'cache', 'cache_locks', 'job_batches'];
+    }
+
+    protected function getFileDirectories(): array
+    {
+        return [
+            ['disk' => 'public', 'directory' => 'products'],
+            ['disk' => 'public', 'directory' => 'brands'],
+            ['disk' => 'public', 'directory' => 'settings'],
+            ['disk' => 'public', 'directory' => 'hero-slides'],
+            ['disk' => 'local', 'directory' => 'customer-documents'],
+        ];
     }
 
     public function processBackup(array $options)
@@ -198,6 +210,42 @@ class BackupAndRestore extends Page implements HasTable
                 $tableCount++;
             }
 
+            // Backup files if 'files' or 'full' is selected
+            $fileCount = 0;
+            $includeFiles = $isFullBackup || in_array('files', $options);
+
+            if ($includeFiles) {
+                $this->progressMessage = 'Backing up files & media...';
+                $fileDirectories = $this->getFileDirectories();
+
+                foreach ($fileDirectories as $dir) {
+                    $disk = Storage::disk($dir['disk']);
+                    $files = $disk->allFiles($dir['directory']);
+
+                    foreach ($files as $file) {
+                        $fullFilePath = $disk->path($file);
+                        if (File::exists($fullFilePath)) {
+                            $zip->addFile($fullFilePath, "files/{$dir['disk']}/{$file}");
+                            $fileCount++;
+                        }
+                    }
+                }
+
+                // Also backup spatie media library files (numbered directories in public disk)
+                $publicDisk = Storage::disk('public');
+                $allPublicFiles = $publicDisk->allFiles('.');
+                foreach ($allPublicFiles as $file) {
+                    // Match numbered directories (1/*, 2/*, etc.) used by media library
+                    if (preg_match('#^\d+/#', $file)) {
+                        $fullFilePath = $publicDisk->path($file);
+                        if (File::exists($fullFilePath)) {
+                            $zip->addFile($fullFilePath, "files/public/{$file}");
+                            $fileCount++;
+                        }
+                    }
+                }
+            }
+
             $zip->close();
 
             if (!File::exists($zipPath)) {
@@ -212,9 +260,14 @@ class BackupAndRestore extends Page implements HasTable
                 'status' => 'success',
             ]);
 
+            $body = "Backed up $tableCount tables.";
+            if ($fileCount > 0) {
+                $body .= " Included $fileCount files.";
+            }
+
             Notification::make()
                 ->title('Backup Created Successfully')
-                ->body("Backed up $tableCount tables.")
+                ->body($body)
                 ->success()
                 ->send();
 
@@ -315,6 +368,44 @@ class BackupAndRestore extends Page implements HasTable
                 }
             }
 
+            // Restore files from ZIP
+            $restoredFiles = 0;
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $entryName = $zip->getNameIndex($i);
+
+                // Only process files under the "files/" prefix
+                if (!str_starts_with($entryName, 'files/')) {
+                    continue;
+                }
+
+                // Parse: files/{disk}/{path}
+                $relativePath = substr($entryName, strlen('files/'));
+                $slashPos = strpos($relativePath, '/');
+                if ($slashPos === false) {
+                    continue;
+                }
+
+                $diskName = substr($relativePath, 0, $slashPos);
+                $filePath = substr($relativePath, $slashPos + 1);
+
+                // Skip directories (empty file path or trailing slash)
+                if (empty($filePath) || str_ends_with($filePath, '/')) {
+                    continue;
+                }
+
+                $this->progressMessage = "Restoring file: $filePath";
+
+                $content = $zip->getFromIndex($i);
+                if ($content !== false) {
+                    try {
+                        Storage::disk($diskName)->put($filePath, $content);
+                        $restoredFiles++;
+                    } catch (\Exception $e) {
+                        Log::warning("Could not restore file $filePath to $diskName disk: " . $e->getMessage());
+                    }
+                }
+            }
+
             $zip->close();
 
             // Cleanup uploaded file
@@ -323,6 +414,9 @@ class BackupAndRestore extends Page implements HasTable
             }
 
             $body = "Restored $restoredCount tables.";
+            if ($restoredFiles > 0) {
+                $body .= " Restored $restoredFiles files.";
+            }
             if (count($skippedTables) > 0) {
                 $body .= " Skipped: " . implode(', ', $skippedTables);
             }
