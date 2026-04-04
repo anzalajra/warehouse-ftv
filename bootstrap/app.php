@@ -29,9 +29,16 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->reportable(function (\Throwable $e) {
+            // Skip non-critical exceptions
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException) return;
+            if ($e instanceof \Illuminate\Validation\ValidationException) return;
+            if ($e instanceof \Illuminate\Auth\AuthenticationException) return;
+
             try {
-                $admins = \App\Models\User::all();
-                \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\SystemErrorNotification($e->getMessage()));
+                $admins = \App\Models\User::role(['super_admin'])->get();
+                foreach ($admins as $admin) {
+                    $admin->notify(new \App\Notifications\SystemErrorNotification($e->getMessage()));
+                }
             } catch (\Throwable $t) {
                 // Squelch errors during error reporting to prevent infinite loops
             }

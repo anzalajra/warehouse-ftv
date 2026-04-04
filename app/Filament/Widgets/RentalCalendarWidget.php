@@ -109,7 +109,14 @@ class RentalCalendarWidget extends FullCalendarWidget implements HasActions
         $start = $info['start'] ?? null;
         $end = $info['end'] ?? null;
 
-        $query = Rental::query()->with(['customer', 'items.productUnit.product']);
+        $query = Rental::query()
+            ->select(['id', 'customer_id', 'rental_code', 'status', 'start_date', 'end_date', 'total', 'notes'])
+            ->with([
+                'customer:id,name',
+                'items:id,rental_id,product_unit_id',
+                'items.productUnit:id,serial_number,product_id',
+                'items.productUnit.product:id,name',
+            ]);
 
         if ($start && $end) {
             $query->where(function ($q) use ($start, $end) {
@@ -118,7 +125,7 @@ class RentalCalendarWidget extends FullCalendarWidget implements HasActions
             });
         }
 
-        $rentals = $query->get();
+        $rentals = $query->limit(500)->get();
 
         return $rentals->map(function (Rental $rental) {
             $color = match ($rental->status) {

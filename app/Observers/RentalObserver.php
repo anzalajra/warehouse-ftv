@@ -17,7 +17,7 @@ class RentalObserver
         $this->recalculateTotals($rental);
 
         // Notify Admins
-        $admins = User::all();
+        $admins = User::role(['super_admin', 'admin'])->get();
         Notification::send($admins, new NewBookingNotification($rental));
     }
 

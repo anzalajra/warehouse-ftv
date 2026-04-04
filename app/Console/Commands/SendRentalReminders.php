@@ -65,22 +65,22 @@ class SendRentalReminders extends Command
             ->whereDate('end_date', '<', now()->toDateString())
             ->get();
 
+        $admins = \App\Models\User::role(['super_admin', 'admin'])->get();
+
         foreach ($overdueRentals as $rental) {
             // Notify Customer
             if ($rental->customer) {
                 $rental->customer->notify(new OverdueAlertNotification($rental));
             }
             // Notify Admin
-            $admins = \App\Models\User::all();
             Notification::send($admins, new OverdueAlertNotification($rental));
-            
+
             $this->info("Sent Overdue Alert for {$rental->rental_code}");
         }
 
         // 4. Maintenance Reminder
         $maintenanceUnitsCount = ProductUnit::where('status', 'maintenance')->count();
         if ($maintenanceUnitsCount > 0) {
-            $admins = \App\Models\User::all();
             Notification::send($admins, new MaintenanceReminderNotification($maintenanceUnitsCount));
             $this->info("Sent Maintenance Reminder for {$maintenanceUnitsCount} units");
         }
