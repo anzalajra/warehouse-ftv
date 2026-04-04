@@ -29,6 +29,8 @@ class BrandForm
 
                 FileUpload::make('logo')
                     ->image()
+                    ->disk('public')
+                    ->visibility('public')
                     ->directory('brands'),
 
                 TextInput::make('website')

@@ -76,6 +76,8 @@ class ProductSetup extends Page implements HasForms
                                             ]),
                                         FileUpload::make('logo')
                                             ->image()
+                                            ->disk('public')
+                                            ->visibility('public')
                                             ->directory('brands'),
                                         TextInput::make('website')
                                             ->url()
@@ -120,6 +122,8 @@ class ProductSetup extends Page implements HasForms
                                             ->columnSpanFull(),
                                         FileUpload::make('image')
                                             ->image()
+                                            ->disk('public')
+                                            ->visibility('public')
                                             ->directory('categories'),
                                         Toggle::make('is_active')
                                             ->default(true),

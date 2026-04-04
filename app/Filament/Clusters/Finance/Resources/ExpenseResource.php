@@ -75,6 +75,7 @@ class ExpenseResource extends Resource
                             ->maxLength(255)
                             ->columnSpanFull(),
                         FileUpload::make('proof_document')
+                            ->disk('local')
                             ->directory('expenses')
                             ->visibility('private')
                             ->image()

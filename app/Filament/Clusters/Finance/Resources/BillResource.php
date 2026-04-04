@@ -66,6 +66,7 @@ class BillResource extends Resource
                             ->searchable()
                             ->preload(),
                         Forms\Components\FileUpload::make('proof_document')
+                            ->disk('local')
                             ->directory('bills')
                             ->visibility('private'),
                         Forms\Components\Textarea::make('description')

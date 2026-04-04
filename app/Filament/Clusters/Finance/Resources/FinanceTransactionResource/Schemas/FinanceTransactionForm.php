@@ -55,6 +55,8 @@ class FinanceTransactionForm
                         'Credit Card' => 'Credit Card',
                     ]),
                 FileUpload::make('proof_document')
+                    ->disk('public')
+                    ->visibility('public')
                     ->directory('finance-proofs')
                     ->image()
                     ->imageEditor(),

@@ -34,6 +34,8 @@ class CategoryForm
 
                 FileUpload::make('image')
                     ->image()
+                    ->disk('public')
+                    ->visibility('public')
                     ->directory('categories'),
 
                 Toggle::make('is_active')

@@ -44,6 +44,8 @@ class ProductForm
                     ->schema([
                         FileUpload::make('image')
                             ->image()
+                            ->disk('public')
+                            ->visibility('public')
                             ->directory('products')
                             ->columnSpan(1),
 
@@ -135,10 +137,6 @@ class ProductForm
                     ])
                     ->collapsed()
                     ->collapsible(),
-
-                FileUpload::make('image')
-                    ->image()
-                    ->directory('products'),
 
                 Toggle::make('is_active')
                     ->default(true),
