@@ -102,10 +102,7 @@ class AppearanceSettings extends Page implements HasForms
         $data = $this->form->getState();
         
         foreach ($data as $key => $value) {
-            Setting::updateOrCreate(
-                ['key' => $key],
-                ['value' => $value]
-            );
+            Setting::set($key, $value);
         }
 
         Notification::make()

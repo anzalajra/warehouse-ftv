@@ -167,10 +167,7 @@ class RegistrationSettings extends Page implements HasForms
         }
 
         foreach ($data as $key => $value) {
-            Setting::updateOrCreate(
-                ['key' => $key],
-                ['value' => $value]
-            );
+            Setting::set($key, $value);
         }
 
         Notification::make()
