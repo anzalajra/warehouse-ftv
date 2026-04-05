@@ -110,7 +110,7 @@ class RentalCalendarWidget extends FullCalendarWidget implements HasActions
         $end = $info['end'] ?? null;
 
         $query = Rental::query()
-            ->select(['id', 'customer_id', 'rental_code', 'status', 'start_date', 'end_date', 'total', 'notes'])
+            ->select(['id', 'user_id', 'rental_code', 'status', 'start_date', 'end_date', 'total', 'notes'])
             ->with([
                 'customer:id,name',
                 'items:id,rental_id,product_unit_id',
