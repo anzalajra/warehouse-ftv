@@ -7,9 +7,7 @@ use App\Models\Setting;
 use BackedEnum;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\CheckboxList;
-use Filament\Forms\Components\DatePicker;
 use Filament\Schemas\Components\Grid;
-use Filament\Forms\Components\Repeater;
 use Filament\Schemas\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -35,6 +33,8 @@ class RentalSettings extends Page implements HasForms
 
     public ?array $data = [];
 
+    public array $holidays = [];
+
     public function mount(): void
     {
         $settings = Setting::all()->pluck('value', 'key')->toArray();
@@ -44,7 +44,8 @@ class RentalSettings extends Page implements HasForms
             $settings['operational_days'] = json_decode($settings['operational_days'], true);
         }
         if (isset($settings['holidays'])) {
-            $settings['holidays'] = json_decode($settings['holidays'], true);
+            $this->holidays = json_decode($settings['holidays'], true) ?? [];
+            unset($settings['holidays']);
         }
 
         $this->form->fill($settings);
@@ -120,25 +121,23 @@ class RentalSettings extends Page implements HasForms
                                     ])
                                     ->columns(3)
                                     ->required(),
-                                
-                                Repeater::make('holidays')
-                                    ->label('Holidays')
-                                    ->schema([
-                                        TextInput::make('name')->required(),
-                                        Grid::make(2)->schema([
-                                            DatePicker::make('start_date')
-                                                ->label('Start Date')
-                                                ->required(),
-                                            DatePicker::make('end_date')
-                                                ->label('End Date')
-                                                ->required()
-                                                ->afterOrEqual('start_date'),
-                                        ]),
-                                    ])
-                                    ->collapsible(),
                             ])->columnSpanFull(),
                     ]),
             ]);
+    }
+
+    public function addHoliday(string $name, string $startDate, string $endDate): void
+    {
+        $this->holidays[] = [
+            'name'       => $name,
+            'start_date' => $startDate,
+            'end_date'   => $endDate,
+        ];
+    }
+
+    public function removeHoliday(int $index): void
+    {
+        array_splice($this->holidays, $index, 1);
     }
 
     public function save(): void
@@ -149,9 +148,9 @@ class RentalSettings extends Page implements HasForms
         if (isset($data['operational_days'])) {
             $data['operational_days'] = json_encode($data['operational_days']);
         }
-        if (isset($data['holidays'])) {
-            $data['holidays'] = json_encode(array_values($data['holidays'])); // Reset keys for repeater
-        }
+
+        // Save holidays separately
+        $data['holidays'] = json_encode(array_values($this->holidays));
 
         foreach ($data as $key => $value) {
             Setting::set($key, $value);

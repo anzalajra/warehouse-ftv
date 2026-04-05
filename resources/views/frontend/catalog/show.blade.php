@@ -420,10 +420,15 @@
             const holidays = [];
             holidaysRaw.forEach(h => {
                 if (h.start_date && h.end_date) {
-                    let current = new Date(h.start_date + 'T00:00:00');
-                    const end = new Date(h.end_date + 'T00:00:00');
+                    const [sy, sm, sd] = h.start_date.split('-').map(Number);
+                    const [ey, em, ed] = h.end_date.split('-').map(Number);
+                    let current = new Date(sy, sm - 1, sd);
+                    const end = new Date(ey, em - 1, ed);
                     while (current <= end) {
-                        holidays.push(current.toISOString().split('T')[0]);
+                        const year = current.getFullYear();
+                        const month = String(current.getMonth() + 1).padStart(2, '0');
+                        const day = String(current.getDate()).padStart(2, '0');
+                        holidays.push(`${year}-${month}-${day}`);
                         current.setDate(current.getDate() + 1);
                     }
                 } else if (h.date) {
