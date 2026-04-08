@@ -276,28 +276,89 @@ class ProductUnit extends Model
             return;
         }
 
-        $newStatus = self::STATUS_AVAILABLE;
-
-        // Check if currently rented
-        $activeRental = $this->rentalItems()
+        // Check if currently rented (direct or as component)
+        $isRented = $this->rentalItems()
             ->whereHas('rental', function ($query) {
                 $query->whereIn('status', [
                     Rental::STATUS_ACTIVE,
-                    Rental::STATUS_LATE_RETURN
+                    Rental::STATUS_LATE_RETURN,
+                    Rental::STATUS_PARTIAL_RETURN,
                 ]);
+            })
+            ->whereDoesntHave('deliveryItems', function ($q) {
+                $q->whereHas('delivery', function ($d) {
+                    $d->where('type', 'in')
+                      ->where('status', 'completed');
+                });
             })
             ->exists();
 
-        if ($activeRental) {
+        // Check if component of a rented bundle
+        if (!$isRented) {
+            $unitKitIds = UnitKit::where('linked_unit_id', $this->id)->pluck('id');
+
+            if ($unitKitIds->isNotEmpty()) {
+                $isRented = RentalItemKit::whereIn('unit_kit_id', $unitKitIds)
+                    ->whereHas('rentalItem', function ($ri) {
+                        $ri->whereHas('rental', function ($r) {
+                            $r->whereIn('status', [
+                                Rental::STATUS_ACTIVE,
+                                Rental::STATUS_LATE_RETURN,
+                                Rental::STATUS_PARTIAL_RETURN,
+                            ]);
+                        });
+                    })
+                    ->where('is_returned', false)
+                    ->exists();
+            }
+        }
+
+        if ($isRented) {
             $newStatus = self::STATUS_RENTED;
         } else {
-            // Check if in maintenance
-            $maintenance = $this->maintenanceRecords()
+            // If status is MAINTENANCE, keep it unless rented (handled above)
+            if ($this->status === self::STATUS_MAINTENANCE) {
+                return;
+            }
+
+            // Also check maintenance records in case status wasn't set yet
+            $inMaintenance = $this->maintenanceRecords()
                 ->whereIn('status', ['pending', 'in_progress'])
                 ->exists();
-            
-            if ($maintenance) {
+
+            if ($inMaintenance) {
                 $newStatus = self::STATUS_MAINTENANCE;
+            } else {
+                // Check for scheduled rentals (direct)
+                $isScheduled = $this->rentalItems()
+                    ->whereHas('rental', function ($query) {
+                        $query->whereIn('status', [
+                            Rental::STATUS_QUOTATION,
+                            Rental::STATUS_CONFIRMED,
+                            Rental::STATUS_LATE_PICKUP,
+                        ]);
+                    })->exists();
+
+                // Check if component is scheduled via bundle
+                if (!$isScheduled) {
+                    $unitKitIds = $unitKitIds ?? UnitKit::where('linked_unit_id', $this->id)->pluck('id');
+
+                    if ($unitKitIds->isNotEmpty()) {
+                        $isScheduled = RentalItemKit::whereIn('unit_kit_id', $unitKitIds)
+                            ->whereHas('rentalItem', function ($ri) {
+                                $ri->whereHas('rental', function ($r) {
+                                    $r->whereIn('status', [
+                                        Rental::STATUS_QUOTATION,
+                                        Rental::STATUS_CONFIRMED,
+                                        Rental::STATUS_LATE_PICKUP,
+                                    ]);
+                                });
+                            })
+                            ->exists();
+                    }
+                }
+
+                $newStatus = $isScheduled ? self::STATUS_SCHEDULED : self::STATUS_AVAILABLE;
             }
         }
 
