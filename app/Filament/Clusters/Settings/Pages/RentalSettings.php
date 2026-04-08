@@ -6,6 +6,7 @@ use App\Filament\Clusters\Settings\SettingsCluster;
 use App\Models\Setting;
 use BackedEnum;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Textarea;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Forms\Components\Select;
@@ -122,9 +123,12 @@ class RentalSettings extends Page implements HasForms
                                     ->prefix(fn ($get) => $get('late_fee_type') === 'fixed' ? 'Rp' : null)
                                     ->required(),
                             ])->columnSpanFull(),
+                    ]),
 
-                        Section::make('Administration Checklist')
-                            ->description('Pengaturan untuk checklist administrasi customer (stepper 4 langkah).')
+                Section::make('Administration Checklist')
+                    ->description('Pengaturan untuk checklist administrasi customer (stepper 4 langkah sebelum pengambilan barang).')
+                    ->schema([
+                        Grid::make(2)
                             ->schema([
                                 TextInput::make('warehouse_whatsapp_number')
                                     ->label('Nomor WhatsApp Warehouse')
@@ -134,8 +138,13 @@ class RentalSettings extends Page implements HasForms
                                     ->label('Link Template Surat Perizinan')
                                     ->placeholder('https://docs.google.com/document/d/...')
                                     ->url()
-                                    ->helperText('Link Google Docs template surat perizinan. Admin bisa mengubah link ini sewaktu-waktu.'),
-                            ])->columnSpanFull(),
+                                    ->helperText('Link Google Docs template surat perizinan.'),
+                            ]),
+                        Textarea::make('warehouse_wa_template')
+                            ->label('Template Pesan WhatsApp Konfirmasi Booking')
+                            ->rows(4)
+                            ->default("Halo admin warehouse, saya [customer_name] ingin konfirmasi booking [rental_code].\n\nMohon konfirmasi booking:\n[admin_url]")
+                            ->helperText('Placeholder yang tersedia: [customer_name], [rental_code], [admin_url]'),
                     ]),
             ]);
     }

@@ -399,7 +399,12 @@ class CheckoutController extends Controller
         $rental->load(['items.productUnit.product']);
 
         $warehousePhone = \App\Models\Setting::get('warehouse_whatsapp_number', \App\Models\Setting::get('whatsapp_number'));
-        $waMessage = "Halo admin warehouse, saya {$customer->name} ingin konfirmasi booking {$rental->rental_code}.\n\nMohon konfirmasi booking:\n" . route('filament.admin.resources.rentals.view', $rental);
+        $defaultTemplate = "Halo admin warehouse, saya [customer_name] ingin konfirmasi booking [rental_code].\n\nMohon konfirmasi booking:\n[admin_url]";
+        $waMessage = str_replace(
+            ['[customer_name]', '[rental_code]', '[admin_url]'],
+            [$customer->name, $rental->rental_code, route('filament.admin.resources.rentals.view', $rental)],
+            \App\Models\Setting::get('warehouse_wa_template', $defaultTemplate)
+        );
         $waLink = \App\Helpers\WhatsAppHelper::getLink($warehousePhone, $waMessage);
 
         return view('frontend.checkout.success', compact('rental', 'waLink'));
