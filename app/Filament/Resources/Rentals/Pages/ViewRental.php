@@ -85,6 +85,35 @@ class ViewRental extends Page
                     })
                     ->openUrlInNewTab(),
                 
+                Action::make('send_order_confirmed')
+                    ->label('Order Confirmed')
+                    ->icon('heroicon-o-check-badge')
+                    ->color('success')
+                    ->disabled(fn () => empty($this->rental->user->phone))
+                    ->tooltip(fn () => empty($this->rental->user->phone) ? 'Customer phone number is missing' : null)
+                    ->url(function () {
+                        $rental = $this->rental;
+                        $customer = $rental->user;
+
+                        if (empty($customer->phone)) {
+                            return '#';
+                        }
+
+                        $rentalDetailUrl = route('customer.rental.detail', $rental->id);
+
+                        $defaultTemplate = "Halo [customer_name], pesanan Anda [rental_code] telah dikonfirmasi.\n\nSilakan cek detail rental Anda di:\n[my_rental]";
+                        $template = \App\Models\Setting::get('order_confirmed_wa_template', $defaultTemplate);
+
+                        $message = str_replace(
+                            ['[customer_name]', '[rental_code]', '[my_rental]'],
+                            [$customer->name, $rental->rental_code, $rentalDetailUrl],
+                            $template
+                        );
+
+                        return \App\Helpers\WhatsAppHelper::getLink($customer->phone, $message);
+                    })
+                    ->openUrlInNewTab(),
+
                 Action::make('send_email')
                     ->label('via Email')
                     ->icon('heroicon-o-envelope')
@@ -467,7 +496,11 @@ class ViewRental extends Page
                 ->modalDescription('Are you sure you want to revert this rental status to Quotation?')
                 ->modalSubmitActionLabel('Yes, Revert')
                 ->action(function () {
-                    $this->rental->update(['status' => Rental::STATUS_QUOTATION]);
+                    $this->rental->update([
+                        'status' => Rental::STATUS_QUOTATION,
+                        'checklist_downloaded_at' => null,
+                        'permit_template_clicked_at' => null,
+                    ]);
                     Notification::make()
                         ->title('Rental status reverted to Quotation')
                         ->success()

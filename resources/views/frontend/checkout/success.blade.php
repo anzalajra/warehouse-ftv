@@ -10,9 +10,18 @@
         <p class="text-gray-600">Thank you for your booking. We will contact you shortly to confirm.</p>
     </div>
 
+    @include('frontend.partials.administration-checklist', [
+        'steps' => $rental->getChecklistSteps(),
+        'waLink' => $waLink,
+        'checklistPdfUrl' => $checklistPdfUrl,
+        'permitLink' => $permitLink,
+        'rental' => $rental,
+        'context' => 'detail',
+    ])
+
     <div class="bg-white rounded-lg shadow p-6 mb-6">
         <h2 class="text-lg font-semibold mb-4">Booking Details</h2>
-        
+
         <div class="grid grid-cols-2 gap-4 mb-6">
             <div>
                 <label class="block text-sm text-gray-500">Booking Code</label>
@@ -63,20 +72,6 @@
             <span>Rp {{ number_format($rental->deposit, 0, ',', '.') }}</span>
         </div>
     </div>
-
-    @include('frontend.partials.administration-checklist', [
-        'steps' => [
-            ['key' => 'wa_confirm', 'label' => 'Konfirmasi WA', 'status' => 'active'],
-            ['key' => 'download_checklist', 'label' => 'Download Checklist', 'status' => 'locked'],
-            ['key' => 'permit_letter', 'label' => 'Surat Perizinan', 'status' => 'locked'],
-            ['key' => 'physical_pickup', 'label' => 'Pengambilan', 'status' => 'locked'],
-        ],
-        'waLink' => $waLink,
-        'checklistPdfUrl' => null,
-        'permitLink' => '#',
-        'rental' => $rental,
-        'context' => 'success',
-    ])
 
     <div class="flex flex-col sm:flex-row justify-center gap-3">
         <a href="{{ $waLink }}" target="_blank" rel="noopener"

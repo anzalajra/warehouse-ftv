@@ -407,6 +407,9 @@ class CheckoutController extends Controller
         );
         $waLink = \App\Helpers\WhatsAppHelper::getLink($warehousePhone, $waMessage);
 
-        return view('frontend.checkout.success', compact('rental', 'waLink'));
+        $permitLink = \App\Models\Setting::get('permit_document_link', '#');
+        $checklistPdfUrl = \Illuminate\Support\Facades\URL::signedRoute('public-documents.rental.checklist', ['rental' => $rental]);
+
+        return view('frontend.checkout.success', compact('rental', 'waLink', 'permitLink', 'checklistPdfUrl'));
     }
 }

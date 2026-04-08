@@ -144,7 +144,12 @@ class RentalSettings extends Page implements HasForms
                             ->label('Template Pesan WhatsApp Konfirmasi Booking')
                             ->rows(4)
                             ->default("Halo admin warehouse, saya [customer_name] ingin konfirmasi booking [rental_code].\n\nMohon konfirmasi booking:\n[admin_url]")
-                            ->helperText('Placeholder yang tersedia: [customer_name], [rental_code], [admin_url]'),
+                            ->helperText('Template pesan yang dikirim CUSTOMER ke admin. Placeholder: [customer_name], [rental_code], [admin_url]'),
+                        Textarea::make('order_confirmed_wa_template')
+                            ->label('Template Pesan WhatsApp Order Confirmed')
+                            ->rows(4)
+                            ->default("Halo [customer_name], pesanan Anda [rental_code] telah dikonfirmasi.\n\nSilakan cek detail rental Anda di:\n[my_rental]")
+                            ->helperText('Template pesan yang dikirim ADMIN ke customer saat order dikonfirmasi. Placeholder: [customer_name], [rental_code], [my_rental]'),
                     ]),
             ]);
     }

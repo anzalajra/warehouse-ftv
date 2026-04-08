@@ -14,50 +14,52 @@
     <h3 class="text-lg font-semibold mb-1">Administrasi</h3>
     <p class="text-sm text-gray-500 mb-6">Selesaikan langkah-langkah berikut sebelum pengambilan barang.</p>
 
-    {{-- Desktop: Horizontal Stepper --}}
+    {{-- Desktop: Horizontal Stepper with Progress Bar --}}
     <div class="hidden md:block">
-        <div class="flex items-start">
+        {{-- Progress bar background + circles --}}
+        <div class="relative flex items-center justify-between mb-2">
+            {{-- Background track --}}
+            <div class="absolute left-0 right-0 top-1/2 -translate-y-1/2 mx-[calc(12.5%-20px)]">
+                <div class="h-1 bg-gray-200 rounded-full"></div>
+            </div>
+            {{-- Filled progress segments --}}
             @foreach($steps as $index => $step)
-                <div class="flex-1 flex flex-col items-center">
-                    {{-- Circle + Line --}}
-                    <div class="flex items-center w-full">
-                        @if($index > 0)
-                            <div class="flex-1 h-0.5 transition-colors duration-300"
-                                :class="steps[{{ $index - 1 }}].status === 'completed' ? 'bg-green-500' : 'bg-gray-200'">
-                            </div>
-                        @else
-                            <div class="flex-1"></div>
-                        @endif
-
-                        {{-- Circle --}}
-                        <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-300 text-sm font-bold"
-                            :class="{
-                                'bg-green-500 text-white': steps[{{ $index }}].status === 'completed',
-                                'bg-primary-600 text-white ring-4 ring-primary-100': steps[{{ $index }}].status === 'active',
-                                'bg-gray-200 text-gray-400': steps[{{ $index }}].status === 'locked'
-                            }">
-                            <template x-if="steps[{{ $index }}].status === 'completed'">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-                            </template>
-                            <template x-if="steps[{{ $index }}].status === 'active'">
-                                <span>{{ $index + 1 }}</span>
-                            </template>
-                            <template x-if="steps[{{ $index }}].status === 'locked'">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                            </template>
-                        </div>
-
-                        @if($index < count($steps) - 1)
-                            <div class="flex-1 h-0.5 transition-colors duration-300"
-                                :class="steps[{{ $index }}].status === 'completed' ? 'bg-green-500' : 'bg-gray-200'">
-                            </div>
-                        @else
-                            <div class="flex-1"></div>
-                        @endif
+                @if($index < count($steps) - 1)
+                    <div class="absolute top-1/2 -translate-y-1/2 h-1 rounded-full transition-all duration-500"
+                        style="left: calc({{ ($index * 100 / (count($steps) - 1)) }}% + {{ $index === 0 ? '0px' : '0px' }}); width: calc({{ 100 / (count($steps) - 1) }}%);"
+                        :class="steps[{{ $index }}].status === 'completed' ? 'bg-green-500' : 'bg-gray-200'">
                     </div>
+                @endif
+            @endforeach
 
-                    {{-- Label --}}
-                    <p class="mt-2 text-xs font-medium text-center transition-colors duration-300"
+            {{-- Circles --}}
+            @foreach($steps as $index => $step)
+                <div class="relative z-10 flex flex-col items-center" style="width: {{ 100 / count($steps) }}%;">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-300 text-sm font-bold border-4"
+                        :class="{
+                            'bg-green-500 text-white border-green-500': steps[{{ $index }}].status === 'completed',
+                            'bg-primary-600 text-white border-primary-600 ring-4 ring-primary-100': steps[{{ $index }}].status === 'active',
+                            'bg-white text-gray-400 border-gray-200': steps[{{ $index }}].status === 'locked'
+                        }">
+                        <template x-if="steps[{{ $index }}].status === 'completed'">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                        </template>
+                        <template x-if="steps[{{ $index }}].status === 'active'">
+                            <span>{{ $index + 1 }}</span>
+                        </template>
+                        <template x-if="steps[{{ $index }}].status === 'locked'">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        </template>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+
+        {{-- Labels --}}
+        <div class="flex items-start justify-between">
+            @foreach($steps as $index => $step)
+                <div class="flex flex-col items-center" style="width: {{ 100 / count($steps) }}%;">
+                    <p class="text-xs font-medium text-center transition-colors duration-300"
                         :class="{
                             'text-green-600': steps[{{ $index }}].status === 'completed',
                             'text-primary-600': steps[{{ $index }}].status === 'active',
@@ -68,19 +70,28 @@
                 </div>
             @endforeach
         </div>
+
+        {{-- Desktop: Step Actions --}}
+        <div class="flex items-start justify-between mt-4">
+            @foreach($steps as $index => $step)
+                <div class="flex flex-col items-center px-2" style="width: {{ 100 / count($steps) }}%;">
+                    @include('frontend.partials._checklist-step-action', ['index' => $index, 'step' => $step])
+                </div>
+            @endforeach
+        </div>
     </div>
 
-    {{-- Mobile: Vertical Stepper --}}
+    {{-- Mobile: Vertical Stepper with Progress Bar --}}
     <div class="md:hidden space-y-0">
         @foreach($steps as $index => $step)
             <div class="flex">
                 {{-- Circle + Vertical Line --}}
                 <div class="flex flex-col items-center mr-4">
-                    <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold transition-all duration-300"
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold transition-all duration-300 border-[3px]"
                         :class="{
-                            'bg-green-500 text-white': steps[{{ $index }}].status === 'completed',
-                            'bg-primary-600 text-white ring-4 ring-primary-100': steps[{{ $index }}].status === 'active',
-                            'bg-gray-200 text-gray-400': steps[{{ $index }}].status === 'locked'
+                            'bg-green-500 text-white border-green-500': steps[{{ $index }}].status === 'completed',
+                            'bg-primary-600 text-white border-primary-600 ring-4 ring-primary-100': steps[{{ $index }}].status === 'active',
+                            'bg-white text-gray-400 border-gray-200': steps[{{ $index }}].status === 'locked'
                         }">
                         <template x-if="steps[{{ $index }}].status === 'completed'">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
@@ -93,7 +104,7 @@
                         </template>
                     </div>
                     @if($index < count($steps) - 1)
-                        <div class="w-0.5 flex-1 my-1 transition-colors duration-300"
+                        <div class="w-1 flex-1 my-1 rounded-full transition-colors duration-300"
                             :class="steps[{{ $index }}].status === 'completed' ? 'bg-green-500' : 'bg-gray-200'">
                         </div>
                     @endif
@@ -115,17 +126,6 @@
                 </div>
             </div>
         @endforeach
-    </div>
-
-    {{-- Desktop: Step Actions below stepper --}}
-    <div class="hidden md:block mt-6">
-        <div class="flex items-start">
-            @foreach($steps as $index => $step)
-                <div class="flex-1 flex flex-col items-center px-2">
-                    @include('frontend.partials._checklist-step-action', ['index' => $index, 'step' => $step])
-                </div>
-            @endforeach
-        </div>
     </div>
 </div>
 
