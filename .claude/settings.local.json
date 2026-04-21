@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(php artisan:*)"
+      "Bash(php artisan:*)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(mkdir -p /tmp/design_extract)",
+      "Bash(cp \"C:\\\\Users\\\\danga\\\\.claude\\\\projects\\\\d--6--Kints-Projects-warehouse-ftv\\\\859b3a12-c532-4c7b-b5f6-9e313b8d942f\\\\tool-results\\\\webfetch-1776762164054-d7wd9d.bin\" /tmp/design_extract/design.gz)",
+      "Read(//tmp/**)"
     ]
   }
 }
