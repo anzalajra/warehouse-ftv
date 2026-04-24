@@ -98,7 +98,7 @@
     }
 
     .gr-bb-item.active {
-        color: rgb(var(--primary-600));
+        color: var(--primary-600);
     }
 
     .gr-bb-more-btn {
@@ -125,7 +125,7 @@
     }
 
     .gr-bb-more-btn.active {
-        color: rgb(var(--primary-600));
+        color: var(--primary-600);
     }
 
     .gr-bb-fab {
@@ -137,9 +137,9 @@
         height: 56px;
         margin-top: -20px;
         border-radius: 50%;
-        background: rgb(var(--primary-600));
+        background: var(--primary-600);
         color: #fff;
-        box-shadow: 0 4px 14px rgb(var(--primary-600) / 0.4);
+        box-shadow: 0 4px 14px color-mix(in srgb, var(--primary-600) 40%, transparent);
         text-decoration: none;
     }
 
