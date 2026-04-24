@@ -114,6 +114,9 @@ if (!$isInstalled) {
         Route::delete('/customer/documents/{document}', [App\Http\Controllers\CustomerDocumentController::class, 'delete'])->name('customer.documents.delete');
     });
 
+    // Redirect admin root to Home page
+    Route::redirect('/admin', '/admin/home');
+
     // Admin Document View
     Route::middleware(['auth'])->group(function () {
         Route::get('/admin/documents/{document}/{filename?}', [App\Http\Controllers\CustomerDocumentController::class, 'viewForAdmin'])->name('admin.documents.view');
