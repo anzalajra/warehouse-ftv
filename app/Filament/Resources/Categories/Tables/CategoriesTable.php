@@ -16,6 +16,9 @@ class CategoriesTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->reorderable('sort_order')
+            ->defaultSort('sort_order')
+            ->modifyQueryUsing(fn ($query) => $query->where('slug', '!=', 'accessories-kits'))
             ->columns([
                 ImageColumn::make('image')
                     ->circular(),
@@ -34,6 +37,11 @@ class CategoriesTable
                     ->visibleFrom('lg'),
 
                 IconColumn::make('is_active')
+                    ->boolean()
+                    ->toggleable(),
+
+                IconColumn::make('is_visible_on_storefront')
+                    ->label('Storefront')
                     ->boolean()
                     ->toggleable(),
 

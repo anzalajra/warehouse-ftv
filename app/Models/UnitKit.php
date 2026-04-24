@@ -10,6 +10,7 @@ class UnitKit extends Model
     protected $fillable = [
         'unit_id',
         'linked_unit_id',
+        'track_by_serial',
         'name',
         'serial_number',
         'condition',
@@ -19,7 +20,8 @@ class UnitKit extends Model
     ];
 
     protected $casts = [
-        'last_checked_at' => 'datetime',
+        'last_checked_at'  => 'datetime',
+        'track_by_serial'  => 'boolean',
     ];
 
     public function productUnit(): BelongsTo
@@ -27,7 +29,6 @@ class UnitKit extends Model
         return $this->belongsTo(ProductUnit::class, 'unit_id');
     }
 
-    // Alias untuk kompatibilitas
     public function unit(): BelongsTo
     {
         return $this->belongsTo(ProductUnit::class, 'unit_id');
@@ -42,11 +43,11 @@ class UnitKit extends Model
     {
         return [
             'excellent' => 'Excellent',
-            'good' => 'Good',
-            'fair' => 'Fair',
-            'poor' => 'Poor',
-            'broken' => 'Broken',
-            'lost' => 'Lost',
+            'good'      => 'Good',
+            'fair'      => 'Fair',
+            'poor'      => 'Poor',
+            'broken'    => 'Broken',
+            'lost'      => 'Lost',
         ];
     }
 }

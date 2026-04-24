@@ -8,6 +8,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -16,6 +17,14 @@ class ProductUnitsTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(function (Builder $query) {
+                // Default: hide ProductUnits that belong to the accessories-kits system category
+                if (! request()->boolean('tableFilters.show_kits.value')) {
+                    $query->whereHas('product.category', function (Builder $q) {
+                        $q->where('slug', '!=', 'accessories-kits');
+                    });
+                }
+            })
             ->columns([
                 TextColumn::make('product.name')
                     ->label('Product')
@@ -40,24 +49,22 @@ class ProductUnitsTable
                     ->badge()
                     ->color(fn (string $state): string => match ($state) {
                         'excellent' => 'success',
-                        'good' => 'info',
-                        'fair' => 'warning',
-                        'poor' => 'danger',
-                        'broken' => 'danger',
-                        'lost' => 'danger',
-                        default => 'gray',
+                        'good'      => 'info',
+                        'fair'      => 'warning',
+                        'poor', 'broken', 'lost' => 'danger',
+                        default     => 'gray',
                     })
                     ->toggleable(),
 
                 TextColumn::make('status')
                     ->badge()
                     ->color(fn (string $state): string => match ($state) {
-                        'available' => 'success',
-                        'scheduled' => 'primary',
-                        'rented' => 'warning',
+                        'available'   => 'success',
+                        'scheduled'   => 'primary',
+                        'rented'      => 'warning',
                         'maintenance' => 'info',
-                        'retired' => 'gray',
-                        default => 'gray',
+                        'retired'     => 'gray',
+                        default       => 'gray',
                     })
                     ->toggleable(),
 
@@ -99,26 +106,34 @@ class ProductUnitsTable
             ->filters([
                 SelectFilter::make('status')
                     ->options([
-                        'available' => 'Available',
-                        'scheduled' => 'Scheduled',
-                        'rented' => 'Rented',
+                        'available'   => 'Available',
+                        'scheduled'   => 'Scheduled',
+                        'rented'      => 'Rented',
                         'maintenance' => 'Maintenance',
-                        'retired' => 'Retired',
+                        'retired'     => 'Retired',
                     ]),
+
                 SelectFilter::make('condition')
                     ->options([
                         'excellent' => 'Excellent',
-                        'good' => 'Good',
-                        'fair' => 'Fair',
-                        'poor' => 'Poor',
-                        'broken' => 'Broken',
-                        'lost' => 'Lost',
+                        'good'      => 'Good',
+                        'fair'      => 'Fair',
+                        'poor'      => 'Poor',
+                        'broken'    => 'Broken',
+                        'lost'      => 'Lost',
                     ]),
+
                 SelectFilter::make('category')
                     ->relationship('product.category', 'name')
                     ->label('Category')
                     ->searchable()
                     ->preload(),
+
+                TernaryFilter::make('show_kits')
+                    ->label('Accessories & Kits')
+                    ->placeholder('Hide kits (default)')
+                    ->trueLabel('Show kits only')
+                    ->falseLabel('Hide kits'),
             ])
             ->recordActions([
                 EditAction::make(),

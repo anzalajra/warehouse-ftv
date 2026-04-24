@@ -40,6 +40,11 @@ class CategoryForm
 
                 Toggle::make('is_active')
                     ->default(true),
+
+                Toggle::make('is_visible_on_storefront')
+                    ->label('Visible on Storefront')
+                    ->default(true)
+                    ->helperText('Hide this category from the public catalog sidebar.'),
             ]);
     }
 }

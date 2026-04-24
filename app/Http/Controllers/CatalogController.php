@@ -19,7 +19,8 @@ class CatalogController extends Controller
     {
         $query = Product::with(['category', 'units'])
             ->where('is_active', true)
-            ->visibleForCustomer(Auth::guard('customer')->user());
+            ->visibleForCustomer(Auth::guard('customer')->user())
+            ->whereHas('category', fn ($q) => $q->where('slug', '!=', 'accessories-kits'));
 
         // Filter by date range availability
         if ($request->filled('start_date') && $request->filled('end_date')) {
@@ -84,7 +85,7 @@ class CatalogController extends Controller
         }
 
         $products = $query->paginate(12)->withQueryString();
-        $categories = Category::all();
+        $categories = Category::visibleOnStorefront()->get();
 
         $operationalDays = array_map('strval', json_decode(Setting::get('operational_days'), true) ?? ['1', '2', '3', '4', '5', '6', '0']);
         $holidays = json_decode(Setting::get('holidays'), true) ?? [];
