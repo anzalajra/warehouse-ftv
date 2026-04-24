@@ -1,13 +1,13 @@
 @php
     $path = '/' . trim(request()->path(), '/');
-    $isHome = $path === '/admin' || $path === '/admin/';
+    $isHome = $path === '/admin' || $path === '/admin/' || $path === '/admin/home';
     $isSchedule = str_starts_with($path, '/admin/schedule');
     $isBookings = str_starts_with($path, '/admin/rentals');
     $isCustomers = str_starts_with($path, '/admin/customers');
 @endphp
 
 <nav class="gr-bottombar" aria-label="Mobile navigation">
-    <a href="{{ url('/admin') }}" class="gr-bb-item {{ $isHome ? 'active' : '' }}">
+    <a href="{{ url('/admin/home') }}" class="gr-bb-item {{ $isHome ? 'active' : '' }}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>
         <span>Home</span>
     </a>
@@ -98,7 +98,7 @@
     }
 
     .gr-bb-item.active {
-        color: var(--primary-600, #0284c7);
+        color: rgb(var(--primary-600));
     }
 
     .gr-bb-more-btn {
@@ -125,7 +125,7 @@
     }
 
     .gr-bb-more-btn.active {
-        color: var(--primary-600, #0284c7);
+        color: rgb(var(--primary-600));
     }
 
     .gr-bb-fab {
@@ -137,9 +137,9 @@
         height: 56px;
         margin-top: -20px;
         border-radius: 50%;
-        background: var(--primary-600, #0284c7);
+        background: rgb(var(--primary-600));
         color: #fff;
-        box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+        box-shadow: 0 4px 14px rgb(var(--primary-600) / 0.4);
         text-decoration: none;
     }
 

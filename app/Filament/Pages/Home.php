@@ -4,19 +4,19 @@ namespace App\Filament\Pages;
 
 use App\Models\Rental;
 use BackedEnum;
-use Filament\Pages\Page;
+use Filament\Pages\Dashboard;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 
-class Home extends Page
+class Home extends Dashboard
 {
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-home';
     protected static ?string $navigationLabel = 'Home';
     protected static ?string $title = 'Home';
     protected static ?int $navigationSort = -1;
 
-    protected static string $routePath = '/';
+    protected static string $routePath = '/home';
 
     protected string $view = 'filament.pages.home';
 

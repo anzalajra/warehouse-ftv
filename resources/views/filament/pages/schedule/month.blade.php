@@ -61,7 +61,7 @@
                     $inMonth = $date->month === $monthStart->month;
                     $isToday = $date->isSameDay($today);
                 @endphp
-                <div class="gr-day-cell {{ $inMonth ? '' : 'other' }}">
+                <div class="gr-day-cell {{ $inMonth ? '' : 'other' }} {{ $isToday ? 'today' : '' }}">
                     <div class="gr-date">
                         <div class="gr-date-num {{ $isToday ? 'today' : ($inMonth ? '' : 'other') }}">
                             {{ $date->day }}
@@ -92,17 +92,20 @@
                 </div>
             @endforeach
 
-            {{-- Overflow +N add per column --}}
+            {{-- Overflow "+N more" — click to view all rentals for that day --}}
             @foreach($overflowPerCol as $col => $n)
                 @if($n > 0)
-                    @php $topMore = $dateH + $maxLanes * ($barH + $barGap); @endphp
-                    <a href="{{ url('/admin/rentals/create') }}"
+                    @php
+                        $topMore = $dateH + $maxLanes * ($barH + $barGap);
+                        $dateIso = $week[$col]->toDateString();
+                    @endphp
+                    <button type="button"
                         class="gr-more-btn"
                         style="top:{{ $topMore }}px; left:calc({{ ($col / 7) * 100 }}% + 4px);"
+                        wire:click="mountAction('viewDayRentals', { date: '{{ $dateIso }}' })"
                     >
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                        {{ $n }} add
-                    </a>
+                        +{{ $n }} more
+                    </button>
                 @endif
             @endforeach
         </div>

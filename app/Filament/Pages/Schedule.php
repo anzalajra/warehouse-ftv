@@ -316,6 +316,45 @@ class Schedule extends Page implements HasActions
         ];
     }
 
+    /**
+     * Get all rentals for a given date (for the month "+N more" popover).
+     */
+    public function getRentalsForDate(string $date): array
+    {
+        $d = Carbon::parse($date)->startOfDay();
+        $rentals = Rental::query()
+            ->with(['customer:id,name'])
+            ->where('start_date', '<=', $d->copy()->endOfDay())
+            ->where('end_date', '>=', $d)
+            ->orderBy('start_date')
+            ->get();
+
+        return $rentals->map(fn ($r) => [
+            'id' => $r->id,
+            'code' => $r->rental_code,
+            'customer' => $r->customer?->name ?? '—',
+            'status' => $r->status,
+            'start' => $r->start_date?->format('j M H:i'),
+            'end' => $r->end_date?->format('j M H:i'),
+        ])->toArray();
+    }
+
+    public function viewDayRentalsAction(): Action
+    {
+        return Action::make('viewDayRentals')
+            ->modalHeading(fn (array $arguments) => 'Bookings — ' . Carbon::parse($arguments['date'])->format('l, j F Y'))
+            ->modalWidth('md')
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close')
+            ->modalContent(function (array $arguments) {
+                $rentals = $this->getRentalsForDate($arguments['date']);
+                return view('filament.pages.schedule.day-rentals-modal', [
+                    'rentals' => $rentals,
+                    'date' => $arguments['date'],
+                ]);
+            });
+    }
+
     public function viewRentalDetailsAction(): Action
     {
         return Action::make('viewRentalDetails')
