@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Rentals\Pages;
 
+use App\Filament\Actions\ReminderPickupReturnAction;
 use App\Filament\Resources\Rentals\RentalResource;
 use App\Filament\Resources\Rentals\Widgets\RentalStatsOverview;
 use App\Models\Rental;
@@ -72,6 +73,7 @@ class ListRentals extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            ReminderPickupReturnAction::make(),
             CreateAction::make(),
         ];
     }

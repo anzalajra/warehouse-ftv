@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Actions\ReminderPickupReturnAction;
 use App\Models\Rental;
 use BackedEnum;
 use Filament\Pages\Dashboard;
@@ -19,6 +20,13 @@ class Home extends Dashboard
     protected static string $routePath = '/home';
 
     protected string $view = 'filament.pages.home';
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            ReminderPickupReturnAction::make(),
+        ];
+    }
 
     public function getStats(): array
     {
