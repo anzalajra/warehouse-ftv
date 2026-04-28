@@ -49,7 +49,8 @@ if (!$isInstalled) {
 
     // Schedule
     Route::get('/schedule', [ScheduleController::class, 'index'])->name('frontend.schedule');
-    Route::get('/schedule/events', [ScheduleController::class, 'events'])->name('frontend.schedule.events');
+    Route::get('/schedule/day-rentals', [ScheduleController::class, 'dayRentals'])->name('frontend.schedule.day-rentals');
+    Route::get('/schedule/rentals/{rental}', [ScheduleController::class, 'rentalDetails'])->name('frontend.schedule.rental-details');
 
     // Catalog
     Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog.index');
