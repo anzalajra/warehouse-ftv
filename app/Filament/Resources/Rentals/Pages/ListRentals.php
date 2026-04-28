@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Rentals\Pages;
 
 use App\Filament\Resources\Rentals\RentalResource;
+use App\Filament\Resources\Rentals\Widgets\RentalStatsOverview;
 use App\Models\Rental;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
@@ -33,6 +34,7 @@ class ListRentals extends ListRecords
     {
         return [
             Rental::STATUS_QUOTATION => 'Quotation',
+            Rental::STATUS_CONFIRMED => 'Confirmed',
             Rental::STATUS_LATE_PICKUP => 'Late Pickup',
             Rental::STATUS_ACTIVE => 'Active',
             Rental::STATUS_LATE_RETURN => 'Late Return',
@@ -71,6 +73,13 @@ class ListRentals extends ListRecords
     {
         return [
             CreateAction::make(),
+        ];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            RentalStatsOverview::class,
         ];
     }
 }

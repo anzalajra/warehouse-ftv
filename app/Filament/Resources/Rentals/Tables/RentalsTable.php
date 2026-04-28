@@ -643,7 +643,7 @@ class RentalsTable
                         Rental::STATUS_COMPLETED,
                     ])),
             ])
-            ->defaultSort('created_at', 'desc')
+            ->defaultSort('start_date', 'asc')
             ->recordUrl(fn (Rental $record) => RentalResource::getUrl('view', ['record' => $record]))
             ->poll('30s');
     }
