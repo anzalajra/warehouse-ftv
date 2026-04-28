@@ -4,7 +4,6 @@ namespace App\Filament\Actions;
 
 use App\Models\Rental;
 use Filament\Actions\Action;
-use Filament\Forms\Components\Actions\Action as FormAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Carbon;
@@ -28,7 +27,7 @@ class ReminderPickupReturnAction
                     ->rows(14)
                     ->extraAttributes(['id' => 'reminder-pickup-return-text'])
                     ->hintAction(
-                        FormAction::make('copy')
+                        Action::make('copy')
                             ->label('Copy text')
                             ->icon('heroicon-o-clipboard')
                             ->action(function () {
