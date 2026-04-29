@@ -425,17 +425,13 @@ class Rental extends Model
 
             \Illuminate\Support\Facades\Log::info("Item {$item->id} (Unit {$item->product_unit_id}) conflicts with units: " . implode(',', $conflictUnitIds));
 
-            // Check if any of the conflicting units are already rented in an overlapping period
+            // Check if any of the conflicting units are already rented in an overlapping period.
+            // Use strict (exclusive) date overlap: A overlaps B iff A.start < B.end AND A.end > B.start.
+            // Inclusive comparison would falsely flag back-to-back rentals (one ends the same day another starts).
             $conflictingRentals = self::where('id', '!=', $this->id)
                 ->whereIn('status', [self::STATUS_QUOTATION, self::STATUS_CONFIRMED, self::STATUS_ACTIVE, self::STATUS_LATE_PICKUP, self::STATUS_LATE_RETURN])
-                ->where(function ($query) {
-                    $query->whereBetween('start_date', [$this->start_date, $this->end_date])
-                        ->orWhereBetween('end_date', [$this->start_date, $this->end_date])
-                        ->orWhere(function ($q) {
-                            $q->where('start_date', '<=', $this->start_date)
-                              ->where('end_date', '>=', $this->end_date);
-                        });
-                })
+                ->where('start_date', '<', $this->end_date)
+                ->where('end_date', '>', $this->start_date)
                 ->whereHas('items', function ($query) use ($conflictUnitIds) {
                     $query->where(function ($q) use ($conflictUnitIds) {
                         // 1. Direct match (Item IS one of the conflict units)
@@ -446,16 +442,29 @@ class Rental extends Model
                                 $k->whereIn('linked_unit_id', $conflictUnitIds);
                             });
                         });
-                        // 3. Item IS CONTAINED BY one of the conflict units (Item is a Child of a conflict unit)
-                        // This is covered by "Direct match" if $conflictUnitIds was expanded correctly to include parents.
-                        // (e.g. My item = Parent. $conflictUnitIds includes Child.
-                        // Their item = Child. Child IS in $conflictUnitIds. -> Direct match.)
                     });
                 })
-                ->with('customer')
+                ->with(['customer', 'items.productUnit.product'])
                 ->get();
 
             if ($conflictingRentals->isNotEmpty()) {
+                // Identify exactly which item(s) on each conflicting rental matched, so the UI can show specific serials.
+                $conflictingRentals->each(function ($otherRental) use ($conflictUnitIds) {
+                    $matchingItems = $otherRental->items->filter(function ($otherItem) use ($conflictUnitIds) {
+                        if (in_array($otherItem->product_unit_id, $conflictUnitIds)) {
+                            return true;
+                        }
+                        if ($otherItem->productUnit) {
+                            $linkedIds = $otherItem->productUnit->kits()->whereNotNull('linked_unit_id')->pluck('linked_unit_id')->toArray();
+                            if (array_intersect($linkedIds, $conflictUnitIds)) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    })->values();
+                    $otherRental->setRelation('matchingItems', $matchingItems);
+                });
+
                 \Illuminate\Support\Facades\Log::warning("Conflict detected for Rental {$this->id} with rentals: " . $conflictingRentals->pluck('rental_code')->implode(', '));
                 $conflicts[] = [
                     'product_unit' => $item->productUnit,

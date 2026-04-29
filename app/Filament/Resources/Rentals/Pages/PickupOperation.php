@@ -624,11 +624,19 @@ class PickupOperation extends Page implements HasTable
                     $serial = $unit->serial_number ?? '-';
 
                     $conflictingRentals = $conflict['conflicting_rentals'];
-                     $rentalInfo = $conflictingRentals->map(function ($r) {
+                    $rentalInfo = $conflictingRentals->map(function ($r) {
                         $customerName = $r->customer->name ?? 'Unknown';
-                        return "{$r->rental_code} ($customerName)";
-                    })->implode(', ');
-                    
+                        $matching = $r->relationLoaded('matchingItems') ? $r->getRelation('matchingItems') : collect();
+                        $matchingDesc = $matching->map(function ($mi) {
+                            $u = $mi->productUnit;
+                            $productName = $u->product->name ?? 'Unknown Product';
+                            $matchSerial = $u->serial_number ?? '-';
+                            return "{$productName} / {$matchSerial}";
+                        })->implode(', ');
+                        $suffix = $matchingDesc !== '' ? " — matched: {$matchingDesc}" : '';
+                        return "{$r->rental_code} ($customerName){$suffix}";
+                    })->implode('; ');
+
                     $conflictMessages[] = "<li><strong>$unitName ($serial)</strong> vs $rentalInfo</li>";
                 }
 
