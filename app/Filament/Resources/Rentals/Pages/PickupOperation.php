@@ -616,12 +616,11 @@ class PickupOperation extends Page implements HasTable
                 // If conflicts exist
                 $conflictMessages = [];
                 foreach ($conflicts as $conflict) {
-                     $item = $conflict['item'];
-                     $unit = $item->productUnit;
-                     $unitName = $unit->product->name ?? 'Unknown Product';
-                     $serial = $unit->serial_number ?? '-';
-                     
-                     $conflictingRentals = $conflict['conflicting_rentals'];
+                    $unit = $conflict['product_unit'];
+                    $unitName = $unit->product->name ?? 'Unknown Product';
+                    $serial = $unit->serial_number ?? '-';
+
+                    $conflictingRentals = $conflict['conflicting_rentals'];
                      $rentalInfo = $conflictingRentals->map(function ($r) {
                         $customerName = $r->customer->name ?? 'Unknown';
                         return "{$r->rental_code} ($customerName)";
