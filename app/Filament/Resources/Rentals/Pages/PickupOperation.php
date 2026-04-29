@@ -262,6 +262,9 @@ class PickupOperation extends Page implements HasTable
                         'rentalItemKit.unitKit',
                         'rentalItem.rental', // Needed for swap action form
                     ])
+                    ->orderBy('rental_item_id')
+                    ->orderByRaw('rental_item_kit_id IS NULL DESC')
+                    ->orderBy('rental_item_kit_id')
             )
             ->columns([
                 TextColumn::make('item_name')
