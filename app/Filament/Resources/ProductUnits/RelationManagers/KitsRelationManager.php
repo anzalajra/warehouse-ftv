@@ -45,6 +45,17 @@ class KitsRelationManager extends RelationManager
                     ->placeholder('Optional serial number')
                     ->required(fn (Get $get): bool => (bool) $get('track_by_serial'))
                     ->live(onBlur: true)
+                    ->rules([
+                        function () {
+                            $parentUnitId = $this->ownerRecord?->id;
+                            return function (string $attribute, $value, \Closure $fail) use ($parentUnitId) {
+                                $error = app(\App\Services\KitUnitLinker::class)->validateKitSerial($value, $parentUnitId);
+                                if ($error) {
+                                    $fail($error);
+                                }
+                            };
+                        },
+                    ])
                     ->afterStateUpdated(function ($state, callable $set) {
                         if (filled($state)) {
                             $existingUnit = \App\Models\ProductUnit::where('serial_number', $state)->first();

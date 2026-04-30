@@ -121,6 +121,25 @@ class UnitsRelationManager extends RelationManager
                                     ->maxLength(255)
                                     ->required(fn (Get $get): bool => (bool) $get('track_by_serial'))
                                     ->live(onBlur: true)
+                                    ->rules([
+                                        function (Get $get) {
+                                            $parentSerial = $get('../../serial_number');
+                                            $productId = $this->getOwnerRecord()->id;
+                                            return function (string $attribute, $value, \Closure $fail) use ($parentSerial, $productId) {
+                                                if (empty($value)) {
+                                                    return;
+                                                }
+                                                if ($parentSerial && $value === $parentSerial) {
+                                                    $fail('Kit serial cannot match its parent unit serial.');
+                                                    return;
+                                                }
+                                                $candidate = \App\Models\ProductUnit::where('serial_number', $value)->first();
+                                                if ($candidate && $candidate->product_id === $productId) {
+                                                    $fail('Kit serial belongs to another unit of the same product — that is not a valid kit component.');
+                                                }
+                                            };
+                                        },
+                                    ])
                                     ->afterStateUpdated(function ($state, callable $set) {
                                         if (filled($state)) {
                                             $existingUnit = \App\Models\ProductUnit::where('serial_number', $state)->first();
