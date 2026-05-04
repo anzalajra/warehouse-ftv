@@ -12,7 +12,9 @@ class UnitKitObserver
     {
         // Hard invariant: a kit slot cannot self-reference or point to a unit of the same product as its parent.
         // The form validators catch this in the UI; this guard catches console / seeder / import paths.
-        if ($kit->unit_id && $kit->serial_number) {
+        $serialOrParentChanged = $kit->isDirty('serial_number') || $kit->isDirty('unit_id');
+
+        if ($serialOrParentChanged && $kit->unit_id && $kit->serial_number) {
             $parent = ProductUnit::find($kit->unit_id);
             if ($parent) {
                 if ($parent->serial_number === $kit->serial_number) {
