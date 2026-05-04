@@ -49,6 +49,13 @@ class KitUnitLinker
         $unit = $unitQuery->first();
 
         if (!$unit) {
+            // If a unit with this serial already exists (even if same-product),
+            // do not attempt to create a duplicate that violates unique constraints.
+            $existingBySerial = ProductUnit::where('serial_number', $serial)->first();
+            if ($existingBySerial) {
+                return null;
+            }
+
             $category = Category::firstOrCreate(
                 ['slug' => 'accessories-kits'],
                 ['name' => 'Accessories & Kits', 'is_active' => true]
