@@ -4,6 +4,8 @@ use App\Http\Controllers\Auth\CustomerAuthController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\CheckoutController;
+use App\Http\Controllers\ComputerBookingController;
+use App\Http\Controllers\ComputerController;
 use App\Http\Controllers\CustomerDashboardController;
 use App\Http\Controllers\Frontend\ScheduleController;
 use App\Http\Controllers\HomeController;
@@ -57,6 +59,11 @@ if (!$isInstalled) {
     Route::get('/catalog/{product}', [CatalogController::class, 'show'])->name('catalog.show');
     Route::post('/catalog/check-availability/{unit}', [CatalogController::class, 'checkAvailability'])->name('catalog.check-availability');
 
+    // Computer Booking (public list + detail + availability endpoint)
+    Route::get('/computers', [ComputerController::class, 'index'])->name('computers.index');
+    Route::get('/computers/{computer}', [ComputerController::class, 'show'])->name('computers.show');
+    Route::post('/computers/{computer}/availability', [ComputerController::class, 'availability'])->name('computers.availability');
+
     // Customer Auth
     Route::middleware('customer.guest')->group(function () {
         Route::get('/login', [CustomerAuthController::class, 'showLoginForm'])->name('customer.login');
@@ -88,6 +95,13 @@ if (!$isInstalled) {
         // Notifications
         Route::get('/notifications/{id}/read', [App\Http\Controllers\NotificationController::class, 'markAsRead'])->name('notifications.read');
         Route::post('/notifications/read-all', [App\Http\Controllers\NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
+
+        // Computer Bookings (customer)
+        Route::get('/computer-bookings', [ComputerBookingController::class, 'index'])->name('computer-bookings.index');
+        Route::get('/computer-bookings/create/{computer}', [ComputerBookingController::class, 'create'])->name('computer-bookings.create');
+        Route::post('/computer-bookings', [ComputerBookingController::class, 'store'])->name('computer-bookings.store');
+        Route::get('/computer-bookings/{booking}', [ComputerBookingController::class, 'show'])->name('computer-bookings.show');
+        Route::post('/computer-bookings/{booking}/cancel', [ComputerBookingController::class, 'cancel'])->name('computer-bookings.cancel');
     });
 
     // Cart

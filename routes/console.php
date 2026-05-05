@@ -25,3 +25,9 @@ Schedule::command('finance:run-depreciation')
     ->withoutOverlapping()
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/depreciation.log'));
+
+Schedule::command('computer-bookings:process')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/computer-bookings.log'));

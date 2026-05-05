@@ -2,12 +2,16 @@
 
 namespace App\Providers;
 
+use App\Models\Computer;
+use App\Models\ComputerBooking;
 use App\Models\ProductUnit;
 use App\Models\Rental;
 use App\Models\Setting;
 use App\Models\FinanceTransaction;
 use App\Models\JournalEntryItem;
 use App\Models\UnitKit;
+use App\Observers\ComputerBookingObserver;
+use App\Observers\ComputerObserver;
 use App\Observers\FinanceTransactionObserver;
 use App\Observers\JournalEntryItemObserver;
 use App\Observers\ProductUnitObserver;
@@ -36,6 +40,8 @@ class AppServiceProvider extends ServiceProvider
         JournalEntryItem::observe(JournalEntryItemObserver::class);
         ProductUnit::observe(ProductUnitObserver::class);
         UnitKit::observe(UnitKitObserver::class);
+        Computer::observe(ComputerObserver::class);
+        ComputerBooking::observe(ComputerBookingObserver::class);
     
         Gate::policy(Cart::class, CartPolicy::class);
 

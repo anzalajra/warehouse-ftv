@@ -46,6 +46,7 @@ php artisan make:version --message="msg1|msg2|msg3"
 php artisan rentals:check-late          # every 5 min
 php artisan app:send-rental-reminders   # daily 09:00
 php artisan finance:run-depreciation    # last day of month 23:00
+php artisan computer-bookings:process   # every 5 min (no-show/active/completed transitions)
 ```
 
 Default DB is **SQLite** (`.env.example`). Session/queue/cache all use `database` driver by default.
@@ -81,6 +82,22 @@ Introduced in v1.5.0 and lives in `app/Filament/Clusters/Finance/**`. Can be tog
 - Double-entry model: `JournalEntry` + `JournalEntryItem`, backed by `FinanceAccount` / `AccountMapping` / `CategoryMapping`.
 - Observers in `app/Observers/` (`FinanceTransactionObserver`, `JournalEntryItemObserver`) enforce ledger integrity — wired in `AppServiceProvider::boot()`. Don't bypass them with raw DB writes.
 - Monthly depreciation runs via the `finance:run-depreciation` command.
+
+### Computer Booking module
+
+Lab/computer booking system for FTV UPI workstations. **Fully separate** from the Rental domain (different tables, no Finance integration — bookings are free / internal). Lives in:
+
+- `app/Filament/Clusters/Computers/**` — admin UI (cluster `ComputersCluster`). Resources: `ComputerResource`, `ComputerBookingResource`, `ComputerSlotResource`, `MaintenanceLogResource`. Custom page `ComputerBookingCalendar` (FullCalendar widget) for visual scheduling.
+- `app/Models/{Computer, ComputerBooking, ComputerBookingSlot, ComputerMaintenanceLog}.php`.
+- `app/Services/ComputerValidationService.php` — collision detection (vs other bookings + maintenance windows), FUP quota (`computer_quota_hours_per_week`, `computer_quota_slots_per_day`), available-slot computation. Mirror of `RentalValidationService`. Any code creating/editing computer bookings should go through this service.
+- `app/Observers/{ComputerObserver, ComputerBookingObserver}.php` — wired in `AppServiceProvider::boot()`. ComputerObserver auto-creates/closes `ComputerMaintenanceLog` rows on status flip; ComputerBookingObserver auto-generates `booking_code` (`CB-YYYYMMDD-####`).
+- `app/Http/Controllers/{ComputerController, ComputerBookingController}.php` — storefront. Public: `/computers`, `/computers/{computer}`, `POST /computers/{computer}/availability`. Customer-protected (`customer.auth`): `/customer/computer-bookings*`.
+- `app/Console/Commands/ProcessComputerBookingsCommand.php` — scheduled `everyFiveMinutes`. Transitions confirmed→no_show (no check-in past grace), confirmed→active (checked in + start passed), active→completed (end passed).
+- Settings page at `app/Filament/Clusters/Settings/Pages/ComputerBookingSettings.php` writes `computer_quota_hours_per_week`, `computer_quota_slots_per_day`, `computer_no_show_grace_minutes`, `computer_tnc_text` keys to the `Setting` model.
+
+Lifecycle: `confirmed` → (`active` after admin check-in) → `completed` / `cancelled` / `no_show`. Auto-confirm on submit (no admin approval gate).
+
+Shares with Rental domain: `users` table (customer auth via `customer.auth` middleware), Filament admin panel, `Setting` model, frontend layouts/theme. Does **not** share rental tables or the Finance module.
 
 ### Settings-driven runtime config
 
