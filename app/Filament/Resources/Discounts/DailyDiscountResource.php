@@ -3,14 +3,14 @@
 namespace App\Filament\Resources\Discounts;
 
 use App\Models\DailyDiscount;
-use Filament\Tables\Actions\DeleteAction;
-use Filament\Tables\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Form;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
 use Filament\Resources\Resource as FilamentResource;
 use Illuminate\Support\HtmlString;
 use Filament\Tables\Columns\IconColumn;
@@ -30,9 +30,9 @@ class DailyDiscountResource extends FilamentResource
 
     protected static ?string $pluralModelLabel = 'Daily Discounts';
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form->schema([
+        return $schema->components([
             Section::make('Daily Discount Information')
                 ->description(new HtmlString('
                     <div class="text-sm prose dark:prose-invert">
