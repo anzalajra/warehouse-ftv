@@ -458,6 +458,8 @@ Kalau lab Mac banyak: taruh script di iCloud Drive yang di-symlink dari `~/Docum
 | Mac muncul Offline | Buka DevTools (Cmd+Option+I) sebelum kiosk terkunci → Network tab → cari `heartbeat-web` ada response 200. Kalau 404 = slug salah di shortcut, edit ulang. Kalau 429 = throttle (max 6/menit, jangan polling lebih cepat dari 10dtk) |
 | Pairing code "invalid_or_expired_code" | Code TTL 5 menit. Klik **Re-pair** di Filament untuk generate baru |
 | Halaman kiosk blank putih di Electron | Server down — app auto-retry tiap 5 detik. Cek `php artisan pail` di server |
+| Tombol "Check-in Page" di Filament return 404 | Slug komputer null (komputer dibuat sebelum migrasi slug). Self-heal otomatis saat buka Edit page (v1.0.x+), atau jalankan di server: `php artisan computers:backfill-kiosk-slug` |
+| Tombol "Pair Kiosk App" tidak muncul di Edit page | Filament view cache stale. Jalankan: `php artisan filament:optimize-clear && php artisan view:clear && php artisan cache:clear` di server |
 | Mac: Cmd+Q masih bisa keluar | Limit macOS tanpa MDM. Mitigasi: bikin akun Lab Kiosk Standard User terpisah (Step 7 Bagian 3b) |
 | Windows SmartScreen blok installer | "More info" → "Run anyway". Permanent fix: beli code-signing cert ($200-400/tahun) |
 | Auto-update Electron tidak jalan | Test `https://warehouse.ftvupi.id/api/kiosk/update/latest.yml` di browser harus tampil YAML. Kalau 404, file belum di-upload ke `storage/app/kiosk-releases/` |

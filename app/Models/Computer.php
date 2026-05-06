@@ -82,7 +82,26 @@ class Computer extends Model
 
     public function checkinUrl(): string
     {
+        $this->ensureCheckinSlug();
+
         return url('/kiosk/checkin/'.$this->checkin_slug);
+    }
+
+    /**
+     * Backfill checkin_slug for legacy records. Idempotent.
+     */
+    public function ensureCheckinSlug(): void
+    {
+        if (! empty($this->checkin_slug)) {
+            return;
+        }
+
+        do {
+            $slug = Str::random(24);
+        } while (static::withTrashed()->where('checkin_slug', $slug)->where('id', '!=', $this->id)->exists());
+
+        $this->checkin_slug = $slug;
+        $this->saveQuietly();
     }
 
     public function pairingCodes(): HasMany
