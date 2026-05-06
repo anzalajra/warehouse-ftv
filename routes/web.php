@@ -69,6 +69,14 @@ if (!$isInstalled) {
     Route::get('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'show'])->name('kiosk.checkin');
     Route::post('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'checkin'])->name('kiosk.checkin.submit');
 
+    // Kiosk QR auth (kiosk page <-> mobile)
+    Route::post('/kiosk/{slug}/qr-token', [App\Http\Controllers\KioskQrAuthController::class, 'issueToken'])->middleware('throttle:60,1')->name('kiosk.qr.issue');
+    Route::get('/kiosk/{slug}/qr-poll/{token}', [App\Http\Controllers\KioskQrAuthController::class, 'pollToken'])->middleware('throttle:120,1')->name('kiosk.qr.poll');
+
+    // Mobile claim (HP user setelah scan QR)
+    Route::get('/m/kiosk-login/{token}', [App\Http\Controllers\KioskQrAuthController::class, 'showMobileClaim'])->name('mobile.kiosk-login');
+    Route::post('/m/kiosk-login/{token}', [App\Http\Controllers\KioskQrAuthController::class, 'claimMobile'])->middleware('customer.auth')->name('mobile.kiosk-login.claim');
+
     // Kiosk Desktop App API (Electron)
     Route::prefix('api/kiosk')->name('api.kiosk.')->group(function () {
         Route::post('/pair', [App\Http\Controllers\KioskApiController::class, 'pair'])->middleware('throttle:5,1')->name('pair');

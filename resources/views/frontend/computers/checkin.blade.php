@@ -1,4 +1,4 @@
-@extends('layouts.frontend')
+@extends('layouts.kiosk')
 
 @section('title', 'Check-in '.$computer->name)
 
@@ -10,13 +10,12 @@
 (function () {
     const url = @json(route('api.kiosk.heartbeat.web', $computer->checkin_slug));
     const startTime = Date.now();
-    let interval = 30_000; // default; server akan koreksi via response
+    let interval = 30_000;
 
     function send() {
         const payload = JSON.stringify({
             uptime_seconds: Math.round((Date.now() - startTime) / 1000),
         });
-        // Pakai fetch agar bisa baca response (sendBeacon tidak return body).
         fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -32,13 +31,13 @@
     }
 
     let timer = setInterval(send, interval);
-    send(); // immediate first beat
+    send();
 })();
 </script>
 @endpush
 
 @section('content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6" x-data="kioskCheckin()" x-init="init()">
     <div class="bg-white rounded-lg shadow overflow-hidden">
         {{-- Header: computer info --}}
         <div class="bg-gradient-to-r from-primary-600 to-primary-700 text-white p-6">
@@ -71,19 +70,22 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 border-b">
             {{-- QR --}}
             <div class="flex flex-col items-center text-center">
-                <p class="text-sm text-gray-500 mb-2">Scan dari HP untuk membuka halaman ini</p>
-                <img src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data={{ urlencode($checkinUrl) }}" alt="QR Check-in" class="rounded-lg border border-gray-200">
-                <p class="mt-3 text-xs text-gray-400 break-all">{{ $checkinUrl }}</p>
+                <p class="text-sm text-gray-700 mb-2 font-medium">Scan QR untuk login &amp; check-in dari HP</p>
+                <div class="relative">
+                    <img :src="qrImageUrl" alt="QR Login" class="rounded-lg border border-gray-200 w-60 h-60" :class="{ 'opacity-30': claimedUserName }">
+                    <template x-if="claimedUserName">
+                        <div class="absolute inset-0 flex flex-col items-center justify-center bg-green-50/90 rounded-lg">
+                            <svg class="w-14 h-14 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            <p class="mt-2 font-semibold text-green-700" x-text="claimedUserName"></p>
+                            <p class="text-xs text-green-600">Berhasil check-in</p>
+                        </div>
+                    </template>
+                </div>
+                <p class="mt-3 text-xs text-gray-500" x-text="qrSubtitle"></p>
             </div>
 
             {{-- Check-in panel --}}
             <div class="flex flex-col justify-center">
-                @php
-                    $now = \Carbon\Carbon::now();
-                    $authUserId = auth('customer')->id();
-                    $userBookingNow = $activeBooking && $activeBooking->user_id === $authUserId ? $activeBooking : null;
-                @endphp
-
                 @if($activeBooking)
                     <p class="text-sm text-gray-500">Booking saat ini:</p>
                     <p class="text-2xl font-bold text-gray-900 mt-1">{{ $activeBooking->user->name }}</p>
@@ -94,15 +96,7 @@
                     </p>
 
                     @if(! $activeBooking->checked_in_at)
-                        <form method="POST" action="{{ route('kiosk.checkin.submit', $computer->checkin_slug) }}" class="mt-4">
-                            @csrf
-                            <button type="submit" class="w-full px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white text-lg font-semibold rounded-lg shadow">
-                                Check-in
-                            </button>
-                        </form>
-                        @guest('customer')
-                            <p class="mt-2 text-xs text-gray-500">* Anda akan diminta login akun warehouse jika belum.</p>
-                        @endguest
+                        <p class="mt-4 text-sm text-gray-600">Scan QR di samping dengan HP untuk check-in tanpa login di komputer ini.</p>
                     @else
                         <p class="mt-4 text-sm text-green-700">Check-in pada {{ $activeBooking->checked_in_at->format('H:i') }}</p>
                     @endif
@@ -111,13 +105,7 @@
                     <p class="text-lg font-semibold text-gray-700 mt-1">Tidak ada booking di sesi ini</p>
                     @if($currentSession)
                         <p class="text-sm text-gray-600 mt-2">Sesi sekarang: {{ $currentSession['start'] }} - {{ $currentSession['end'] }} @if($currentSession['is_night']) <span class="text-amber-600 font-medium">(Jam Malam)</span> @endif</p>
-                        <p class="text-sm text-gray-600 mt-1">Silakan check-in dan isi data — akun warehouse Anda akan otomatis mengisi slotnya.</p>
-                        <form method="POST" action="{{ route('kiosk.checkin.submit', $computer->checkin_slug) }}" class="mt-4">
-                            @csrf
-                            <button type="submit" class="w-full px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white text-lg font-semibold rounded-lg shadow">
-                                Check-in &amp; Isi Data
-                            </button>
-                        </form>
+                        <p class="text-sm text-gray-600 mt-1">Scan QR untuk walk-in check-in — slot otomatis dibuat untuk akun Anda.</p>
                     @else
                         <p class="text-sm text-gray-600 mt-2">Bukan jam operasional. Walk-in check-in tidak tersedia.</p>
                     @endif
@@ -166,4 +154,76 @@
         </div>
     </div>
 </div>
+
+@push('scripts')
+<script>
+function kioskCheckin() {
+    return {
+        slug: @json($computer->checkin_slug),
+        token: null,
+        qrUrl: null,
+        qrImageUrl: '',
+        qrSubtitle: 'Memuat QR…',
+        expiresAt: 0,
+        claimedUserName: null,
+        pollTimer: null,
+        rotateTimer: null,
+
+        init() {
+            this.requestNewToken();
+            this.rotateTimer = setInterval(() => {
+                if (! this.claimedUserName && Date.now() > this.expiresAt - 5000) {
+                    this.requestNewToken();
+                }
+            }, 5000);
+        },
+
+        async requestNewToken() {
+            try {
+                const csrf = document.querySelector('meta[name="csrf-token"]').content;
+                const res = await fetch(`/kiosk/${this.slug}/qr-token`, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
+                });
+                if (! res.ok) throw new Error('issue failed');
+                const data = await res.json();
+                this.token = data.token;
+                this.qrUrl = data.qr_url;
+                this.qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(this.qrUrl)}`;
+                this.expiresAt = Date.now() + (data.expires_in * 1000);
+                this.qrSubtitle = `Berlaku ${data.expires_in} detik`;
+                this.startPolling();
+            } catch (err) {
+                this.qrSubtitle = 'Gagal memuat QR. Mencoba lagi…';
+                setTimeout(() => this.requestNewToken(), 5000);
+            }
+        },
+
+        startPolling() {
+            if (this.pollTimer) clearInterval(this.pollTimer);
+            this.pollTimer = setInterval(() => this.poll(), 2000);
+        },
+
+        async poll() {
+            if (! this.token || this.claimedUserName) return;
+            try {
+                const res = await fetch(`/kiosk/${this.slug}/qr-poll/${this.token}`);
+                if (! res.ok) return;
+                const data = await res.json();
+                if (data.status === 'claimed') {
+                    this.claimedUserName = data.user_name || 'Berhasil';
+                    clearInterval(this.pollTimer);
+                    clearInterval(this.rotateTimer);
+                    setTimeout(() => window.location.reload(), 2000);
+                } else if (data.status === 'expired' || data.status === 'invalid') {
+                    this.requestNewToken();
+                }
+            } catch (err) {
+                // swallow
+            }
+        },
+    };
+}
+</script>
+@endpush
 @endsection

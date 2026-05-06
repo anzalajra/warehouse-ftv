@@ -2,8 +2,16 @@
 
 @section('title', $computer->name)
 
+@push('styles')
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        .slot-btn-disabled { background:#f3f4f6; color:#9ca3af; cursor:not-allowed; }
+        .slot-btn-selected { background:rgb(var(--primary-50, 238 242 255)); border-color:rgb(var(--primary-600, 37 99 235)); color:rgb(var(--primary-700, 29 78 216)); }
+    </style>
+@endpush
+
 @section('content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="computerBookingWizard()" x-init="init()">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="computerBookingWizard()" x-init="init()">
     <div class="mb-4">
         <a href="{{ $computer->room ? route('computers.rooms.show', $computer->room) : route('computers.index') }}" class="text-primary-600 hover:underline text-sm">&larr; Kembali</a>
     </div>
@@ -55,93 +63,86 @@
         </div>
     </div>
 
-    {{-- Wizard --}}
+    {{-- Booking section --}}
     @if($computer->status === \App\Models\Computer::STATUS_AVAILABLE)
     <div class="bg-white rounded-lg shadow p-6">
-        <h2 class="font-semibold text-gray-900 mb-4">Booking</h2>
+        <h2 class="font-semibold text-gray-900 mb-4 text-lg">Booking Komputer</h2>
 
-        {{-- Step indicator --}}
-        <ol class="flex items-center w-full mb-6 text-xs sm:text-sm">
-            <template x-for="(label, idx) in stepLabels" :key="idx">
-                <li class="flex items-center flex-1" :class="idx < stepLabels.length - 1 ? 'after:content-[\'\'] after:flex-1 after:border-t after:border-gray-200 after:mx-2' : ''">
-                    <span
-                        class="flex items-center justify-center w-7 h-7 rounded-full shrink-0 font-semibold"
-                        :class="step > idx + 1 ? 'bg-primary-600 text-white' : (step === idx + 1 ? 'bg-primary-100 text-primary-700 ring-2 ring-primary-600' : 'bg-gray-100 text-gray-400')"
-                        x-text="idx + 1"></span>
-                    <span class="ml-2 hidden sm:inline" :class="step >= idx + 1 ? 'text-gray-900 font-medium' : 'text-gray-400'" x-text="label"></span>
-                </li>
-            </template>
-        </ol>
+        @if($errors->any())
+            <div class="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <ul class="list-disc pl-5">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
-        {{-- Step 1: pilih tanggal --}}
-        <div x-show="step === 1">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Pilih Tanggal</label>
-            <input type="date" x-model="date" min="{{ now()->toDateString() }}" @change="onDateChange()"
-                class="w-full sm:w-auto rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500">
-            <p class="mt-2 text-xs text-gray-500">Setelah memilih tanggal, slot waktu akan dimuat otomatis.</p>
-        </div>
-
-        {{-- Step 2: pilih slot --}}
-        <div x-show="step === 2">
-            <div class="flex items-center justify-between mb-3">
-                <p class="text-sm text-gray-600">Tanggal: <span class="font-semibold" x-text="formatDate(date)"></span></p>
-                <button type="button" @click="step = 1" class="text-xs text-primary-600 hover:underline">Ubah tanggal</button>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {{-- Kiri: Calendar inline --}}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">1. Pilih Tanggal</label>
+                <div class="flatpickr-inline-wrap" wire:ignore>
+                    <input type="text" id="booking-date" class="hidden">
+                </div>
+                <p class="mt-2 text-xs text-gray-500" x-text="date ? 'Tanggal terpilih: ' + formatDate(date) : 'Pilih tanggal terlebih dahulu'"></p>
             </div>
 
-            <p class="text-sm text-gray-700 mb-3">Pilih satu atau lebih slot waktu (boleh tidak berurutan):</p>
+            {{-- Kanan: Slot picker + Confirmation --}}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">2. Pilih Slot Waktu <span class="text-gray-400 font-normal">(boleh lebih dari 1)</span></label>
 
-            <template x-if="loading">
-                <p class="text-sm text-gray-500">Memuat slot…</p>
-            </template>
-            <template x-if="! loading && slots.length === 0">
-                <p class="text-sm text-gray-500">Tidak ada slot operasional di tanggal ini.</p>
-            </template>
-
-            <div x-show="! loading && slots.length > 0" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                <template x-for="slot in slots" :key="slot.start + slot.end">
-                    <button
-                        type="button"
-                        @click="toggleSlot(slot)"
-                        :disabled="! slot.available"
-                        class="px-3 py-2 rounded-md border text-sm transition relative"
-                        :class="! slot.available ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed' : (isSelected(slot) ? 'border-primary-600 bg-primary-50 text-primary-800 ring-1 ring-primary-600' : 'border-gray-300 hover:bg-gray-50')">
-                        <span class="block font-medium" x-text="slot.start + ' - ' + slot.end"></span>
-                        <span x-show="slot.is_night" class="block text-[10px] text-amber-600 font-semibold uppercase">Jam Malam</span>
-                        <span x-show="! slot.available" class="block text-xs">Terisi</span>
-                    </button>
+                <template x-if="!date">
+                    <p class="text-sm text-gray-500 italic">Pilih tanggal dulu di kalender.</p>
                 </template>
-            </div>
+                <template x-if="date && loading">
+                    <p class="text-sm text-gray-500">Memuat slot…</p>
+                </template>
+                <template x-if="date && !loading && slots.length === 0">
+                    <p class="text-sm text-gray-500">Tidak ada slot operasional di tanggal ini.</p>
+                </template>
 
-            <div class="mt-5 flex justify-between">
-                <button type="button" @click="step = 1" class="text-sm text-gray-600 hover:underline">&larr; Kembali</button>
-                <button type="button" @click="goToConfirm()" :disabled="selected.length === 0"
-                    class="px-4 py-2 rounded-md text-white text-sm font-medium"
-                    :class="selected.length === 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary-600 hover:bg-primary-700'">
-                    Lanjut &rarr;
-                </button>
+                <div x-show="date && !loading && slots.length > 0" class="grid grid-cols-2 gap-2">
+                    <template x-for="slot in slots" :key="slot.start + slot.end">
+                        <button
+                            type="button"
+                            @click="toggleSlot(slot)"
+                            :disabled="!slot.available"
+                            class="px-3 py-2 rounded-md border text-sm transition text-left"
+                            :class="!slot.available ? 'slot-btn-disabled border-gray-200' : (isSelected(slot) ? 'slot-btn-selected border-2 ring-1 ring-primary-600' : 'border-gray-300 hover:bg-gray-50 text-gray-700')">
+                            <span class="block font-medium" x-text="slot.start + ' - ' + slot.end"></span>
+                            <span x-show="slot.is_night" class="block text-[10px] text-amber-600 font-semibold uppercase mt-0.5">Jam Malam</span>
+                            <span x-show="!slot.available" class="block text-xs">Terisi</span>
+                        </button>
+                    </template>
+                </div>
+
+                <div x-show="selected.length > 0" class="mt-4 text-sm text-gray-600">
+                    <span class="font-medium" x-text="selected.length"></span> slot terpilih
+                    (<span x-text="totalDurationLabel"></span>)
+                </div>
             </div>
         </div>
 
-        {{-- Step 3: konfirmasi --}}
-        <div x-show="step === 3">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="font-semibold text-gray-900">Konfirmasi Booking</h3>
-                <button type="button" @click="step = 2" class="text-xs text-primary-600 hover:underline">Ubah slot</button>
-            </div>
+        {{-- Step 3: Konfirmasi (muncul setelah pilih slot) --}}
+        <div x-show="selected.length > 0" class="mt-6 pt-6 border-t">
+            <h3 class="font-semibold text-gray-900 mb-3">3. Konfirmasi &amp; Submit</h3>
 
             @auth('customer')
             <form method="POST" action="{{ route('customer.computer-bookings.store') }}" class="space-y-4">
                 @csrf
                 <input type="hidden" name="computer_id" value="{{ $computer->id }}">
                 <input type="hidden" name="booking_date" :value="date">
-                <template x-for="slot in selected" :key="slot.start + slot.end">
-                    <div>
-                        <input type="hidden" name="slots[][start]" :value="slot.start">
-                        <input type="hidden" name="slots[][end]" :value="slot.end">
+
+                {{-- Hidden inputs untuk multi-slot, indexed properly --}}
+                <template x-for="(slot, idx) in selected" :key="slot.start + slot.end">
+                    <div class="contents">
+                        <input type="hidden" :name="`slots[${idx}][start]`" :value="slot.start">
+                        <input type="hidden" :name="`slots[${idx}][end]`" :value="slot.end">
                     </div>
                 </template>
 
-                <dl class="grid grid-cols-2 gap-3 text-sm bg-gray-50 rounded-md p-4">
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm bg-gray-50 rounded-md p-4">
                     <div>
                         <dt class="text-gray-500">Komputer</dt>
                         <dd class="font-medium">{{ $computer->name }}</dd>
@@ -150,7 +151,7 @@
                         <dt class="text-gray-500">Tanggal</dt>
                         <dd class="font-medium" x-text="formatDate(date)"></dd>
                     </div>
-                    <div class="col-span-2">
+                    <div class="sm:col-span-2">
                         <dt class="text-gray-500 mb-1">Slot terpilih</dt>
                         <dd class="font-medium space-y-1">
                             <template x-for="slot in selected" :key="slot.start + slot.end">
@@ -194,8 +195,7 @@
                     </label>
                 </template>
 
-                <div class="pt-2 flex justify-between">
-                    <button type="button" @click="step = 2" class="text-sm text-gray-600 hover:underline">&larr; Kembali</button>
+                <div class="pt-2">
                     <button type="submit" class="inline-flex justify-center px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-md shadow">
                         Submit Booking
                     </button>
@@ -213,37 +213,35 @@
     @endif
 </div>
 
-@if($errors->any())
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 -mt-4">
-    <div class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-        <ul class="list-disc pl-5">
-            @foreach($errors->all() as $error)
-                <li>{{ $error }}</li>
-            @endforeach
-        </ul>
-    </div>
-</div>
-@endif
-
 @push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
 function computerBookingWizard() {
     return {
-        step: 1,
-        stepLabels: ['Pilih Tanggal', 'Pilih Slot', 'Konfirmasi'],
-        date: '{{ now()->toDateString() }}',
+        date: null,
         slots: [],
         selected: [],
         loading: false,
+        flatpickrInstance: null,
+
         init() {
-            // Auto-load if step 2 directly opened
+            const today = new Date();
+            today.setHours(0,0,0,0);
+
+            this.flatpickrInstance = flatpickr('#booking-date', {
+                inline: true,
+                minDate: today,
+                dateFormat: 'Y-m-d',
+                onChange: (selectedDates, dateStr) => {
+                    this.date = dateStr;
+                    this.selected = [];
+                    this.loadSlots();
+                },
+            });
         },
-        async onDateChange() {
-            await this.loadSlots();
-            this.selected = [];
-            this.step = 2;
-        },
+
         async loadSlots() {
+            if (!this.date) return;
             this.loading = true;
             try {
                 const res = await fetch('{{ route('computers.availability', $computer) }}', {
@@ -261,8 +259,9 @@ function computerBookingWizard() {
                 this.loading = false;
             }
         },
+
         toggleSlot(slot) {
-            if (! slot.available) return;
+            if (!slot.available) return;
             const idx = this.selected.findIndex(s => s.start === slot.start && s.end === slot.end);
             if (idx >= 0) {
                 this.selected.splice(idx, 1);
@@ -271,18 +270,29 @@ function computerBookingWizard() {
                 this.selected.sort((a, b) => a.start.localeCompare(b.start));
             }
         },
+
         isSelected(slot) {
             return this.selected.some(s => s.start === slot.start && s.end === slot.end);
         },
+
         get hasNightSlot() {
             return this.selected.some(s => s.is_night);
         },
-        goToConfirm() {
-            if (this.selected.length === 0) return;
-            this.step = 3;
+
+        get totalDurationLabel() {
+            let total = 0;
+            this.selected.forEach(s => {
+                const [h1, m1] = s.start.split(':').map(Number);
+                const [h2, m2] = s.end.split(':').map(Number);
+                total += (h2 * 60 + m2) - (h1 * 60 + m1);
+            });
+            const hours = Math.floor(total / 60);
+            const mins = total % 60;
+            return mins ? `${hours}j ${mins}m` : `${hours} jam`;
         },
+
         formatDate(dateStr) {
-            if (! dateStr) return '';
+            if (!dateStr) return '';
             const d = new Date(dateStr);
             return d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         },
