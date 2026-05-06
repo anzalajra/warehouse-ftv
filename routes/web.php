@@ -69,6 +69,15 @@ if (!$isInstalled) {
     Route::get('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'show'])->name('kiosk.checkin');
     Route::post('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'checkin'])->name('kiosk.checkin.submit');
 
+    // Kiosk Desktop App API (Electron)
+    Route::prefix('api/kiosk')->name('api.kiosk.')->group(function () {
+        Route::post('/pair', [App\Http\Controllers\KioskApiController::class, 'pair'])->middleware('throttle:5,1')->name('pair');
+        Route::post('/heartbeat', [App\Http\Controllers\KioskApiController::class, 'heartbeat'])->middleware('kiosk.auth')->name('heartbeat');
+        Route::post('/heartbeat-web/{slug}', [App\Http\Controllers\KioskApiController::class, 'heartbeatWeb'])->middleware('throttle:6,1')->name('heartbeat.web');
+        Route::get('/update/latest.yml', [App\Http\Controllers\KioskApiController::class, 'updateManifest'])->name('update.manifest');
+        Route::get('/update/{file}', [App\Http\Controllers\KioskApiController::class, 'updateFile'])->where('file', '[A-Za-z0-9._-]+\.(exe|blockmap|yml)')->name('update.file');
+    });
+
     // Customer Auth
     Route::middleware('customer.guest')->group(function () {
         Route::get('/login', [CustomerAuthController::class, 'showLoginForm'])->name('customer.login');

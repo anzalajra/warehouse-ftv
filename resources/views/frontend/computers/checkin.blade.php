@@ -2,6 +2,41 @@
 
 @section('title', 'Check-in '.$computer->name)
 
+@push('scripts')
+<script>
+// Web heartbeat — Mac kiosk mode (Safari/Chrome). Electron app punya heartbeat sendiri di main process,
+// jadi page ini cuma kirim heartbeat untuk komputer non-Electron. Server-side last_heartbeat_data.source
+// akan tertulis 'web' atau 'electron' tergantung mana yang terakhir update.
+(function () {
+    const url = @json(route('api.kiosk.heartbeat.web', $computer->checkin_slug));
+    const startTime = Date.now();
+    let interval = 30_000; // default; server akan koreksi via response
+
+    function send() {
+        const payload = JSON.stringify({
+            uptime_seconds: Math.round((Date.now() - startTime) / 1000),
+        });
+        // Pakai fetch agar bisa baca response (sendBeacon tidak return body).
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: payload,
+            keepalive: true,
+        }).then(r => r.ok ? r.json() : null).then(data => {
+            if (data && data.heartbeat_interval && data.heartbeat_interval * 1000 !== interval) {
+                interval = Math.max(10_000, data.heartbeat_interval * 1000);
+                clearInterval(timer);
+                timer = setInterval(send, interval);
+            }
+        }).catch(() => { /* swallow */ });
+    }
+
+    let timer = setInterval(send, interval);
+    send(); // immediate first beat
+})();
+</script>
+@endpush
+
 @section('content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <div class="bg-white rounded-lg shadow overflow-hidden">

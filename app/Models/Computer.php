@@ -28,10 +28,19 @@ class Computer extends Model
         'status',
         'image_path',
         'notes',
+        'last_seen_at',
+        'last_heartbeat_at',
+        'last_heartbeat_data',
+        'kiosk_token',
+        'kiosk_paired_at',
     ];
 
     protected $casts = [
         'specs' => 'array',
+        'last_seen_at' => 'datetime',
+        'last_heartbeat_at' => 'datetime',
+        'last_heartbeat_data' => 'array',
+        'kiosk_paired_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -74,6 +83,46 @@ class Computer extends Model
     public function checkinUrl(): string
     {
         return url('/kiosk/checkin/'.$this->checkin_slug);
+    }
+
+    public function pairingCodes(): HasMany
+    {
+        return $this->hasMany(KioskPairingCode::class);
+    }
+
+    public function getIsOnlineAttribute(): bool
+    {
+        if (! $this->last_seen_at) {
+            return false;
+        }
+
+        $threshold = (int) (\App\Models\Setting::get('computer_kiosk_offline_threshold_seconds') ?? 60);
+
+        return $this->last_seen_at->gte(now()->subSeconds($threshold));
+    }
+
+    public function currentBookingUser(): ?User
+    {
+        $now = \Carbon\Carbon::now();
+
+        $booking = $this->bookings()
+            ->with('user:id,name')
+            ->whereIn('status', [ComputerBooking::STATUS_CONFIRMED, ComputerBooking::STATUS_ACTIVE])
+            ->whereDate('booking_date', $now->toDateString())
+            ->get()
+            ->first(function (ComputerBooking $b) use ($now) {
+                $start = \Carbon\Carbon::parse($b->booking_date->toDateString().' '.$b->start_time);
+                $end = \Carbon\Carbon::parse($b->booking_date->toDateString().' '.$b->end_time);
+
+                return $now->between($start, $end);
+            });
+
+        return $booking?->user;
+    }
+
+    public function runningApps(): array
+    {
+        return $this->last_heartbeat_data['running_apps'] ?? [];
     }
 
     public function scopeAvailable(Builder $query): Builder

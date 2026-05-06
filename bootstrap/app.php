@@ -21,10 +21,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'customer.auth' => \App\Http\Middleware\CustomerAuth::class,
             'customer.guest' => \App\Http\Middleware\CustomerGuest::class,
+            'kiosk.auth' => \App\Http\Middleware\KioskBearerAuth::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
             'logout',
+            'api/kiosk/*',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

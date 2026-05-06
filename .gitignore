@@ -25,3 +25,7 @@ Homestead.yaml
 Thumbs.db
 /deploy.zip
 /deploy_temp_*
+/desktop-kiosk/node_modules
+/desktop-kiosk/dist
+/storage/app/kiosk-releases/*
+!/storage/app/kiosk-releases/.gitkeep

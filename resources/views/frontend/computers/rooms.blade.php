@@ -31,7 +31,11 @@
                         @if($room->description)
                             <p class="mt-1 text-sm text-gray-500 line-clamp-2">{{ $room->description }}</p>
                         @endif
-                        <p class="mt-2 text-xs text-gray-500">{{ $room->computers_count }} komputer</p>
+                        @php
+                            $totalComputers = $room->computers->count();
+                            $onlineCount = $room->computers->filter(fn ($c) => $c->is_online)->count();
+                        @endphp
+                        <p class="mt-2 text-xs text-gray-500">{{ $totalComputers }} komputer @if($totalComputers > 0) — <span class="font-medium text-green-700">{{ $onlineCount }}</span> online @endif</p>
                     </div>
                 </a>
             @endforeach

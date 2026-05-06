@@ -15,8 +15,9 @@ class ComputerController extends Controller
     public function index()
     {
         $rooms = ComputerRoom::active()
-            ->withCount(['computers' => function ($q) {
-                $q->whereIn('status', [Computer::STATUS_AVAILABLE, Computer::STATUS_MAINTENANCE]);
+            ->with(['computers' => function ($q) {
+                $q->whereIn('status', [Computer::STATUS_AVAILABLE, Computer::STATUS_MAINTENANCE])
+                    ->select('id', 'room_id', 'status', 'last_seen_at');
             }])
             ->orderBy('name')
             ->get();

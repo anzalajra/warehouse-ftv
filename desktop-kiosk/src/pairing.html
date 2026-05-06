@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Pairing Kiosk</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }
+        .card { max-width: 360px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+        h1 { font-size: 1.25rem; margin: 0 0 4px; }
+        p.sub { margin: 0 0 18px; color: #6b7280; font-size: .85rem; }
+        label { display: block; margin-bottom: 6px; font-size: .85rem; font-weight: 500; }
+        input[type=text] { width: 100%; padding: 12px; font-size: 1.5rem; text-align: center; letter-spacing: 6px; border: 1px solid #d1d5db; border-radius: 8px; font-family: monospace; }
+        input[type=text]:focus { outline: 2px solid #2563eb; border-color: #2563eb; }
+        button { width: 100%; margin-top: 16px; padding: 12px; background: #2563eb; color: white; font-weight: 600; border: 0; border-radius: 8px; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #1d4ed8; }
+        button:disabled { background: #9ca3af; cursor: not-allowed; }
+        .err { margin-top: 12px; padding: 8px 12px; background: #fef2f2; color: #b91c1c; border-radius: 6px; font-size: .85rem; display: none; }
+        .ok { margin-top: 12px; padding: 8px 12px; background: #f0fdf4; color: #166534; border-radius: 6px; font-size: .85rem; display: none; }
+        .meta { margin-top: 16px; font-size: .75rem; color: #9ca3af; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Pairing Aplikasi Kiosk</h1>
+        <p class="sub">Minta kode 6 digit dari admin (Filament &rarr; Computer &rarr; Pair Kiosk App).</p>
+        <label for="code">Kode pairing</label>
+        <input type="text" id="code" maxlength="6" autocomplete="off" inputmode="numeric" placeholder="123456">
+        <button id="submit" type="button">Pair</button>
+        <div class="err" id="err"></div>
+        <div class="ok" id="ok"></div>
+        <p class="meta" id="server"></p>
+    </div>
+    <script src="./pairing.js"></script>
+</body>
+</html>

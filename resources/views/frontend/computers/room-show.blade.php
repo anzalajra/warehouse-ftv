@@ -32,14 +32,24 @@
                         @endif
                     </div>
                     <div class="p-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <h2 class="font-semibold text-gray-900">{{ $computer->name }}</h2>
-                            @if($computer->status === \App\Models\Computer::STATUS_AVAILABLE)
-                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Tersedia</span>
-                            @else
+                        <div class="flex items-center justify-between mb-2 gap-2">
+                            <h2 class="font-semibold text-gray-900 truncate">{{ $computer->name }}</h2>
+                            @if($computer->status !== \App\Models\Computer::STATUS_AVAILABLE)
                                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Maintenance</span>
+                            @elseif($computer->is_online)
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-1 animate-pulse"></span>Online
+                                </span>
+                            @else
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">Offline</span>
                             @endif
                         </div>
+                        @php
+                            $currentUser = $computer->status === \App\Models\Computer::STATUS_AVAILABLE ? $computer->currentBookingUser() : null;
+                        @endphp
+                        @if($currentUser)
+                            <p class="text-xs text-gray-600">Sedang dipakai: <span class="font-medium">{{ $currentUser->name }}</span></p>
+                        @endif
                         @if($computer->brand)
                             <p class="text-sm text-gray-500">{{ $computer->brand }}</p>
                         @endif

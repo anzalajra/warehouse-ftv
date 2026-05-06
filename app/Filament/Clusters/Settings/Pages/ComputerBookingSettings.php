@@ -37,6 +37,10 @@ class ComputerBookingSettings extends Page implements HasForms
             'computer_quota_slots_per_day' => Setting::get('computer_quota_slots_per_day') ?? 1,
             'computer_no_show_grace_minutes' => Setting::get('computer_no_show_grace_minutes') ?? 30,
             'computer_tnc_text' => Setting::get('computer_tnc_text') ?? "Dilarang makan & minum di meja komputer.\nWajib backup data mandiri.\nLaporkan kerusakan kepada admin lab.",
+            'computer_kiosk_offline_threshold_seconds' => Setting::get('computer_kiosk_offline_threshold_seconds') ?? 60,
+            'computer_kiosk_heartbeat_interval_seconds' => Setting::get('computer_kiosk_heartbeat_interval_seconds') ?? 30,
+            'computer_kiosk_running_apps_whitelist' => Setting::get('computer_kiosk_running_apps_whitelist') ?? "Adobe Premiere Pro.exe\nAfterFX.exe\nPhotoshop.exe\nIllustrator.exe\nResolve.exe\nOBS64.exe\nobs64.exe\nAudacity.exe\nAudition.exe",
+            'computer_kiosk_latest_version' => Setting::get('computer_kiosk_latest_version') ?? '',
         ]);
     }
 
@@ -77,6 +81,31 @@ class ComputerBookingSettings extends Page implements HasForms
                             ->required()
                             ->helperText('Akan ditampilkan di form booking customer.'),
                     ]),
+                Section::make('Kiosk Desktop App (Electron)')
+                    ->description('Pengaturan integrasi aplikasi kiosk desktop di komputer lab.')
+                    ->schema([
+                        TextInput::make('computer_kiosk_offline_threshold_seconds')
+                            ->label('Offline Threshold (detik)')
+                            ->numeric()
+                            ->minValue(15)
+                            ->required()
+                            ->helperText('Komputer dianggap offline kalau heartbeat terakhir lebih lama dari nilai ini.'),
+                        TextInput::make('computer_kiosk_heartbeat_interval_seconds')
+                            ->label('Heartbeat Interval (detik)')
+                            ->numeric()
+                            ->minValue(10)
+                            ->required()
+                            ->helperText('Interval kirim heartbeat dari aplikasi kiosk. Server akan mengirim nilai ini ke app saat heartbeat.'),
+                        TextInput::make('computer_kiosk_latest_version')
+                            ->label('Latest App Version')
+                            ->placeholder('1.0.1')
+                            ->helperText('Diisi setelah upload release baru ke storage/app/kiosk-releases/. Hanya untuk display.'),
+                        Textarea::make('computer_kiosk_running_apps_whitelist')
+                            ->label('Whitelist Aplikasi yang Dipantau')
+                            ->rows(8)
+                            ->required()
+                            ->helperText('Satu nama proses (.exe) per baris. App kiosk hanya akan kirim proses yang cocok dengan whitelist ini.'),
+                    ])->columns(2),
             ]);
     }
 

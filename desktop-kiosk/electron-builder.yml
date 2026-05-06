@@ -1,0 +1,31 @@
+appId: id.ftvupi.warehouse.kiosk
+productName: Warehouse FTV Kiosk
+copyright: © FTV UPI
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - "src/**/*"
+  - "assets/**/*"
+  - "package.json"
+  - "!**/{.git,.github,.vscode,coverage,test,tests}"
+
+win:
+  target: nsis
+  icon: assets/icon.ico
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: Warehouse FTV Kiosk
+  include: build/installer.nsh
+
+publish:
+  provider: generic
+  url: https://warehouse.ftvupi.id/api/kiosk/update
+  channel: latest
