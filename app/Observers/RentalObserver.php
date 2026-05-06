@@ -35,16 +35,31 @@ class RentalObserver
 
     protected function recalculateTotals(Rental $rental): void
     {
+        // Don't override subtotal and total to 0 when it's newly created
+        // and doesn't have items yet, but already has a valid subtotal
         $subtotal = $rental->items()->sum('subtotal');
         
+        if ($subtotal == 0 && $rental->subtotal > 0 && !$rental->exists) {
+            // Keep the assigned subtotal
+            $subtotal = $rental->subtotal;
+        } elseif ($subtotal == 0 && $rental->subtotal > 0 && $rental->items()->count() == 0) {
+             // In case created event fires and items count is 0
+            $subtotal = $rental->subtotal;
+        }
+
         $discountAmount = 0;
         if ($rental->discount_type === 'percent') {
             $discountAmount = $subtotal * (($rental->discount ?? 0) / 100);
         } else {
             $discountAmount = $rental->discount ?? 0;
         }
+        
+        $dailyDiscountAmount = $rental->daily_discount_amount ?? 0;
+        $datePromotionAmount = $rental->date_promotion_amount ?? 0;
+        
+        $totalDiscount = $discountAmount + $dailyDiscountAmount + $datePromotionAmount;
 
-        $taxableAmount = max(0, $subtotal - $discountAmount);
+        $taxableAmount = max(0, $subtotal - $totalDiscount);
 
         // Calculate Tax using TaxService
         $taxResult = TaxService::calculateTax(

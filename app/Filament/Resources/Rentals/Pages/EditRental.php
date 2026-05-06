@@ -61,6 +61,7 @@ class EditRental extends EditRecord
     {
         // Sync rental items from grouped data
         RentalForm::syncRentalItems($this->record, $this->groupedItemsData);
+        $this->record->touch(); // Recalculate totals via updated observer
         $this->record->refresh();
     }
 

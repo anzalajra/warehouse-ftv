@@ -105,7 +105,16 @@
                     <td style="border: none; padding: 5px;" class="text-right">Rp {{ number_format($invoice->subtotal, 0, ',', '.') }}</td>
                 </tr>
                 @php
-                    $totalDiscount = $invoice->rentals->sum('discount');
+                    $totalDiscount = $invoice->rentals->sum(function($rental) {
+                        $baseDiscount = 0;
+                        if ($rental->discount_type === 'percent') {
+                            $baseDiscount = ($rental->subtotal ?? 0) * (($rental->discount ?? 0) / 100);
+                        } else {
+                            $baseDiscount = $rental->discount ?? 0;
+                        }
+                        
+                        return $baseDiscount + ($rental->daily_discount_amount ?? 0) + ($rental->date_promotion_amount ?? 0);
+                    });
                 @endphp
                 @if($totalDiscount > 0)
                 <tr>

@@ -28,14 +28,7 @@ class CreateRental extends CreateRecord
         RentalForm::syncRentalItems($this->record, $this->groupedItemsData);
 
         // Recalculate totals from actual DB items
-        $this->record->refresh();
-        $subtotal = $this->record->items()->sum('subtotal');
-        $total = $subtotal - ($this->record->discount ?? 0);
-
-        $this->record->update([
-            'subtotal' => $subtotal,
-            'total' => $total,
-        ]);
+        $this->record->touch(); // Triggers updated observer which recalcs correctly
     }
 
     protected function getFormActions(): array

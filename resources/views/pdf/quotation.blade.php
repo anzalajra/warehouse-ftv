@@ -99,11 +99,18 @@
                     <td style="border: none; padding: 5px;">Subtotal</td>
                     <td style="border: none; padding: 5px;" class="text-right">Rp {{ number_format($quotation->subtotal, 0, ',', '.') }}</td>
                 </tr>
-                {{-- Discount is per rental in current model, but quotation might have global discount? 
-                     Currently Quotation model has subtotal/total but not explicit discount field logic yet?
-                     Let's sum up discounts from rentals if needed or just use total-subtotal difference --}}
+                {{-- Calculate total discount from rentals --}}
                 @php
-                    $totalDiscount = $quotation->rentals->sum('discount');
+                    $totalDiscount = $quotation->rentals->sum(function($rental) {
+                        $baseDiscount = 0;
+                        if ($rental->discount_type === 'percent') {
+                            $baseDiscount = ($rental->subtotal ?? 0) * (($rental->discount ?? 0) / 100);
+                        } else {
+                            $baseDiscount = $rental->discount ?? 0;
+                        }
+                        
+                        return $baseDiscount + ($rental->daily_discount_amount ?? 0) + ($rental->date_promotion_amount ?? 0);
+                    });
                 @endphp
                 @if($totalDiscount > 0)
                 <tr>

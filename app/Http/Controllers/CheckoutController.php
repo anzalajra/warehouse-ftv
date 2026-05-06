@@ -362,6 +362,9 @@ class CheckoutController extends Controller
                 $rental->load('items.rentalItemKits');
                 $rental->createDeliveries();
 
+                // Trigger updated observer after items added to recalculate total
+                $rental->touch();
+
                 // FINAL AVAILABILITY CHECK
                 // Ensure no conflicts were missed by the query builder logic
                 $conflicts = $rental->checkAvailability();
