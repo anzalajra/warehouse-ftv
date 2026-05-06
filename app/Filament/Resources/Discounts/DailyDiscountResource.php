@@ -11,14 +11,14 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Form;
-use Filament\Resources\Resource;
+use Filament\Resources\Resource as FilamentResource;
 use Illuminate\Support\HtmlString;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
-class DailyDiscountResource extends Resource
+class DailyDiscountResource extends FilamentResource
 {
     protected static ?string $model = DailyDiscount::class;
 
