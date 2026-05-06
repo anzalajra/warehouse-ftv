@@ -61,8 +61,13 @@ if (!$isInstalled) {
 
     // Computer Booking (public list + detail + availability endpoint)
     Route::get('/computers', [ComputerController::class, 'index'])->name('computers.index');
+    Route::get('/computers/rooms/{room}', [ComputerController::class, 'roomShow'])->name('computers.rooms.show');
     Route::get('/computers/{computer}', [ComputerController::class, 'show'])->name('computers.show');
     Route::post('/computers/{computer}/availability', [ComputerController::class, 'availability'])->name('computers.availability');
+
+    // Computer Check-in Kiosk (public, slug-based)
+    Route::get('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'show'])->name('kiosk.checkin');
+    Route::post('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'checkin'])->name('kiosk.checkin.submit');
 
     // Customer Auth
     Route::middleware('customer.guest')->group(function () {
@@ -98,7 +103,6 @@ if (!$isInstalled) {
 
         // Computer Bookings (customer)
         Route::get('/computer-bookings', [ComputerBookingController::class, 'index'])->name('computer-bookings.index');
-        Route::get('/computer-bookings/create/{computer}', [ComputerBookingController::class, 'create'])->name('computer-bookings.create');
         Route::post('/computer-bookings', [ComputerBookingController::class, 'store'])->name('computer-bookings.store');
         Route::get('/computer-bookings/{booking}', [ComputerBookingController::class, 'show'])->name('computer-bookings.show');
         Route::post('/computer-bookings/{booking}/cancel', [ComputerBookingController::class, 'cancel'])->name('computer-bookings.cancel');

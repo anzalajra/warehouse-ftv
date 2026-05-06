@@ -1,17 +1,22 @@
 @extends('layouts.frontend')
 
-@section('title', 'Lab Komputer')
+@section('title', $room->name)
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-4">
+        <a href="{{ route('computers.index') }}" class="text-primary-600 hover:underline text-sm">&larr; Kembali ke daftar ruangan</a>
+    </div>
     <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">Lab Komputer</h1>
-        <p class="mt-2 text-gray-600">Booking workstation editing &amp; PC lab FTV UPI.</p>
+        <h1 class="text-3xl font-bold text-gray-900">{{ $room->name }}</h1>
+        @if($room->description)
+            <p class="mt-2 text-gray-600">{{ $room->description }}</p>
+        @endif
     </div>
 
     @if($computers->isEmpty())
         <div class="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-            Belum ada komputer yang tersedia untuk booking.
+            Belum ada komputer di ruangan ini.
         </div>
     @else
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -22,7 +27,7 @@
                             <img src="{{ asset('storage/'.$computer->image_path) }}" alt="{{ $computer->name }}" class="w-full h-full object-cover">
                         @else
                             <div class="w-full h-full flex items-center justify-center text-gray-300">
-                                <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25"/></svg>
+                                <svg class="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25"/></svg>
                             </div>
                         @endif
                     </div>

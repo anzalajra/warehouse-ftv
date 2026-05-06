@@ -9,6 +9,7 @@ use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use App\Models\ComputerRoom;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
@@ -22,6 +23,10 @@ class ComputersTable
                     ->disk('public')
                     ->label('Image')
                     ->circular(),
+                TextColumn::make('room.name')
+                    ->label('Room')
+                    ->searchable()
+                    ->sortable(),
                 TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
@@ -42,6 +47,9 @@ class ComputersTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('room_id')
+                    ->label('Room')
+                    ->options(fn () => ComputerRoom::pluck('name', 'id')->toArray()),
                 SelectFilter::make('status')
                     ->options([
                         Computer::STATUS_AVAILABLE => 'Available',

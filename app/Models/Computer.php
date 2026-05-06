@@ -5,6 +5,7 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
@@ -18,8 +19,10 @@ class Computer extends Model
     public const STATUS_RETIRED = 'retired';
 
     protected $fillable = [
+        'room_id',
         'name',
         'code',
+        'checkin_slug',
         'brand',
         'specs',
         'status',
@@ -43,7 +46,19 @@ class Computer extends Model
                 }
                 $computer->code = $code;
             }
+
+            if (empty($computer->checkin_slug)) {
+                do {
+                    $slug = Str::random(24);
+                } while (static::withTrashed()->where('checkin_slug', $slug)->exists());
+                $computer->checkin_slug = $slug;
+            }
         });
+    }
+
+    public function room(): BelongsTo
+    {
+        return $this->belongsTo(ComputerRoom::class, 'room_id');
     }
 
     public function bookings(): HasMany
@@ -54,6 +69,11 @@ class Computer extends Model
     public function maintenanceLogs(): HasMany
     {
         return $this->hasMany(ComputerMaintenanceLog::class);
+    }
+
+    public function checkinUrl(): string
+    {
+        return url('/kiosk/checkin/'.$this->checkin_slug);
     }
 
     public function scopeAvailable(Builder $query): Builder

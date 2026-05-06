@@ -1,33 +1,33 @@
 <?php
 
-namespace App\Filament\Clusters\Computers\Resources\ComputerSlotResource\Tables;
+namespace App\Filament\Clusters\Computers\Resources\ComputerRoomResource\Tables;
 
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
-class ComputerSlotsTable
+class ComputerRoomsTable
 {
     public static function configure(Table $table): Table
     {
-        $days = [0 => 'Sun', 1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat'];
-
         return $table
-            ->defaultSort('day_of_week')
             ->columns([
-                TextColumn::make('day_of_week')
-                    ->label('Day')
-                    ->formatStateUsing(fn ($state) => $days[$state] ?? $state)
+                ImageColumn::make('image_path')
+                    ->disk('public')
+                    ->label('Image'),
+                TextColumn::make('name')
+                    ->searchable()
                     ->sortable(),
-                TextColumn::make('start_time'),
-                TextColumn::make('end_time'),
+                TextColumn::make('code')
+                    ->toggleable(),
+                TextColumn::make('computers_count')
+                    ->counts('computers')
+                    ->label('Computers'),
                 IconColumn::make('is_active')
-                    ->boolean(),
-                IconColumn::make('is_night')
-                    ->label('Night')
                     ->boolean(),
             ])
             ->actions([

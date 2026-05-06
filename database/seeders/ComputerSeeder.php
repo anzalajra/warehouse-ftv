@@ -3,14 +3,19 @@
 namespace Database\Seeders;
 
 use App\Models\Computer;
+use App\Models\ComputerRoom;
 use Illuminate\Database\Seeder;
 
 class ComputerSeeder extends Seeder
 {
     public function run(): void
     {
+        $editing = ComputerRoom::firstOrCreate(['name' => 'Lab Editing 1'], ['is_active' => true]);
+        $color = ComputerRoom::firstOrCreate(['name' => 'Lab Color Grading'], ['is_active' => true]);
+
         $computers = [
             [
+                'room_id' => $editing->id,
                 'name' => 'PC Editing 1',
                 'brand' => 'Asus',
                 'specs' => [
@@ -22,6 +27,7 @@ class ComputerSeeder extends Seeder
                 'notes' => 'Workstation editing video utama.',
             ],
             [
+                'room_id' => $editing->id,
                 'name' => 'PC Editing 2',
                 'brand' => 'Asus',
                 'specs' => [
@@ -32,6 +38,7 @@ class ComputerSeeder extends Seeder
                 ],
             ],
             [
+                'room_id' => $color->id,
                 'name' => 'Workstation Color Grading',
                 'brand' => 'Apple',
                 'specs' => [

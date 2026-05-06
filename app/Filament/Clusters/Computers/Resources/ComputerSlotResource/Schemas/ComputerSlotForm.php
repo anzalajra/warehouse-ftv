@@ -33,6 +33,10 @@ class ComputerSlotForm
                     ->required(),
                 Toggle::make('is_active')
                     ->default(true),
+                Toggle::make('is_night')
+                    ->label('Jam Malam')
+                    ->helperText('Jika aktif, booking di slot ini menampilkan banner perizinan menginap.')
+                    ->default(false),
             ]);
     }
 }

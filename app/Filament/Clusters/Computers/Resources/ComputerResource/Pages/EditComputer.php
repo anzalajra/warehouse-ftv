@@ -17,6 +17,12 @@ class EditComputer extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('checkinPage')
+                ->label('Check-in Page')
+                ->icon('heroicon-o-qr-code')
+                ->color('info')
+                ->url(fn () => $this->record->checkinUrl())
+                ->openUrlInNewTab(),
             Action::make('toggleMaintenance')
                 ->label(fn () => $this->record->status === Computer::STATUS_MAINTENANCE ? 'End Maintenance' : 'Set Maintenance')
                 ->icon('heroicon-o-wrench-screwdriver')

@@ -12,11 +12,13 @@ class ComputerBookingSlot extends Model
         'start_time',
         'end_time',
         'is_active',
+        'is_night',
     ];
 
     protected $casts = [
         'day_of_week' => 'integer',
         'is_active' => 'boolean',
+        'is_night' => 'boolean',
     ];
 
     public function scopeActive(Builder $query): Builder

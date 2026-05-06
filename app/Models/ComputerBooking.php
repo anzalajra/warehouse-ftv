@@ -29,6 +29,8 @@ class ComputerBooking extends Model
         'status',
         'admin_notes',
         'tnc_accepted_at',
+        'permit_acknowledged_at',
+        'is_walk_in',
         'checked_in_at',
         'cancelled_reason',
     ];
@@ -36,6 +38,8 @@ class ComputerBooking extends Model
     protected $casts = [
         'booking_date' => 'date',
         'tnc_accepted_at' => 'datetime',
+        'permit_acknowledged_at' => 'datetime',
+        'is_walk_in' => 'boolean',
         'checked_in_at' => 'datetime',
     ];
 

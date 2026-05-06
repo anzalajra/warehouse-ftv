@@ -117,6 +117,10 @@
                            class="text-gray-900 hover:text-primary-600 px-3 py-2 text-sm font-medium {{ request()->routeIs('frontend.schedule') ? 'text-primary-600' : '' }}">
                             Schedule
                         </a>
+                        <a href="{{ route('computers.index') }}"
+                           class="text-gray-900 hover:text-primary-600 px-3 py-2 text-sm font-medium {{ request()->routeIs('computers.*') ? 'text-primary-600' : '' }}">
+                            Computer Booking
+                        </a>
                     </div>
                 </div>
 
@@ -248,6 +252,7 @@
 
                                 <a href="{{ route('customer.dashboard') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">Dashboard</a>
                                 <a href="{{ route('customer.rentals') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">My Rentals</a>
+                                <a href="{{ route('customer.computer-bookings.index') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">My Computer Bookings</a>
                                 <a href="{{ route('customer.profile') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">Profile</a>
                                 
                                 <div class="border-t border-gray-100 my-1"></div>
@@ -280,6 +285,10 @@
                    class="block border-l-4 py-2 pl-3 pr-4 text-base font-medium {{ request()->routeIs('frontend.schedule') ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700' }}">
                     Schedule
                 </a>
+                <a href="{{ route('computers.index') }}"
+                   class="block border-l-4 py-2 pl-3 pr-4 text-base font-medium {{ request()->routeIs('computers.*') ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700' }}">
+                    Computer Booking
+                </a>
             </div>
             <div class="border-t border-gray-200 pt-4 pb-3">
                 @auth('customer')
@@ -297,6 +306,7 @@
                     <div class="mt-3 space-y-1">
                         <a href="{{ route('customer.dashboard') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">Dashboard</a>
                         <a href="{{ route('customer.rentals') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">My Rentals</a>
+                        <a href="{{ route('customer.computer-bookings.index') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">My Computer Bookings</a>
                         <a href="{{ route('customer.profile') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">Profile</a>
                         <form method="POST" action="{{ route('customer.logout') }}">
                             @csrf

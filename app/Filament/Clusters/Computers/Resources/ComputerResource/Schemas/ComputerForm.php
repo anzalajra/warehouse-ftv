@@ -3,6 +3,7 @@
 namespace App\Filament\Clusters\Computers\Resources\ComputerResource\Schemas;
 
 use App\Models\Computer;
+use App\Models\ComputerRoom;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\KeyValue;
 use Filament\Forms\Components\Select;
@@ -16,6 +17,15 @@ class ComputerForm
     {
         return $schema
             ->components([
+                Select::make('room_id')
+                    ->label('Room')
+                    ->options(ComputerRoom::active()->orderBy('name')->pluck('name', 'id'))
+                    ->searchable()
+                    ->required()
+                    ->createOptionForm([
+                        TextInput::make('name')->required()->maxLength(255),
+                    ])
+                    ->createOptionUsing(fn (array $data) => ComputerRoom::create($data)->id),
                 TextInput::make('name')
                     ->required()
                     ->maxLength(255),
