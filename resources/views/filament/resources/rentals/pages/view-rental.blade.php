@@ -81,8 +81,38 @@
                 </tbody>
                 <tfoot>
                     <tr class="border-t-2 border-gray-300">
-                        <td colspan="4" class="py-3 pr-4 text-right font-semibold">Total:</td>
-                        <td class="py-3 text-right font-semibold">Rp {{ number_format($rental->total, 0, ',', '.') }}</td>
+                        <td colspan="4" class="py-3 pr-4 text-right font-semibold text-gray-500">Subtotal:</td>
+                        <td class="py-3 text-right font-semibold text-gray-500">Rp {{ number_format($rental->subtotal, 0, ',', '.') }}</td>
+                    </tr>
+                    @php
+                        $baseDiscount = 0;
+                        if ($rental->discount_type === 'percent') {
+                            $baseDiscount = ($rental->subtotal ?? 0) * (($rental->discount ?? 0) / 100);
+                        } else {
+                            $baseDiscount = $rental->discount ?? 0;
+                        }
+                    @endphp
+                    @if($baseDiscount > 0)
+                    <tr>
+                        <td colspan="4" class="py-3 pr-4 text-right font-medium text-gray-500">Kupon Diskon:</td>
+                        <td class="py-3 text-right font-medium text-gray-500">- Rp {{ number_format($baseDiscount, 0, ',', '.') }}</td>
+                    </tr>
+                    @endif
+                    @if($rental->daily_discount_amount > 0)
+                    <tr>
+                        <td colspan="4" class="py-3 pr-4 text-right font-medium text-gray-500">Diskon Promo Harian:</td>
+                        <td class="py-3 text-right font-medium text-gray-500">- Rp {{ number_format($rental->daily_discount_amount, 0, ',', '.') }}</td>
+                    </tr>
+                    @endif
+                    @if($rental->date_promotion_amount > 0)
+                    <tr>
+                        <td colspan="4" class="py-3 pr-4 text-right font-medium text-gray-500">Diskon Promo Tanggal:</td>
+                        <td class="py-3 text-right font-medium text-gray-500">- Rp {{ number_format($rental->date_promotion_amount, 0, ',', '.') }}</td>
+                    </tr>
+                    @endif
+                    <tr class="border-t border-gray-200">
+                        <td colspan="4" class="py-3 pr-4 text-right font-bold text-gray-900">Total:</td>
+                        <td class="py-3 text-right font-bold text-gray-900">Rp {{ number_format($rental->total, 0, ',', '.') }}</td>
                     </tr>
                 </tfoot>
             </table>

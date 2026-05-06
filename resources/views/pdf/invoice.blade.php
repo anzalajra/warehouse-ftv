@@ -105,21 +105,37 @@
                     <td style="border: none; padding: 5px;" class="text-right">Rp {{ number_format($invoice->subtotal, 0, ',', '.') }}</td>
                 </tr>
                 @php
-                    $totalDiscount = $invoice->rentals->sum(function($rental) {
-                        $baseDiscount = 0;
+                    $baseDiscount = 0;
+                    $dailyDiscount = 0;
+                    $dateDiscount = 0;
+                    
+                    foreach ($invoice->rentals as $rental) {
                         if ($rental->discount_type === 'percent') {
-                            $baseDiscount = ($rental->subtotal ?? 0) * (($rental->discount ?? 0) / 100);
+                            $baseDiscount += ($rental->subtotal ?? 0) * (($rental->discount ?? 0) / 100);
                         } else {
-                            $baseDiscount = $rental->discount ?? 0;
+                            $baseDiscount += $rental->discount ?? 0;
                         }
-                        
-                        return $baseDiscount + ($rental->daily_discount_amount ?? 0) + ($rental->date_promotion_amount ?? 0);
-                    });
+                        $dailyDiscount += $rental->daily_discount_amount ?? 0;
+                        $dateDiscount += $rental->date_promotion_amount ?? 0;
+                    }
                 @endphp
-                @if($totalDiscount > 0)
+                
+                @if($baseDiscount > 0)
                 <tr>
-                    <td style="border: none; padding: 5px;">Discount</td>
-                    <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($totalDiscount, 0, ',', '.') }}</td>
+                    <td style="border: none; padding: 5px;">Kupon Diskon</td>
+                    <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($baseDiscount, 0, ',', '.') }}</td>
+                </tr>
+                @endif
+                @if($dailyDiscount > 0)
+                <tr>
+                    <td style="border: none; padding: 5px;">Diskon Promo Harian</td>
+                    <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($dailyDiscount, 0, ',', '.') }}</td>
+                </tr>
+                @endif
+                @if($dateDiscount > 0)
+                <tr>
+                    <td style="border: none; padding: 5px;">Diskon Promo Tanggal</td>
+                    <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($dateDiscount, 0, ',', '.') }}</td>
                 </tr>
                 @endif
 

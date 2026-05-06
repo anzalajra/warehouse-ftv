@@ -341,7 +341,7 @@ class RentalForm
 
                         Hidden::make('discount_type')->default('fixed'),
                         TextInput::make('discount')
-                            ->label('Discount')->numeric()->default(0)->live(onBlur: true)
+                            ->label('Manual Discount')->numeric()->default(0)->live(onBlur: true)
                             ->prefix(fn (callable $get) => $get('discount_type') === 'percent' ? '%' : 'Rp')
                             ->suffixAction(
                                 Action::make('toggle_discount_type')
@@ -354,6 +354,16 @@ class RentalForm
                                     })
                             )
                             ->afterStateUpdated(fn (callable $get, callable $set) => self::calculateTotals($get, $set)),
+
+                        TextInput::make('daily_discount_amount')
+                            ->label('Diskon Promo Harian')
+                            ->numeric()->prefix('Rp')->default(0)->disabled()->dehydrated(false)
+                            ->visible(fn ($record) => $record && $record->daily_discount_amount > 0),
+                            
+                        TextInput::make('date_promotion_amount')
+                            ->label('Diskon Promo Tanggal')
+                            ->numeric()->prefix('Rp')->default(0)->disabled()->dehydrated(false)
+                            ->visible(fn ($record) => $record && $record->date_promotion_amount > 0),
 
                         TextInput::make('tax_base')
                             ->label('Dasar Pengenaan Pajak (DPP)')
@@ -688,6 +698,8 @@ class RentalForm
         $priceIncludesTax = (bool) $getValue('price_includes_tax');
         $discountType = $getValue('discount_type') ?? 'fixed';
         $discountValue = (float) ($getValue('discount') ?? 0);
+        $dailyDiscountAmount = (float) ($getValue('daily_discount_amount') ?? 0);
+        $datePromotionAmount = (float) ($getValue('date_promotion_amount') ?? 0);
         $depositType = $getValue('deposit_type') ?? 'fixed';
         $depositValue = (float) ($getValue('deposit') ?? 0);
         $lateFee = (float) ($getValue('late_fee') ?? 0);
@@ -697,7 +709,9 @@ class RentalForm
         $discountAmount = $discountType === 'percent'
             ? $grossSubtotal * ($discountValue / 100)
             : $discountValue;
-        $netSubtotal = max(0, $grossSubtotal - $discountAmount);
+            
+        $totalDiscount = $discountAmount + $dailyDiscountAmount + $datePromotionAmount;
+        $netSubtotal = max(0, $grossSubtotal - $totalDiscount);
 
         $taxEnabled = filter_var(\App\Models\Setting::get('tax_enabled', true), FILTER_VALIDATE_BOOLEAN);
         $isPkp = filter_var(\App\Models\Setting::get('is_pkp', false), FILTER_VALIDATE_BOOLEAN);
