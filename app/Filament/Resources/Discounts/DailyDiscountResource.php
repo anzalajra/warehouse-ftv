@@ -10,6 +10,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
+use Illuminate\Support\HtmlString;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
@@ -33,7 +34,15 @@ class DailyDiscountResource extends Resource
     {
         return $schema->components([
             Section::make('Daily Discount Information')
-                ->description('Contoh: Sewa 3 hari bayar 2 hari')
+                ->description(new HtmlString('
+                    <div class="text-sm prose dark:prose-invert">
+                        <strong>Panduan Penggunaan (Diskon Kelipatan):</strong><br>
+                        Untuk membuat promo misalnya "Pinjam 3 Hari, Bayar 2 Hari" (1 hari gratis tiap kelipatan 3 hari):<br>
+                        - Isi <strong>Minimum Hari Sewa</strong> dengan angka <strong>3</strong> (Syarat jumlah hari sewa hingga diskonnya berlaku)<br>
+                        - Isi <strong>Hari Gratis</strong> dengan angka <strong>1</strong> (Berapa hari yang tidak dipungut biaya)<br>
+                        Sistem akan <strong>mengalikan diskon (kelipatan)</strong>. Jika disewa 6 hari, maka akan dapat 2 hari gratis. Jika disewa 81 hari, maka otomatis terpotong 27 hari.
+                    </div>
+                '))
                 ->schema([
                     TextInput::make('name')
                         ->required()

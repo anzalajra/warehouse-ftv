@@ -46,7 +46,10 @@ class DailyDiscount extends Model
     {
         if ($days < $this->min_days) return 0;
         
-        $discount = $this->free_days * $dailyRate;
+        $multiplier = floor($days / $this->min_days);
+        $totalFreeDays = $multiplier * $this->free_days;
+        
+        $discount = $totalFreeDays * $dailyRate;
         
         if ($this->max_discount_amount && $discount > $this->max_discount_amount) {
             $discount = $this->max_discount_amount;
