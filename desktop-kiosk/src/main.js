@@ -202,11 +202,26 @@ ipcMain.on('kiosk:enter-timer', () => {
 ipcMain.on('kiosk:exit-timer', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   timerMode = false;
+
+  // Resize to a fullscreen-compatible size BEFORE flipping fullscreen/kiosk —
+  // Windows ignores setFullScreen if the previous bounds are tiny in some cases.
+  try {
+    const { screen } = require('electron');
+    const { workArea } = screen.getPrimaryDisplay();
+    mainWindow.setMinimumSize(800, 600);
+    mainWindow.setSize(workArea.width, workArea.height);
+    mainWindow.setPosition(workArea.x, workArea.y);
+  } catch (_) {}
+
+  // Re-enter kiosk mode in the right order:
+  // fullscreen first, then kiosk, then lock down resize/skipTaskbar/alwaysOnTop.
+  mainWindow.setMovable(true);
+  mainWindow.setFullScreen(true);
+  mainWindow.setKiosk(true);
+  mainWindow.setResizable(false);
   mainWindow.setSkipTaskbar(true);
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  mainWindow.setResizable(false);
-  mainWindow.setKiosk(true);
-  mainWindow.setFullScreen(true);
+  mainWindow.focus();
 });
 
 // ============= Power: shutdown, sleep, wifi =============

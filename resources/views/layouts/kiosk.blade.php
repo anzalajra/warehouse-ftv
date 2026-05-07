@@ -20,14 +20,15 @@
         .kiosk-logo-bar {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            padding: 10px 20px;
+            justify-content: center;
+            padding: 14px 20px;
             background: #fff;
             border-bottom: 1px solid #e5e7eb;
+            position: relative;
         }
-        .kiosk-logo-bar .left { display: flex; align-items: center; gap: 10px; }
-        .kiosk-logo-bar img { height: 32px; width: auto; }
-        .kiosk-logo-bar .site-name { font-weight: 700; color: var(--primary-700, #1d4ed8); font-size: 1rem; }
+        .kiosk-logo-bar .left { display: flex; align-items: center; }
+        .kiosk-logo-bar img { height: 36px; width: auto; }
+        .kiosk-logo-bar .kiosk-clock { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); }
         .kiosk-clock {
             display: flex; flex-direction: column; align-items: flex-end;
             font-variant-numeric: tabular-nums;
@@ -43,9 +44,6 @@
             @php $logo = \App\Models\Setting::get('site_logo'); @endphp
             @if($logo)
                 <img src="{{ \Illuminate\Support\Facades\Storage::url($logo) }}" alt="{{ \App\Models\Setting::get('site_name', 'Warehouse FTV') }}">
-            @endif
-            @if(\App\Models\Setting::get('site_name_in_header', true))
-                <span class="site-name">{{ \App\Models\Setting::get('site_name', 'Warehouse FTV') }}</span>
             @endif
         </div>
         <div class="kiosk-clock" id="kioskClock">

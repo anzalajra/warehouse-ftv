@@ -57,9 +57,6 @@
                         @if(\App\Models\Setting::get('site_logo'))
                             <img src="{{ \Illuminate\Support\Facades\Storage::url(\App\Models\Setting::get('site_logo')) }}" alt="{{ \App\Models\Setting::get('site_name', 'Gearent') }}" class="h-10 w-auto">
                         @endif
-                        @if(\App\Models\Setting::get('site_name_in_header', true))
-                            <span>{{ \App\Models\Setting::get('site_name', 'Gearent') }}</span>
-                        @endif
                     </a>
                     <div class="hidden sm:ml-10 sm:flex sm:space-x-8">
                         @php
