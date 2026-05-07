@@ -11,14 +11,6 @@
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir"
   },
-  "build": {
-    "extends": null,
-    "files": [
-      "src/**/*",
-      "assets/**/*",
-      "package.json"
-    ]
-  },
   "devDependencies": {
     "electron": "^42.0.0",
     "electron-builder": "^26.8.1"
