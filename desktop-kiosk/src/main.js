@@ -163,24 +163,50 @@ function forceQuit() {
 ipcMain.on('kiosk:enter-timer', () => {
   if (!mainWindow || mainWindow.isDestroyed() || timerMode) return;
   timerMode = true;
+  // Drop kiosk/fullscreen so the window can become a normal floating panel.
   mainWindow.setKiosk(false);
   mainWindow.setFullScreen(false);
-  mainWindow.setAlwaysOnTop(true, 'floating');
-  mainWindow.setSkipTaskbar(true);
+
+  // Floating, but NOT always-on-top — other apps may cover it freely.
+  mainWindow.setAlwaysOnTop(false);
+
+  // Show in taskbar so the user can re-focus it after it gets covered.
+  mainWindow.setSkipTaskbar(false);
+
+  // Resizable + movable; close stays disabled via the existing close handler.
   mainWindow.setResizable(true);
   mainWindow.setMovable(true);
-  mainWindow.setMinimumSize(220, 160);
-  mainWindow.setSize(320, 220);
-  mainWindow.setPosition(40, 40);
+  mainWindow.setMinimizable(true);
+  mainWindow.setMaximizable(false);
+
+  // Proportional default size — fits the timer + actions comfortably.
+  // 360x520 mirrors the design's floating-widget proportions (~3:4),
+  // not too small to read the timer, not so big it eats the desktop.
+  const minW = 300, minH = 420;
+  const defW = 360, defH = 520;
+  mainWindow.setMinimumSize(minW, minH);
+  mainWindow.setSize(defW, defH);
+
+  // Anchor near top-right of the primary display, with a 24px gutter.
+  try {
+    const { screen } = require('electron');
+    const { workArea } = screen.getPrimaryDisplay();
+    const x = Math.max(workArea.x, workArea.x + workArea.width - defW - 24);
+    const y = workArea.y + 24;
+    mainWindow.setPosition(x, y);
+  } catch (_) {
+    mainWindow.setPosition(80, 80);
+  }
 });
 
 ipcMain.on('kiosk:exit-timer', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   timerMode = false;
+  mainWindow.setSkipTaskbar(true);
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  mainWindow.setResizable(false);
   mainWindow.setKiosk(true);
   mainWindow.setFullScreen(true);
-  mainWindow.setResizable(false);
 });
 
 // ============= Power: shutdown, sleep, wifi =============
