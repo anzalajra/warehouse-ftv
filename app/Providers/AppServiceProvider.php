@@ -34,7 +34,17 @@ class AppServiceProvider extends ServiceProvider
     {
 
          \Illuminate\Support\Facades\URL::forceScheme('https');
-         
+
+         // Apply timezone from Setting (fallback Asia/Jakarta)
+         try {
+             $tz = Setting::get('app_timezone') ?: 'Asia/Jakarta';
+             config(['app.timezone' => $tz]);
+             date_default_timezone_set($tz);
+         } catch (\Throwable $e) {
+             // Setting table may not exist yet during install/migration
+         }
+
+
         Rental::observe(RentalObserver::class);
         FinanceTransaction::observe(FinanceTransactionObserver::class);
         JournalEntryItem::observe(JournalEntryItemObserver::class);

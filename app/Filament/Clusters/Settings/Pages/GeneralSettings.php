@@ -6,6 +6,7 @@ use App\Filament\Clusters\Settings\SettingsCluster;
 use App\Models\Setting;
 use BackedEnum;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Grid;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -34,8 +35,15 @@ class GeneralSettings extends Page implements HasForms
     public function mount(): void
     {
         $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings['app_timezone'] = $settings['app_timezone'] ?? 'Asia/Jakarta';
 
         $this->form->fill($settings);
+    }
+
+    protected function timezoneOptions(): array
+    {
+        $list = \DateTimeZone::listIdentifiers();
+        return array_combine($list, $list);
     }
 
     public function form(Schema $schema): Schema
@@ -67,6 +75,13 @@ class GeneralSettings extends Page implements HasForms
                         TextInput::make('company_email')
                             ->label('Email')
                             ->email(),
+                        Select::make('app_timezone')
+                            ->label('Timezone')
+                            ->options($this->timezoneOptions())
+                            ->searchable()
+                            ->required()
+                            ->default('Asia/Jakarta')
+                            ->helperText('Timezone untuk seluruh aplikasi (booking, jam kiosk, jadwal). Perubahan butuh refresh halaman.'),
                     ]),
             ]);
     }
