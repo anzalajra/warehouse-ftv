@@ -12,8 +12,15 @@ class HeartbeatService {
     this.adminPin = config.admin_pin || '9999';
     this.onSettingsUpdate = null;
     this.onUnpaired = null; // called when server says token invalid
+    this.onCommands = null; // (commands: [{id, command}]) => void — main.js executes
     this.timer = null;
     this.failureCount = 0;
+    this.pendingAcks = []; // [{id, status:'acked'|'failed', error?}]
+  }
+
+  // Called by main.js after a command is executed (or fails) — piggyback on next heartbeat.
+  ackCommand(id, status, error) {
+    this.pendingAcks.push({ id, status, error: error || null });
   }
 
   getAdminPin() {
@@ -35,12 +42,15 @@ class HeartbeatService {
   }
 
   async _tick() {
+    let acksToSend = [];
     try {
       const runningApps = await getRunningApps(this.whitelist);
+      acksToSend = this.pendingAcks.splice(0, this.pendingAcks.length);
       const payload = {
         app_version: app.getVersion(),
         uptime_seconds: Math.round(process.uptime()),
         running_apps: runningApps,
+        command_acks: acksToSend,
       };
 
       const res = await fetch(this.config.heartbeat_url, {
@@ -85,7 +95,15 @@ class HeartbeatService {
           this.adminPin = String(data.settings.admin_pin);
         }
       }
+
+      if (Array.isArray(data.commands) && data.commands.length > 0 && typeof this.onCommands === 'function') {
+        this.onCommands(data.commands);
+      }
     } catch (err) {
+      // Re-queue acks we tried to send so they aren't lost on transient failure.
+      if (acksToSend.length > 0) {
+        this.pendingAcks.unshift(...acksToSend);
+      }
       this.failureCount++;
       // exponential backoff bukan dengan retry tambahan, cukup loncati tick
       // (jaga agar tidak ada flood request kalau server down).

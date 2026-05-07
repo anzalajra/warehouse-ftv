@@ -62,14 +62,23 @@
 
 @push('scripts')
 <script>
-// Polling: kalau registrasi via HP berhasil, kiosk auto-refresh ke checkin/timer page
+// Polling: only navigate away once an active booking actually exists for this
+// computer (i.e. mobile registration finished and auto-checkin succeeded).
 (function () {
     const slug = @json($computer->checkin_slug);
     setInterval(() => {
-        fetch(`/kiosk/checkin/${slug}`, { redirect: 'manual' })
-            .then(() => window.location.href = `/kiosk/checkin/${slug}`)
+        fetch(`/kiosk/checkin/${slug}/status`, {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data && data.has_active_booking) {
+                    window.location.href = `/kiosk/checkin/${slug}`;
+                }
+            })
             .catch(() => {});
-    }, 8000);
+    }, 5000);
 })();
 </script>
 @endpush

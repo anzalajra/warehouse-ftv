@@ -36,6 +36,16 @@ class ComputerCheckinController extends Controller
                 && $now->between($start, $end);
         });
 
+        // If a booking is already checked in (e.g. mobile-register auto-checkin
+        // just finished), jump straight to the floating timer page.
+        if ($activeBooking
+            && $activeBooking->status === ComputerBooking::STATUS_ACTIVE
+            && $activeBooking->checked_in_at) {
+            return redirect()
+                ->route('kiosk.timer', $slug)
+                ->with('booking_id', $activeBooking->id);
+        }
+
         $nextSessionBooking = null;
         if ($activeBooking) {
             $nextSessionBooking = $todaysBookings->first(function (ComputerBooking $b) use ($activeBooking) {
@@ -235,6 +245,25 @@ class ComputerCheckinController extends Controller
     }
 
     /**
+     * JSON status endpoint used by the registration-QR kiosk page to poll
+     * whether an active booking now exists on this computer (because the
+     * student finished mobile registration). Returns booking_id when ready.
+     */
+    public function status(string $slug)
+    {
+        $computer = Computer::where('checkin_slug', $slug)->firstOrFail();
+        $now = Carbon::now();
+
+        $active = $this->findActiveBooking($computer, $now);
+        $hasCheckedIn = $active && $active->checked_in_at && $active->status === ComputerBooking::STATUS_ACTIVE;
+
+        return response()->json([
+            'has_active_booking' => $hasCheckedIn,
+            'booking_id' => $hasCheckedIn ? $active->id : null,
+        ]);
+    }
+
+    /**
      * Timer page after successful check-in. Booking ID passed via session flash.
      */
     public function timer(string $slug, Request $request)
@@ -271,7 +300,8 @@ class ComputerCheckinController extends Controller
         $now = Carbon::now();
         $booking->actual_ended_at = $now;
         if ($booking->actual_started_at) {
-            $booking->actual_duration_seconds = $now->diffInSeconds($booking->actual_started_at);
+            // Carbon 3 returns a signed float; cast to non-negative int for the unsigned column.
+            $booking->actual_duration_seconds = max(0, (int) abs($now->diffInSeconds($booking->actual_started_at)));
         }
         $booking->status = ComputerBooking::STATUS_COMPLETED;
         $booking->save();

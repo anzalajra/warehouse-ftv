@@ -4,6 +4,7 @@ namespace App\Filament\Clusters\Computers\Resources\ComputerResource\Pages;
 
 use App\Filament\Clusters\Computers\Resources\ComputerResource;
 use App\Models\Computer;
+use App\Models\KioskCommand;
 use App\Models\KioskPairingCode;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -118,6 +119,54 @@ class EditComputer extends EditRecord
     <div><dt class="text-gray-500">Aplikasi berjalan</dt><dd>{$appsHtml}</dd></div>
 </dl>
 HTML);
+                }),
+
+            Action::make('remoteShutdown')
+                ->label('Remote Shutdown')
+                ->icon('heroicon-o-power')
+                ->color('danger')
+                ->visible(fn () => ! empty($this->record->kiosk_token))
+                ->requiresConfirmation()
+                ->modalHeading('Shutdown komputer ini?')
+                ->modalDescription('Perintah dikirim via heartbeat berikutnya (~30 detik). Komputer akan mati dalam beberapa detik setelah perintah diterima.')
+                ->modalSubmitActionLabel('Shutdown')
+                ->action(function () {
+                    KioskCommand::create([
+                        'computer_id' => $this->record->id,
+                        'command' => KioskCommand::COMMAND_SHUTDOWN,
+                        'status' => KioskCommand::STATUS_PENDING,
+                        'issued_by' => auth()->id(),
+                    ]);
+
+                    Notification::make()
+                        ->title('Perintah shutdown dikirim')
+                        ->body('Akan dieksekusi pada heartbeat berikutnya (~30 detik).')
+                        ->success()
+                        ->send();
+                }),
+
+            Action::make('remoteRestart')
+                ->label('Remote Restart')
+                ->icon('heroicon-o-arrow-path')
+                ->color('warning')
+                ->visible(fn () => ! empty($this->record->kiosk_token))
+                ->requiresConfirmation()
+                ->modalHeading('Restart komputer ini?')
+                ->modalDescription('Perintah dikirim via heartbeat berikutnya (~30 detik). Komputer akan reboot dalam beberapa detik setelah perintah diterima.')
+                ->modalSubmitActionLabel('Restart')
+                ->action(function () {
+                    KioskCommand::create([
+                        'computer_id' => $this->record->id,
+                        'command' => KioskCommand::COMMAND_RESTART,
+                        'status' => KioskCommand::STATUS_PENDING,
+                        'issued_by' => auth()->id(),
+                    ]);
+
+                    Notification::make()
+                        ->title('Perintah restart dikirim')
+                        ->body('Akan dieksekusi pada heartbeat berikutnya (~30 detik).')
+                        ->success()
+                        ->send();
                 }),
 
             Action::make('toggleMaintenance')

@@ -71,6 +71,7 @@ if (!$isInstalled) {
     Route::get('/kiosk/checkin/{slug}/other', [App\Http\Controllers\ComputerCheckinController::class, 'showOther'])->name('kiosk.checkin.other');
     Route::post('/kiosk/checkin/{slug}/other', [App\Http\Controllers\ComputerCheckinController::class, 'submitOther'])->name('kiosk.checkin.other.submit');
     Route::get('/kiosk/checkin/{slug}/register', [App\Http\Controllers\ComputerCheckinController::class, 'showRegister'])->name('kiosk.checkin.register');
+    Route::get('/kiosk/checkin/{slug}/status', [App\Http\Controllers\ComputerCheckinController::class, 'status'])->name('kiosk.checkin.status');
     Route::get('/kiosk/checkin/{slug}/timer', [App\Http\Controllers\ComputerCheckinController::class, 'timer'])->name('kiosk.timer');
     Route::post('/kiosk/checkin/{slug}/logout', [App\Http\Controllers\ComputerCheckinController::class, 'logout'])->name('kiosk.logout');
 

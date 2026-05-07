@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Computer;
 use App\Models\ComputerBooking;
+use App\Models\KioskCommand;
 use App\Models\KioskPairingCode;
 use App\Models\Setting;
 use Carbon\Carbon;
@@ -173,6 +174,10 @@ class KioskApiController extends Controller
             'uptime_seconds' => ['nullable', 'integer', 'min:0'],
             'running_apps' => ['nullable', 'array', 'max:50'],
             'running_apps.*' => ['string', 'max:100'],
+            'command_acks' => ['nullable', 'array', 'max:20'],
+            'command_acks.*.id' => ['required_with:command_acks', 'integer'],
+            'command_acks.*.status' => ['required_with:command_acks', 'in:acked,failed'],
+            'command_acks.*.error' => ['nullable', 'string', 'max:500'],
         ]);
 
         $now = now();
@@ -186,6 +191,26 @@ class KioskApiController extends Controller
         ];
         $computer->save();
 
+        // Apply command acks first so the kiosk doesn't see the same command again
+        // in this same response.
+        if (! empty($validated['command_acks'])) {
+            $this->applyCommandAcks($computer, $validated['command_acks']);
+        }
+
+        // Pull any pending commands and mark them sent. The kiosk acks via the
+        // *next* heartbeat. If the kiosk dies mid-execution (e.g. shutdown), the
+        // command stays in 'sent' state — admin can re-issue if needed.
+        $pendingCommands = KioskCommand::where('computer_id', $computer->id)
+            ->where('status', KioskCommand::STATUS_PENDING)
+            ->orderBy('id')
+            ->limit(5)
+            ->get();
+
+        if ($pendingCommands->isNotEmpty()) {
+            KioskCommand::whereIn('id', $pendingCommands->pluck('id'))
+                ->update(['status' => KioskCommand::STATUS_SENT, 'sent_at' => $now]);
+        }
+
         return response()->json([
             'ok' => true,
             'server_time' => $now->toIso8601String(),
@@ -195,7 +220,27 @@ class KioskApiController extends Controller
                 'running_apps_whitelist' => $this->whitelist(),
                 'admin_pin' => Setting::get('computer_kiosk_admin_pin') ?? '9999',
             ],
+            'commands' => $pendingCommands->map(fn (KioskCommand $c) => [
+                'id' => $c->id,
+                'command' => $c->command,
+            ])->values(),
         ]);
+    }
+
+    protected function applyCommandAcks(Computer $computer, array $acks): void
+    {
+        foreach ($acks as $ack) {
+            $cmd = KioskCommand::where('id', $ack['id'])
+                ->where('computer_id', $computer->id)
+                ->first();
+            if (! $cmd) {
+                continue;
+            }
+            $cmd->status = $ack['status'] === 'failed' ? KioskCommand::STATUS_FAILED : KioskCommand::STATUS_ACKED;
+            $cmd->acked_at = now();
+            $cmd->error = $ack['error'] ?? null;
+            $cmd->save();
+        }
     }
 
     /**

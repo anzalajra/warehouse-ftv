@@ -226,11 +226,40 @@ ipcMain.on('kiosk:exit-timer', () => {
 
 // ============= Power: shutdown, sleep, wifi =============
 
-ipcMain.on('kiosk:shutdown', () => {
+ipcMain.on('kiosk:shutdown', () => doShutdown());
+ipcMain.on('kiosk:restart', () => doRestart());
+
+function doShutdown() {
   if (process.platform === 'win32') exec('shutdown /s /t 1', () => {});
   else if (process.platform === 'darwin') exec('osascript -e \'tell app "System Events" to shut down\'', () => {});
   else exec('systemctl poweroff', () => {});
-});
+}
+
+function doRestart() {
+  if (process.platform === 'win32') exec('shutdown /r /t 1', () => {});
+  else if (process.platform === 'darwin') exec('osascript -e \'tell app "System Events" to restart\'', () => {});
+  else exec('systemctl reboot', () => {});
+}
+
+// Remote commands from server (delivered via heartbeat response).
+// Ack BEFORE executing so the server marks it acked even if shutdown wins the race.
+function handleRemoteCommands(commands) {
+  for (const cmd of commands) {
+    try {
+      if (cmd.command === 'shutdown') {
+        if (heartbeat) heartbeat.ackCommand(cmd.id, 'acked');
+        setTimeout(() => doShutdown(), 500);
+      } else if (cmd.command === 'restart') {
+        if (heartbeat) heartbeat.ackCommand(cmd.id, 'acked');
+        setTimeout(() => doRestart(), 500);
+      } else {
+        if (heartbeat) heartbeat.ackCommand(cmd.id, 'failed', 'unknown_command');
+      }
+    } catch (e) {
+      if (heartbeat) heartbeat.ackCommand(cmd.id, 'failed', String(e && e.message || e));
+    }
+  }
+}
 
 ipcMain.on('kiosk:sleep', () => {
   if (process.platform === 'win32') {
@@ -342,6 +371,7 @@ app.whenReady().then(() => {
 
   heartbeat = new HeartbeatService(config);
   heartbeat.onUnpaired = () => unpairAndRestart();
+  heartbeat.onCommands = (commands) => handleRemoteCommands(commands);
   heartbeat.start();
 
   // Network monitor — probe SERVER_BASE root
