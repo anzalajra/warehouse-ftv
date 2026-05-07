@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Computer;
+use App\Models\ComputerBooking;
 use App\Models\KioskPairingCode;
 use App\Models\Setting;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -46,7 +48,118 @@ class KioskApiController extends Controller
             'heartbeat_interval' => (int) (Setting::get('computer_kiosk_heartbeat_interval_seconds') ?? 30),
             'running_apps_whitelist' => $this->whitelist(),
             'computer_name' => $computer->name,
+            'admin_pin' => Setting::get('computer_kiosk_admin_pin') ?? '9999',
         ]);
+    }
+
+    /**
+     * Sync queued offline events from a kiosk. Idempotent via offline_client_uuid
+     * for checkins, and via booking_id for logouts.
+     */
+    public function sync(Request $request): JsonResponse
+    {
+        /** @var Computer|null $computer */
+        $computer = $request->attributes->get('kiosk_computer');
+        abort_unless($computer, 401);
+
+        $validated = $request->validate([
+            'events' => ['required', 'array', 'max:200'],
+            'events.*.type' => ['required', 'in:offline_checkin,logout'],
+            'events.*.payload' => ['required', 'array'],
+        ]);
+
+        $applied = [];
+        $rejected = [];
+
+        foreach ($validated['events'] as $event) {
+            $type = $event['type'];
+            $payload = $event['payload'];
+
+            try {
+                if ($type === 'offline_checkin') {
+                    $applied[] = $this->applyOfflineCheckin($computer, $payload);
+                } elseif ($type === 'logout') {
+                    $applied[] = $this->applyOfflineLogout($computer, $payload);
+                }
+            } catch (\Throwable $e) {
+                $rejected[] = ['payload' => $payload, 'error' => $e->getMessage()];
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'applied' => $applied,
+            'rejected' => $rejected,
+        ]);
+    }
+
+    protected function applyOfflineCheckin(Computer $computer, array $p): array
+    {
+        $uuid = $p['uuid'] ?? null;
+        if (! $uuid) {
+            throw new \InvalidArgumentException('uuid required');
+        }
+
+        $existing = ComputerBooking::where('offline_client_uuid', $uuid)->first();
+        if ($existing) {
+            return ['type' => 'offline_checkin', 'uuid' => $uuid, 'booking_id' => $existing->id, 'status' => 'duplicate'];
+        }
+
+        $startedAt = Carbon::parse($p['started_at']);
+        $booking = ComputerBooking::create([
+            'user_id' => null,
+            'computer_id' => $computer->id,
+            'booking_date' => $startedAt->toDateString(),
+            'start_time' => $startedAt->format('H:i'),
+            'end_time' => $startedAt->copy()->addHour()->format('H:i'),
+            'purpose' => $p['purpose'] ?? 'Offline walk-in',
+            'status' => ComputerBooking::STATUS_ACTIVE,
+            'tnc_accepted_at' => $startedAt,
+            'checked_in_at' => $startedAt,
+            'actual_started_at' => $startedAt,
+            'is_walk_in' => true,
+            'is_offline_walkin' => true,
+            'offline_walkin_name' => $p['name'] ?? null,
+            'offline_client_uuid' => $uuid,
+        ]);
+
+        return ['type' => 'offline_checkin', 'uuid' => $uuid, 'booking_id' => $booking->id, 'status' => 'created'];
+    }
+
+    protected function applyOfflineLogout(Computer $computer, array $p): array
+    {
+        $bookingId = $p['booking_id'] ?? null;
+        $uuid = $p['uuid'] ?? null;
+
+        $booking = null;
+        if ($bookingId) {
+            $booking = ComputerBooking::where('id', $bookingId)->where('computer_id', $computer->id)->first();
+        }
+        if (! $booking && $uuid) {
+            $booking = ComputerBooking::where('offline_client_uuid', $uuid)->where('computer_id', $computer->id)->first();
+        }
+
+        if (! $booking) {
+            throw new \RuntimeException('booking not found');
+        }
+
+        if ($booking->status === ComputerBooking::STATUS_COMPLETED && $booking->actual_ended_at) {
+            return ['type' => 'logout', 'booking_id' => $booking->id, 'status' => 'duplicate'];
+        }
+
+        $endedAt = Carbon::parse($p['ended_at']);
+        $booking->actual_ended_at = $endedAt;
+        if ($booking->actual_started_at) {
+            $booking->actual_duration_seconds = $endedAt->diffInSeconds($booking->actual_started_at);
+        } elseif (isset($p['started_at'])) {
+            $started = Carbon::parse($p['started_at']);
+            $booking->actual_started_at = $started;
+            $booking->actual_duration_seconds = $endedAt->diffInSeconds($started);
+        }
+        $booking->status = ComputerBooking::STATUS_COMPLETED;
+        $booking->save();
+
+        return ['type' => 'logout', 'booking_id' => $booking->id, 'status' => 'updated'];
     }
 
     public function heartbeat(Request $request): JsonResponse
@@ -80,6 +193,7 @@ class KioskApiController extends Controller
                 'heartbeat_interval' => (int) (Setting::get('computer_kiosk_heartbeat_interval_seconds') ?? 30),
                 'latest_app_version' => Setting::get('computer_kiosk_latest_version'),
                 'running_apps_whitelist' => $this->whitelist(),
+                'admin_pin' => Setting::get('computer_kiosk_admin_pin') ?? '9999',
             ],
         ]);
     }

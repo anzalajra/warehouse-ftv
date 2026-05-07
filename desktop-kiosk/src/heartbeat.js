@@ -9,8 +9,14 @@ class HeartbeatService {
     this.config = config;
     this.intervalMs = (config.heartbeat_interval || 30) * 1000;
     this.whitelist = config.running_apps_whitelist || [];
+    this.adminPin = config.admin_pin || '9999';
+    this.onSettingsUpdate = null;
     this.timer = null;
     this.failureCount = 0;
+  }
+
+  getAdminPin() {
+    return this.adminPin;
   }
 
   start() {
@@ -65,6 +71,9 @@ class HeartbeatService {
         }
         if (Array.isArray(data.settings.running_apps_whitelist)) {
           this.whitelist = data.settings.running_apps_whitelist;
+        }
+        if (data.settings.admin_pin) {
+          this.adminPin = String(data.settings.admin_pin);
         }
       }
     } catch (err) {

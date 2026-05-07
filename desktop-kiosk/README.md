@@ -22,6 +22,25 @@ First-run akan tampilkan window pairing 6-digit. Generate code-nya di Filament:
 
 `/admin/computers/{id}/edit` → tombol **Kiosk App** → **Pair Kiosk App**.
 
+## Keyboard shortcut blocking
+
+Aplikasi mendaftarkan `globalShortcut` untuk mem-block:
+`Alt+Tab`, `Alt+F4`, `Alt+Esc`, `Alt+Space`, `Ctrl+Esc`, `Ctrl+Shift+Esc`,
+`Win+L/D/E/R/Tab/S/A`, `F11`. Kombinasi ini di-swallow saat aplikasi running.
+
+**`Ctrl+Shift+W`** → membuka popup admin close. PIN diambil dari Setting
+`computer_kiosk_admin_pin` (default `9999`).
+
+**Tidak bisa diblokir dari userland** (butuh policy/registry/driver):
+- `Ctrl+Alt+Del` (Secure Attention Sequence — kernel-level).
+- `Win+L` di sebagian Windows release (bypass globalShortcut). Solusi:
+  - GPO: `Computer Configuration → Administrative Templates → System → Ctrl+Alt+Del Options → Remove Lock Computer = Enabled`, atau
+  - Registry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\System` → DWORD `DisableLockWorkstation = 1`.
+
+Untuk kiosk produksi, gunakan **Assigned Access (Kiosk Mode)** Windows yang
+secara native menutup hampir semua shortcut sistem. Aplikasi ini tetap berjalan
+sebagai kiosk single-app di mode tersebut.
+
 ## Build installer (Windows)
 
 ```bash

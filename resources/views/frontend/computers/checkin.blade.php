@@ -4,13 +4,11 @@
 
 @push('scripts')
 <script>
-// Web heartbeat — Mac kiosk mode (Safari/Chrome). Electron app punya heartbeat sendiri di main process,
-// jadi page ini cuma kirim heartbeat untuk komputer non-Electron. Server-side last_heartbeat_data.source
-// akan tertulis 'web' atau 'electron' tergantung mana yang terakhir update.
 (function () {
     const url = @json(route('api.kiosk.heartbeat.web', $computer->checkin_slug));
     const startTime = Date.now();
     let interval = 30_000;
+    let timer;
 
     function send() {
         const payload = JSON.stringify({
@@ -27,203 +25,228 @@
                 clearInterval(timer);
                 timer = setInterval(send, interval);
             }
-        }).catch(() => { /* swallow */ });
+        }).catch(() => {});
     }
 
-    let timer = setInterval(send, interval);
+    timer = setInterval(send, interval);
     send();
 })();
+
+// Auto-refresh every 30s so booking changes (other-checkin override, no-show flips) surface
+setTimeout(() => window.location.reload(), 30_000);
 </script>
 @endpush
 
 @section('content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6" x-data="kioskCheckin()" x-init="init()">
-    <div class="bg-white rounded-lg shadow overflow-hidden">
-        {{-- Header: computer info --}}
-        <div class="bg-gradient-to-r from-primary-600 to-primary-700 text-white p-6">
+<div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="kioskShell()" x-init="init()">
+    {{-- Network status bar --}}
+    <div x-show="status !== 'online'"
+         class="mb-3 rounded-lg px-4 py-2 text-sm flex items-center justify-between"
+         :class="{
+             'bg-amber-50 border border-amber-200 text-amber-800': status === 'connecting',
+             'bg-red-50 border border-red-200 text-red-800': status === 'offline'
+         }">
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full"
+                  :class="{ 'bg-amber-500 animate-pulse': status === 'connecting', 'bg-red-500': status === 'offline' }"></span>
+            <span x-text="status === 'connecting' ? 'Menyambungkan ke server…' : 'Tidak ada koneksi internet'"></span>
+            <span x-show="queueSize > 0" class="ml-2 text-xs" x-text="`(${queueSize} event tertunda)`"></span>
+        </div>
+        <button x-show="hasBridge && status === 'offline'" @click="openWifi()"
+                class="text-xs underline hover:no-underline">Pilih WiFi</button>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+        {{-- Header --}}
+        <div class="bg-gradient-to-r from-primary-600 to-primary-700 text-white p-6 sm:p-8">
             @if($computer->room)
                 <p class="text-xs uppercase tracking-wider opacity-80">{{ $computer->room->name }}</p>
             @endif
-            <h1 class="text-3xl font-bold">{{ $computer->name }}</h1>
+            <h1 class="text-3xl sm:text-4xl font-bold">{{ $computer->name }}</h1>
             @if($computer->brand)
                 <p class="mt-1 opacity-90">{{ $computer->brand }}</p>
             @endif
-            <div class="mt-3 flex flex-wrap gap-3 text-sm">
-                @if(! empty($computer->specs))
-                    @foreach(array_slice($computer->specs, 0, 4, true) as $key => $value)
-                        <span class="bg-white/15 backdrop-blur px-2 py-1 rounded">{{ $key }}: {{ $value }}</span>
-                    @endforeach
-                @endif
-            </div>
         </div>
 
         @if(session('success'))
-            <div class="m-4 rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-700">{{ session('success') }}</div>
+            <div class="mx-6 mt-6 rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-700">{{ session('success') }}</div>
         @endif
         @if($errors->any())
-            <div class="m-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+            <div class="mx-6 mt-6 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
                 <ul class="list-disc pl-5">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
             </div>
         @endif
 
-        {{-- Main row: QR + check-in panel --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 border-b">
-            {{-- QR --}}
-            <div class="flex flex-col items-center text-center">
-                <p class="text-sm text-gray-700 mb-2 font-medium">Scan QR untuk login &amp; check-in dari HP</p>
-                <div class="relative">
-                    <img :src="qrImageUrl" alt="QR Login" class="rounded-lg border border-gray-200 w-60 h-60" :class="{ 'opacity-30': claimedUserName }">
-                    <template x-if="claimedUserName">
-                        <div class="absolute inset-0 flex flex-col items-center justify-center bg-green-50/90 rounded-lg">
-                            <svg class="w-14 h-14 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                            <p class="mt-2 font-semibold text-green-700" x-text="claimedUserName"></p>
-                            <p class="text-xs text-green-600">Berhasil check-in</p>
-                        </div>
-                    </template>
+        {{-- Booking panel --}}
+        <div class="p-6 sm:p-8">
+            @if($activeBooking)
+                <p class="text-sm text-gray-500 uppercase tracking-wider">Komputer ini sudah dibooking</p>
+                <p class="text-3xl font-bold text-gray-900 mt-2">{{ $activeBooking->user->name }}</p>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                        {{ $activeBooking->start_time }} - {{ $activeBooking->end_time }}
+                    </span>
+                    @if($isLate)
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
+                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Telat — Risiko No-Show
+                        </span>
+                    @endif
+                    @if($activeBooking->checked_in_at)
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                            Sudah check-in {{ $activeBooking->checked_in_at->format('H:i') }}
+                        </span>
+                    @endif
                 </div>
-                <p class="mt-3 text-xs text-gray-500" x-text="qrSubtitle"></p>
-            </div>
 
-            {{-- Check-in panel --}}
-            <div class="flex flex-col justify-center">
-                @if($activeBooking)
-                    <p class="text-sm text-gray-500">Booking saat ini:</p>
-                    <p class="text-2xl font-bold text-gray-900 mt-1">{{ $activeBooking->user->name }}</p>
-                    <p class="text-sm text-gray-600 mt-1">{{ $activeBooking->start_time }} - {{ $activeBooking->end_time }}
-                        @if($activeBooking->checked_in_at)
-                            <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Sudah check-in</span>
-                        @endif
-                    </p>
-
+                <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     @if(! $activeBooking->checked_in_at)
-                        <p class="mt-4 text-sm text-gray-600">Scan QR di samping dengan HP untuk check-in tanpa login di komputer ini.</p>
+                        <form method="POST" action="{{ route('kiosk.checkin.submit', $computer->checkin_slug) }}">
+                            @csrf
+                            <button type="submit" class="w-full px-6 py-4 bg-primary-600 hover:bg-primary-700 text-white text-lg font-semibold rounded-xl shadow-sm transition">
+                                Check-in
+                            </button>
+                        </form>
                     @else
-                        <p class="mt-4 text-sm text-green-700">Check-in pada {{ $activeBooking->checked_in_at->format('H:i') }}</p>
+                        <a href="{{ route('kiosk.timer', $computer->checkin_slug) }}?booking={{ $activeBooking->id }}"
+                           class="w-full inline-flex justify-center items-center px-6 py-4 bg-primary-600 hover:bg-primary-700 text-white text-lg font-semibold rounded-xl shadow-sm transition">
+                            Lanjut ke Timer
+                        </a>
                     @endif
-                @else
-                    <p class="text-sm text-gray-500">Booking saat ini:</p>
-                    <p class="text-lg font-semibold text-gray-700 mt-1">Tidak ada booking di sesi ini</p>
-                    @if($currentSession)
-                        <p class="text-sm text-gray-600 mt-2">Sesi sekarang: {{ $currentSession['start'] }} - {{ $currentSession['end'] }} @if($currentSession['is_night']) <span class="text-amber-600 font-medium">(Jam Malam)</span> @endif</p>
-                        <p class="text-sm text-gray-600 mt-1">Scan QR untuk walk-in check-in — slot otomatis dibuat untuk akun Anda.</p>
-                    @else
-                        <p class="text-sm text-gray-600 mt-2">Bukan jam operasional. Walk-in check-in tidak tersedia.</p>
-                    @endif
+                    <a href="{{ route('kiosk.checkin.other', $computer->checkin_slug) }}"
+                       class="w-full inline-flex justify-center items-center px-6 py-4 bg-white border-2 border-gray-300 hover:border-gray-400 text-gray-800 text-lg font-semibold rounded-xl transition">
+                        Orang lain? Check-in di sini
+                    </a>
+                </div>
+            @else
+                <p class="text-sm text-gray-500 uppercase tracking-wider">Tidak ada booking aktif</p>
+                <p class="text-2xl font-semibold text-gray-700 mt-2">Silakan check-in walk-in</p>
+                @if($currentSession)
+                    <p class="text-sm text-gray-600 mt-1">
+                        Sesi sekarang: {{ $currentSession['start'] }} - {{ $currentSession['end'] }}
+                        @if($currentSession['is_night']) <span class="text-amber-600 font-medium">(Jam Malam)</span> @endif
+                    </p>
                 @endif
-            </div>
+                <div class="mt-6">
+                    <a href="{{ route('kiosk.checkin.other', $computer->checkin_slug) }}"
+                       class="inline-flex items-center px-6 py-4 bg-primary-600 hover:bg-primary-700 text-white text-lg font-semibold rounded-xl shadow-sm transition">
+                        Check-in Walk-in
+                    </a>
+                </div>
+            @endif
+        </div>
+
+        {{-- Offline walk-in form (only when offline + electron) --}}
+        <div x-show="hasBridge && status === 'offline'" class="border-t bg-amber-50 p-6 sm:p-8">
+            <h3 class="font-semibold text-amber-900">Mode Offline — Walk-in</h3>
+            <p class="text-sm text-amber-800 mt-1">Tidak ada koneksi. Kamu bisa walk-in dengan isi nama saja. Data akan tersinkron saat online.</p>
+            <form @submit.prevent="submitOffline()" class="mt-4 space-y-3">
+                <input type="text" x-model="offlineName" required placeholder="Nama lengkap"
+                       class="w-full px-3 py-2 border-2 border-amber-300 focus:border-amber-500 focus:ring-0 rounded-lg">
+                <input type="text" x-model="offlinePurpose" required placeholder="Kegunaan (mis. editing tugas)"
+                       class="w-full px-3 py-2 border-2 border-amber-300 focus:border-amber-500 focus:ring-0 rounded-lg">
+                <button type="submit" :disabled="offlineSubmitting"
+                        class="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-semibold rounded-lg">
+                    <span x-show="!offlineSubmitting">Check-in Offline</span>
+                    <span x-show="offlineSubmitting">Menyimpan…</span>
+                </button>
+            </form>
         </div>
 
         {{-- Today's bookings --}}
-        <div class="p-6">
+        <div class="border-t bg-gray-50 px-6 py-5 sm:px-8">
             <h2 class="font-semibold text-gray-900 mb-3">Booking Hari Ini</h2>
             @if($todaysBookings->isEmpty())
                 <p class="text-sm text-gray-500">Belum ada booking hari ini.</p>
             @else
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
-                        <thead class="bg-gray-50 text-gray-500">
-                            <tr>
-                                <th class="px-3 py-2 text-left font-medium">Waktu</th>
-                                <th class="px-3 py-2 text-left font-medium">Mahasiswa</th>
-                                <th class="px-3 py-2 text-left font-medium">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y">
-                            @foreach($todaysBookings as $b)
-                                <tr>
-                                    <td class="px-3 py-2 font-mono text-xs">{{ $b->start_time }} - {{ $b->end_time }}</td>
-                                    <td class="px-3 py-2">{{ $b->user->name }}</td>
-                                    <td class="px-3 py-2">
-                                        @php
-                                            $colors = [
-                                                'confirmed' => 'bg-blue-100 text-blue-800',
-                                                'active' => 'bg-green-100 text-green-800',
-                                                'completed' => 'bg-purple-100 text-purple-800',
-                                                'cancelled' => 'bg-gray-100 text-gray-700',
-                                                'no_show' => 'bg-red-100 text-red-800',
-                                            ];
-                                        @endphp
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ $colors[$b->status] ?? 'bg-gray-100' }}">{{ ucfirst(str_replace('_',' ', $b->status)) }}</span>
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
+                <div class="space-y-2">
+                    @foreach($todaysBookings as $b)
+                        @php
+                            $colors = [
+                                'confirmed' => 'bg-blue-100 text-blue-800',
+                                'active' => 'bg-green-100 text-green-800',
+                                'completed' => 'bg-gray-100 text-gray-700',
+                                'cancelled' => 'bg-gray-100 text-gray-500',
+                                'no_show' => 'bg-red-100 text-red-800',
+                                'overridden' => 'bg-amber-100 text-amber-800',
+                            ];
+                        @endphp
+                        <div class="flex items-center justify-between bg-white rounded-lg border px-3 py-2">
+                            <div class="flex items-center gap-3">
+                                <span class="font-mono text-xs text-gray-500">{{ $b->start_time }} - {{ $b->end_time }}</span>
+                                <span class="text-sm font-medium text-gray-900">{{ $b->user->name }}</span>
+                            </div>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ $colors[$b->status] ?? 'bg-gray-100' }}">
+                                {{ ucfirst(str_replace('_',' ', $b->status)) }}
+                            </span>
+                        </div>
+                    @endforeach
                 </div>
             @endif
         </div>
     </div>
+
+    {{-- Power footer (electron only) --}}
+    <div x-show="hasBridge" class="mt-6 flex justify-center gap-3">
+        <button @click="sleep()" class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg text-sm font-medium text-gray-700">
+            Sleep
+        </button>
+        <button @click="shutdown()" class="px-4 py-2 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg text-sm font-medium text-red-700">
+            Shutdown
+        </button>
+    </div>
 </div>
 
-@push('scripts')
 <script>
-function kioskCheckin() {
+function kioskShell() {
     return {
-        slug: @json($computer->checkin_slug),
-        token: null,
-        qrUrl: null,
-        qrImageUrl: '',
-        qrSubtitle: 'Memuat QR…',
-        expiresAt: 0,
-        claimedUserName: null,
-        pollTimer: null,
-        rotateTimer: null,
+        status: 'connecting',
+        queueSize: 0,
+        hasBridge: !!window.kioskBridge,
+        offlineName: '',
+        offlinePurpose: '',
+        offlineSubmitting: false,
 
-        init() {
-            this.requestNewToken();
-            this.rotateTimer = setInterval(() => {
-                if (! this.claimedUserName && Date.now() > this.expiresAt - 5000) {
-                    this.requestNewToken();
-                }
-            }, 5000);
-        },
-
-        async requestNewToken() {
-            try {
-                const csrf = document.querySelector('meta[name="csrf-token"]').content;
-                const res = await fetch(`/kiosk/${this.slug}/qr-token`, {
-                    method: 'POST',
-                    headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
-                });
-                if (! res.ok) throw new Error('issue failed');
-                const data = await res.json();
-                this.token = data.token;
-                this.qrUrl = data.qr_url;
-                this.qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(this.qrUrl)}`;
-                this.expiresAt = Date.now() + (data.expires_in * 1000);
-                this.qrSubtitle = `Berlaku ${data.expires_in} detik`;
-                this.startPolling();
-            } catch (err) {
-                this.qrSubtitle = 'Gagal memuat QR. Mencoba lagi…';
-                setTimeout(() => this.requestNewToken(), 5000);
+        async init() {
+            if (!this.hasBridge) {
+                this.status = navigator.onLine ? 'online' : 'offline';
+                window.addEventListener('online', () => this.status = 'online');
+                window.addEventListener('offline', () => this.status = 'offline');
+                return;
             }
+            this.status = await window.kioskBridge.getNetworkStatus();
+            window.kioskBridge.onNetworkChange((s) => { this.status = s; this.refreshQueue(); });
+            this.refreshQueue();
+            setInterval(() => this.refreshQueue(), 10_000);
         },
 
-        startPolling() {
-            if (this.pollTimer) clearInterval(this.pollTimer);
-            this.pollTimer = setInterval(() => this.poll(), 2000);
+        async refreshQueue() {
+            if (!this.hasBridge) return;
+            this.queueSize = await window.kioskBridge.getQueueSize();
         },
 
-        async poll() {
-            if (! this.token || this.claimedUserName) return;
-            try {
-                const res = await fetch(`/kiosk/${this.slug}/qr-poll/${this.token}`);
-                if (! res.ok) return;
-                const data = await res.json();
-                if (data.status === 'claimed') {
-                    this.claimedUserName = data.user_name || 'Berhasil';
-                    clearInterval(this.pollTimer);
-                    clearInterval(this.rotateTimer);
-                    setTimeout(() => window.location.reload(), 2000);
-                } else if (data.status === 'expired' || data.status === 'invalid') {
-                    this.requestNewToken();
-                }
-            } catch (err) {
-                // swallow
-            }
+        async submitOffline() {
+            if (!this.hasBridge) return;
+            this.offlineSubmitting = true;
+            await window.kioskBridge.queueOfflineCheckin({
+                name: this.offlineName,
+                purpose: this.offlinePurpose,
+                started_at: new Date().toISOString(),
+            });
+            this.offlineSubmitting = false;
+            this.offlineName = '';
+            this.offlinePurpose = '';
+            this.refreshQueue();
+            alert('Tersimpan offline. Akan disinkronkan saat online.');
         },
+
+        sleep() { if (this.hasBridge) window.kioskBridge.sleep(); },
+        shutdown() {
+            if (!this.hasBridge) return;
+            if (confirm('Yakin ingin shutdown komputer?')) window.kioskBridge.shutdown();
+        },
+        openWifi() { if (this.hasBridge) window.kioskBridge.openWifiSettings(); },
     };
 }
 </script>
-@endpush
 @endsection

@@ -41,6 +41,7 @@ class ComputerBookingSettings extends Page implements HasForms
             'computer_kiosk_heartbeat_interval_seconds' => Setting::get('computer_kiosk_heartbeat_interval_seconds') ?? 30,
             'computer_kiosk_running_apps_whitelist' => Setting::get('computer_kiosk_running_apps_whitelist') ?? "Adobe Premiere Pro.exe\nAfterFX.exe\nPhotoshop.exe\nIllustrator.exe\nResolve.exe\nOBS64.exe\nobs64.exe\nAudacity.exe\nAudition.exe",
             'computer_kiosk_latest_version' => Setting::get('computer_kiosk_latest_version') ?? '',
+            'computer_kiosk_admin_pin' => Setting::get('computer_kiosk_admin_pin') ?? '9999',
         ]);
     }
 
@@ -100,6 +101,12 @@ class ComputerBookingSettings extends Page implements HasForms
                             ->label('Latest App Version')
                             ->placeholder('1.0.1')
                             ->helperText('Diisi setelah upload release baru ke storage/app/kiosk-releases/. Hanya untuk display.'),
+                        TextInput::make('computer_kiosk_admin_pin')
+                            ->label('Admin PIN (Kiosk Close)')
+                            ->password()
+                            ->revealable()
+                            ->required()
+                            ->helperText('PIN untuk menutup aplikasi kiosk via Ctrl+Shift+W. Default: 9999.'),
                         Textarea::make('computer_kiosk_running_apps_whitelist')
                             ->label('Whitelist Aplikasi yang Dipantau')
                             ->rows(8)

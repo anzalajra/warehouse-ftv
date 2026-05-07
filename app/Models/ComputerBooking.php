@@ -31,7 +31,15 @@ class ComputerBooking extends Model
         'tnc_accepted_at',
         'permit_acknowledged_at',
         'is_walk_in',
+        'is_override',
+        'overrides_booking_id',
+        'is_offline_walkin',
+        'offline_walkin_name',
+        'offline_client_uuid',
         'checked_in_at',
+        'actual_started_at',
+        'actual_ended_at',
+        'actual_duration_seconds',
         'cancelled_reason',
     ];
 
@@ -40,8 +48,14 @@ class ComputerBooking extends Model
         'tnc_accepted_at' => 'datetime',
         'permit_acknowledged_at' => 'datetime',
         'is_walk_in' => 'boolean',
+        'is_override' => 'boolean',
+        'is_offline_walkin' => 'boolean',
         'checked_in_at' => 'datetime',
+        'actual_started_at' => 'datetime',
+        'actual_ended_at' => 'datetime',
     ];
+
+    public const STATUS_OVERRIDDEN = 'overridden';
 
     public static function generateBookingCode(?\Carbon\Carbon $date = null): string
     {

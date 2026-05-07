@@ -68,20 +68,22 @@ if (!$isInstalled) {
     // Computer Check-in Kiosk (public, slug-based)
     Route::get('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'show'])->name('kiosk.checkin');
     Route::post('/kiosk/checkin/{slug}', [App\Http\Controllers\ComputerCheckinController::class, 'checkin'])->name('kiosk.checkin.submit');
+    Route::get('/kiosk/checkin/{slug}/other', [App\Http\Controllers\ComputerCheckinController::class, 'showOther'])->name('kiosk.checkin.other');
+    Route::post('/kiosk/checkin/{slug}/other', [App\Http\Controllers\ComputerCheckinController::class, 'submitOther'])->name('kiosk.checkin.other.submit');
+    Route::get('/kiosk/checkin/{slug}/register', [App\Http\Controllers\ComputerCheckinController::class, 'showRegister'])->name('kiosk.checkin.register');
+    Route::get('/kiosk/checkin/{slug}/timer', [App\Http\Controllers\ComputerCheckinController::class, 'timer'])->name('kiosk.timer');
+    Route::post('/kiosk/checkin/{slug}/logout', [App\Http\Controllers\ComputerCheckinController::class, 'logout'])->name('kiosk.logout');
 
-    // Kiosk QR auth (kiosk page <-> mobile)
-    Route::post('/kiosk/{slug}/qr-token', [App\Http\Controllers\KioskQrAuthController::class, 'issueToken'])->middleware('throttle:60,1')->name('kiosk.qr.issue');
-    Route::get('/kiosk/{slug}/qr-poll/{token}', [App\Http\Controllers\KioskQrAuthController::class, 'pollToken'])->middleware('throttle:120,1')->name('kiosk.qr.poll');
-
-    // Mobile claim (HP user setelah scan QR)
-    Route::get('/m/kiosk-login/{token}', [App\Http\Controllers\KioskQrAuthController::class, 'showMobileClaim'])->name('mobile.kiosk-login');
-    Route::post('/m/kiosk-login/{token}', [App\Http\Controllers\KioskQrAuthController::class, 'claimMobile'])->middleware('customer.auth')->name('mobile.kiosk-login.claim');
+    // Mobile register-and-checkin (when email tidak terdaftar, scan QR untuk daftar di HP)
+    Route::get('/m/kiosk-register/{slug}', [App\Http\Controllers\KioskMobileRegisterController::class, 'show'])->name('mobile.kiosk-register');
+    Route::post('/m/kiosk-register/{slug}', [App\Http\Controllers\KioskMobileRegisterController::class, 'register'])->middleware('throttle:6,1')->name('mobile.kiosk-register.submit');
 
     // Kiosk Desktop App API (Electron)
     Route::prefix('api/kiosk')->name('api.kiosk.')->group(function () {
         Route::post('/pair', [App\Http\Controllers\KioskApiController::class, 'pair'])->middleware('throttle:5,1')->name('pair');
         Route::post('/heartbeat', [App\Http\Controllers\KioskApiController::class, 'heartbeat'])->middleware('kiosk.auth')->name('heartbeat');
         Route::post('/heartbeat-web/{slug}', [App\Http\Controllers\KioskApiController::class, 'heartbeatWeb'])->middleware('throttle:6,1')->name('heartbeat.web');
+        Route::post('/sync', [App\Http\Controllers\KioskApiController::class, 'sync'])->middleware('kiosk.auth')->name('sync');
         Route::get('/update/latest.yml', [App\Http\Controllers\KioskApiController::class, 'updateManifest'])->name('update.manifest');
         Route::get('/update/{file}', [App\Http\Controllers\KioskApiController::class, 'updateFile'])->where('file', '[A-Za-z0-9._-]+\.(exe|blockmap|yml)')->name('update.file');
     });

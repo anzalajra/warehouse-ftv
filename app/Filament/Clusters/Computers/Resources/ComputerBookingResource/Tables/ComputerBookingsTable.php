@@ -25,7 +25,9 @@ class ComputerBookingsTable
                     ->sortable(),
                 TextColumn::make('user.name')
                     ->label('Customer')
-                    ->searchable(),
+                    ->searchable()
+                    ->formatStateUsing(fn ($state, ComputerBooking $record) => $state ?? $record->offline_walkin_name ?? '—')
+                    ->description(fn (ComputerBooking $record) => $record->is_offline_walkin ? 'Offline walk-in' : ($record->is_walk_in ? 'Walk-in' : null)),
                 TextColumn::make('computer.name')
                     ->searchable(),
                 TextColumn::make('booking_date')
@@ -33,6 +35,13 @@ class ComputerBookingsTable
                     ->sortable(),
                 TextColumn::make('start_time'),
                 TextColumn::make('end_time'),
+                TextColumn::make('checked_in_at')
+                    ->label('Check-in')
+                    ->dateTime('H:i')
+                    ->placeholder('—'),
+                TextColumn::make('actual_duration_seconds')
+                    ->label('Durasi')
+                    ->formatStateUsing(fn ($state) => $state ? gmdate('H:i:s', (int) $state) : '—'),
                 TextColumn::make('status')
                     ->badge()
                     ->colors([
@@ -41,6 +50,7 @@ class ComputerBookingsTable
                         'gray' => ComputerBooking::STATUS_COMPLETED,
                         'danger' => ComputerBooking::STATUS_CANCELLED,
                         'warning' => ComputerBooking::STATUS_NO_SHOW,
+                        'warning' => ComputerBooking::STATUS_OVERRIDDEN,
                     ]),
             ])
             ->filters([
@@ -51,6 +61,7 @@ class ComputerBookingsTable
                         ComputerBooking::STATUS_COMPLETED => 'Completed',
                         ComputerBooking::STATUS_CANCELLED => 'Cancelled',
                         ComputerBooking::STATUS_NO_SHOW => 'No Show',
+                        ComputerBooking::STATUS_OVERRIDDEN => 'Overridden',
                     ]),
                 SelectFilter::make('computer')
                     ->relationship('computer', 'name'),
