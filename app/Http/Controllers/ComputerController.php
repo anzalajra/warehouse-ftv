@@ -65,8 +65,8 @@ class ComputerController extends Controller
             $end = $slot->end_time;
             $available = ComputerValidationService::checkComputerAvailability($computer->id, $date, $start, $end);
 
-            $startsAt = Carbon::parse($date->toDateString().' '.$start);
-            if ($startsAt->isPast()) {
+            $endsAt = Carbon::parse($date->toDateString().' '.$end);
+            if ($endsAt->isPast()) {
                 $available = false;
             }
 
