@@ -207,6 +207,18 @@ Restart PC lab. Setelah login Windows, kiosk app harus auto-launch dalam 5–10 
 
 Lakukan **per Mac** yang sudah didaftarkan di Filament. Mac tidak pakai Electron app — pakai Chrome kiosk mode + heartbeat via JavaScript.
 
+> **Mac dual-use (sangat penting):** Mac di lab umumnya **dipakai mahasiswa untuk kerja editing** (Premiere, AfterFX, dll), bukan dedicated kiosk. Sistem sudah otomatis adapt:
+>
+> - Halaman timer mendeteksi browser (bukan Electron) → render layout fullscreen-friendly (bukan window kecil yang aneh)
+> - Tab title ter-update live: `00:23:45 · Sesi aktif — Nama` — mahasiswa bisa lihat timer dari tab bar saat Cmd+Tab ke Premiere
+> - Banner kuning "Jangan tutup tab" muncul sebagai pengingat
+> - `beforeunload` warning muncul kalau coba close tab tanpa logout
+> - `sendBeacon` auto-logout best-effort kalau tab dipaksa ditutup (booking tidak stuck)
+>
+> **Yang TIDAK tersedia di Mac:** floating timer window asli (browser tidak bisa bikin window kecil di atas desktop), Remote Shutdown/Restart dari Filament (browser tidak punya akses OS).
+>
+> **Chrome profile yang banyak (untuk admin):** kiosk Chrome pakai `--user-data-dir` terpisah (`$HOME/.chrome-kiosk`), 100% isolated dari profile Chrome daily kamu. 2 instance jalan paralel tanpa konflik. Setting/bookmark/login akun Google kamu yang ada **tidak akan kena efeknya**.
+
 ### Step 1: Salin URL kiosk
 
 Di laptop admin: Filament → **Computers** → klik Mac tersebut → **Edit** → tombol header **Check-in Page** (buka tab baru).
@@ -300,6 +312,8 @@ Mahasiswa Cmd+Q akan tetap di akun Lab Kiosk tanpa akses file admin / akun priba
 | Kelola booking masuk | Computer Booking → **Bookings** |
 | Lihat kalender visual | Computer Booking → **Calendar** |
 | Toggle maintenance | Edit Computer → **Set Maintenance** dengan alasan |
+| **Remote Shutdown PC** (Windows only) | Edit Computer → **Remote Shutdown** → konfirmasi. Eksekusi pada heartbeat berikutnya (~30 detik). Tombol hanya muncul kalau PC sudah di-pair |
+| **Remote Restart PC** (Windows only) | Edit Computer → **Remote Restart** → konfirmasi. Sama, eksekusi pada heartbeat berikutnya |
 
 ### Untuk mahasiswa (di komputer lab)
 
@@ -348,11 +362,13 @@ php artisan view:clear
 ### B. Update aplikasi Electron (jarang — kalau ubah `desktop-kiosk/`)
 
 Hanya perlu kalau modifikasi:
-- `desktop-kiosk/src/main.js` — kiosk behavior, IPC, lifecycle
-- `desktop-kiosk/src/heartbeat.js` — interval, payload format
+- `desktop-kiosk/src/main.js` — kiosk behavior, IPC, lifecycle, **remote command handler**
+- `desktop-kiosk/src/heartbeat.js` — interval, payload format, **command ack queue**
 - `desktop-kiosk/src/running-apps.js` — whitelist, OS detection
 - `desktop-kiosk/src/auto-update.js`
 - `package.json` dependencies
+
+> **Catatan fitur Remote Shutdown/Restart (v1.0.x+):** Logic eksekusi command remote ada di `main.js` + `heartbeat.js`. Server-side (migrasi `kiosk_commands` + Filament action) bisa di-deploy duluan tanpa update Electron — tombol di Filament akan tampil tapi command tidak dieksekusi sampai PC update Electron app. Kiosk versi lama abaikan field `commands` di heartbeat response (tidak crash). Untuk deploy bersih: deploy server → tunggu semua kiosk auto-update dalam 6 jam → cek versi via Show Kiosk Status di Filament → setelah semua up-to-date, baru kasih tahu admin tombol siap dipakai.
 
 **Eksekusi (di komputer dev):**
 
@@ -466,6 +482,11 @@ Kalau lab Mac banyak: taruh script di iCloud Drive yang di-symlink dari `~/Docum
 | App `running_apps` tidak tertangkap di Filament | Cek `computer_kiosk_running_apps_whitelist` di Settings → nama proses harus persis sama dengan output `tasklist` (case-insensitive). Contoh `Adobe Premiere Pro.exe`, bukan `Premiere.exe` |
 | Banyak PC tidak online setelah server restart | Heartbeat retry tiap 30 detik. Tunggu 1-2 menit. Kalau masih tidak, cek firewall server tidak block `/api/kiosk/heartbeat` |
 | File installer `.exe` ditolak antivirus lab | Submit ke vendor antivirus untuk whitelist (Symantec / Kaspersky / dll punya self-service portal). Atau code-sign installer |
+| Remote Shutdown/Restart diklik tapi PC tidak mati/restart | Cek tabel `kiosk_commands` di DB → status `pending` artinya kiosk belum ambil; `sent` artinya sudah dikirim tapi belum di-ack. Kalau stuck di `pending` > 1 menit, kemungkinan PC offline atau Electron versi lama (sebelum fitur ini). Cek `app_version` via Show Kiosk Status — minimal versi yang support fitur ini |
+| Tombol Remote Shutdown/Restart tidak muncul di Filament | Komputer belum di-pair (tidak ada `kiosk_token`). Pair dulu (Bagian 3a Step 1-3). Tombol auto-hidden untuk Mac karena tidak punya kiosk_token |
+| Mac: customer logout di tab tapi status tetap "Sedang Dipakai" di Filament | Cek di DB `computer_bookings` — status booking. Kalau `active` artinya logout tidak terkirim. Bug ini sudah di-fix (v1.5.x) — kalau masih terjadi, cek browser support `sendBeacon` (Chrome 39+, Safari 11.1+ — modern browser semua support) |
+| Mac: tab kiosk auto-refresh sendiri / kembali ke home | Bug polling lama (v1.5.0); fix di v1.5.x+. Kalau masih kena, hard-refresh tab (Cmd+Shift+R) untuk reload Blade view terbaru |
+| Mac: tab title tidak update timer | Fitur web-mode hanya aktif kalau `window.kioskBridge` tidak ada. Cek di DevTools console: `typeof window.kioskBridge` harus return `'undefined'` di Mac (kalau `'object'` artinya halaman dibuka di Electron) |
 
 ---
 

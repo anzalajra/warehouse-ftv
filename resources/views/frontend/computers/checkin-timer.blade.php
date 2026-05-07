@@ -131,6 +131,68 @@
     .f-btn-danger:hover { border-color:#fca5a5; background:#fef2f2; }
 
     .f-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+
+    /* ============= Web mode (non-Electron, e.g. Mac di Chrome tab) =============
+       Floating-window styling tidak masuk akal di tab browser fullscreen.
+       Body class `is-web-timer` ditambahkan oleh JS kalau `window.kioskBridge` tidak ada. */
+    body.is-web-timer { background: linear-gradient(135deg,#fafaf9 0%,#f3f4f6 100%) !important; min-height:100vh; }
+    body.is-web-timer > header.kiosk-logo-bar { display: flex !important; }
+    body.is-web-timer .f-titlebar { display: none !important; }
+    body.is-web-timer .f-window {
+        height: auto;
+        min-height: calc(100vh - 64px);
+        max-width: 720px;
+        margin: 32px auto;
+        border-radius: 18px;
+        box-shadow: 0 20px 50px -12px rgba(17,24,39,.18), 0 4px 12px rgba(17,24,39,.06);
+        border: 1px solid #ececec;
+    }
+    body.is-web-timer .f-body {
+        padding: 40px 48px 24px;
+        gap: 20px;
+    }
+    @media (max-width: 700px) {
+        body.is-web-timer .f-body { padding: 28px 24px 20px; }
+        body.is-web-timer .f-window { margin: 16px; min-height: calc(100vh - 96px); }
+    }
+    body.is-web-timer .f-avatar { width: 56px; height: 56px; font-size: 20px; }
+    body.is-web-timer .f-user-name { font-size: 18px; }
+    body.is-web-timer .f-pc-card { padding: 14px 16px; }
+    body.is-web-timer .f-pc-name { font-size: 15px; }
+    body.is-web-timer .f-timer {
+        font-size: clamp(56px, 12vw, 96px);
+        text-align: center;
+        margin-top: 18px !important;
+        letter-spacing: -0.03em;
+    }
+    body.is-web-timer .f-timer-head { justify-content: center; gap: 16px; }
+    body.is-web-timer .f-live { justify-content: center; padding: 12px 16px; font-size: 13px; }
+    body.is-web-timer .f-actions {
+        padding: 20px 48px 28px;
+        gap: 12px;
+    }
+    @media (max-width: 700px) {
+        body.is-web-timer .f-actions { padding: 16px 24px 24px; }
+    }
+    body.is-web-timer .f-btn-primary { min-height: 56px; font-size: 16px; }
+    /* Sleep/shutdown row: hidden di web mode (browser tidak bisa eksekusi) */
+    body.is-web-timer .f-row-2 { display: none; }
+    /* Banner "jangan tutup tab" untuk reminder user */
+    body.is-web-timer .f-tab-warning {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px 14px;
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: 10px;
+        font-size: 12.5px;
+        color: #78350f;
+        line-height: 1.45;
+    }
+    body.is-web-timer .f-tab-warning svg { flex-shrink: 0; margin-top: 1px; color: #d97706; }
+    /* Default (Electron mode): sembunyikan banner */
+    .f-tab-warning { display: none; }
 </style>
 @endpush
 
@@ -183,6 +245,14 @@
                 <span>Sesi {{ $booking->start_time }} – {{ $booking->end_time }} · session active</span>
             </div>
         </div>
+
+        <div class="f-tab-warning">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.008v.008H12v-.008Z"/></svg>
+            <div>
+                <strong>Jangan tutup tab ini selama sesi berjalan.</strong><br>
+                Boleh switch ke aplikasi lain (Premiere, Photoshop, dll) — tab tetap di-background. Pas selesai, kembali ke tab ini dan klik <strong>Logout</strong>.
+            </div>
+        </div>
     </div>
 
     <div class="f-actions">
@@ -215,7 +285,18 @@ function kioskTimer() {
         bookingId: {{ $booking->id }},
         slug: @json($computer->checkin_slug),
 
+        isWebMode: false,
+        loggedOut: false,
+        userName: @json($booking->user?->name ?? $booking->offline_walkin_name ?? 'User'),
+
         init() {
+            // Detect: kalau bukan Electron app, berarti dibuka di browser biasa (Mac/dual-use).
+            // Layout switched via body class; behavior switched via this.isWebMode.
+            this.isWebMode = !window.kioskBridge;
+            if (this.isWebMode) {
+                document.body.classList.add('is-web-timer');
+            }
+
             const start = new Date(this.startedAt);
             const hh = String(start.getHours()).padStart(2, '0');
             const mm = String(start.getMinutes()).padStart(2, '0');
@@ -227,9 +308,37 @@ function kioskTimer() {
             if (window.kioskBridge && typeof window.kioskBridge.enterTimerMode === 'function') {
                 window.kioskBridge.enterTimerMode({
                     bookingId: this.bookingId,
-                    userName: @json($booking->user?->name ?? $booking->offline_walkin_name ?? 'User'),
+                    userName: this.userName,
                 });
             }
+
+            if (this.isWebMode) {
+                this.installWebGuards();
+            }
+        },
+
+        installWebGuards() {
+            // Warn user kalau coba close tab — booking masih aktif.
+            window.addEventListener('beforeunload', (e) => {
+                if (this.loggedOut) return;
+                e.preventDefault();
+                e.returnValue = 'Sesi masih aktif. Logout dulu sebelum menutup tab.';
+                return e.returnValue;
+            });
+
+            // Best-effort auto-logout kalau tab benar-benar ditutup tanpa klik logout.
+            // sendBeacon berjalan walaupun tab sudah closing. Server-side logout sudah idempotent
+            // via STATUS_COMPLETED check di applyOfflineLogout() — tapi di sini kita pakai
+            // endpoint utama yang menerima POST x-www-form-urlencoded.
+            window.addEventListener('pagehide', () => {
+                if (this.loggedOut) return;
+                try {
+                    const form = new FormData();
+                    form.append('booking_id', this.bookingId);
+                    form.append('_token', document.querySelector('meta[name="csrf-token"]').content);
+                    navigator.sendBeacon(`/kiosk/checkin/${this.slug}/logout`, form);
+                } catch (_) {}
+            });
         },
 
         tick() {
@@ -238,6 +347,11 @@ function kioskTimer() {
             const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
             const s = String(elapsed % 60).padStart(2, '0');
             this.display = `${h}:${m}:${s}`;
+
+            // Tab title live-update — biar user bisa lihat timer dari tab bar saat switch app.
+            if (this.isWebMode) {
+                document.title = `${this.display} · Sesi aktif — ${this.userName}`;
+            }
         },
 
         async logout() {
@@ -252,6 +366,7 @@ function kioskTimer() {
                     body: `booking_id=${this.bookingId}`,
                 });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
+                this.loggedOut = true;
                 if (window.kioskBridge) window.kioskBridge.exitTimerMode();
                 window.location.href = `/kiosk/checkin/${this.slug}`;
             } catch (e) {

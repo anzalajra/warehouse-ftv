@@ -114,6 +114,23 @@ Kalau tidak auto-launch: hubungi developer.
 Mac TIDAK PAKAI installer aplikasi - cuma pakai Chrome dengan
 mode kiosk. Tidak ada pairing code untuk Mac.
 
+PENTING - PERBEDAAN MAC vs WINDOWS:
+- Windows: ada aplikasi kiosk yang lockdown PC + floating timer
+  window kecil yang bisa di-drag.
+- Mac: TIDAK ada aplikasi - cuma Chrome tab. Setelah check-in,
+  halaman timer tampil di tab Chrome fullscreen. Mahasiswa boleh
+  Cmd+Tab ke Premiere/Photoshop, tab tetap di-background.
+  Pas selesai, kembali ke tab Chrome -> klik Logout.
+- Mac TIDAK BISA: Remote Shutdown/Restart dari Filament
+  (browser tidak punya akses OS).
+- Sistem otomatis adapt - admin tidak perlu setup khusus.
+
+CATATAN BUAT ADMIN YANG PUNYA BANYAK CHROME PROFILE:
+Kiosk Chrome pakai folder data terpisah (~/.chrome-kiosk).
+Profile Chrome daily kamu yang banyak (Google account A, B, C)
+tidak akan kena efeknya. 2 instance Chrome jalan paralel,
+total isolated. Bookmark/login/setting kamu tetap utuh.
+
 
 LANGKAH 1 - DAFTARKAN DI FILAMENT
 ----------------------------------
@@ -215,6 +232,40 @@ Untuk lab dengan banyak mahasiswa, bikin akun Mac terpisah:
 
 Sekarang kalau mahasiswa Cmd+Q, mereka tetap di akun Lab Kiosk
 yang tidak punya akses ke file pribadi admin.
+
+
+================================================================
+  A3. FITUR REMOTE SHUTDOWN / RESTART (WINDOWS SAJA)
+================================================================
+
+Admin bisa shutdown atau restart PC Windows lab dari jarak jauh
+lewat Filament. Berguna kalau:
+- Lab tutup, perlu shutdown semua PC dari ruang admin
+- PC stuck atau perlu reboot tapi mahasiswa sudah pulang
+- Maintenance jadwal otomatis
+
+CARA PAKAI:
+1. Buka https://warehouse.ftvupi.id/admin
+2. Computer Booking -> Computers -> klik PC yang mau di-shutdown
+3. Klik Edit
+4. Di header, klik tombol "Remote Shutdown" (merah) atau
+   "Remote Restart" (oranye)
+5. Konfirmasi
+6. Notifikasi: "Perintah shutdown dikirim"
+7. Dalam 30 detik (heartbeat berikutnya), PC akan eksekusi
+
+CATATAN:
+- Hanya muncul untuk PC Windows yang sudah di-pair
+- TIDAK tersedia di Mac (browser tidak bisa shutdown OS)
+- Latency ~30 detik - bukan instant. Untuk shutdown massal
+  lab tutup, ini fine. Untuk emergency, ada delay
+- Kalau PC offline saat klik, perintah ngantri di server.
+  Pas PC online lagi, langsung dieksekusi
+- Tidak ada "cancel" - sekali klik, perintah jalan
+
+KALAU TIDAK MAU MENUNGGU 30 DETIK:
+Tidak ada cara mempercepat dari sisi Filament. Kalau urgent,
+shutdown manual via Remote Desktop atau datang langsung ke PC.
 
 
 ================================================================
@@ -347,6 +398,35 @@ Mac: Cmd+Q masih bisa keluar
 Anti-virus blok installer Windows
   -> Whitelist file di software anti-virus
   -> Atau hubungi developer untuk solusi code-signing
+
+Tombol "Remote Shutdown / Restart" tidak muncul di Filament
+  -> PC belum di-pair. Lakukan pairing dulu (Langkah A1.2-A1.4)
+  -> Atau ini Mac - tombol memang sengaja di-hide untuk Mac
+     (browser tidak bisa shutdown OS)
+
+Klik "Remote Shutdown" tapi PC tidak mati setelah 1 menit
+  -> Cek PC masih Online di Filament. Kalau Offline, perintah
+     ngantri sampai PC online lagi
+  -> Cek versi Electron app: Edit Computer -> Show Kiosk Status
+     -> "App version" harus minimal versi yang support fitur
+     remote shutdown. Kalau lebih lama, tunggu auto-update
+     (max 6 jam) atau force update (bagian B3)
+
+Mac: mahasiswa logout di tab tapi status masih "Sedang Dipakai"
+  -> Refresh halaman Filament dulu (data tidak realtime, butuh
+     reload)
+  -> Kalau setelah refresh masih, mungkin tab Chrome di-tutup
+     paksa sebelum sempat kirim logout. Jarang terjadi karena
+     browser modern auto-kirim logout via sendBeacon
+
+Mac: tab kiosk auto-refresh kembali ke home sendiri
+  -> Bug lama, sudah di-fix. Kalau masih kena, hard-refresh
+     halaman (Cmd+Shift+R) untuk reload versi terbaru
+
+Mac: mahasiswa lupa logout, tutup tab Chrome langsung
+  -> Browser auto-kirim logout via sendBeacon (best-effort)
+  -> Kalau gagal terkirim, booking akan auto-completed saat
+     end_time slot terlewat (via scheduler tiap 5 menit)
 
 
 ================================================================
