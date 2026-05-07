@@ -323,10 +323,40 @@ setTimeout(() => window.location.reload(), 30_000);
                 @if($todaysBookings->isEmpty())
                     <div style="padding:18px 22px;font-size:13px;color:#6b7280;">Belum ada booking hari ini.</div>
                 @else
+                    @php
+                        $grace = \App\Services\ComputerValidationService::noShowGraceMinutes();
+                        $nowTs = now();
+                    @endphp
                     @foreach($todaysBookings as $b)
                         @php
                             $isCurrent = $activeBooking && $activeBooking->id === $b->id;
-                            $isCancelled = in_array($b->status, ['cancelled', 'no_show', 'overridden']);
+
+                            // Derive an effective status so the table stays accurate between
+                            // the 5-minute cron ticks. Persisted terminal/admin states win;
+                            // we only refine confirmed/active in real time.
+                            $effective = $b->status;
+                            if (in_array($b->status, [\App\Models\ComputerBooking::STATUS_CONFIRMED, \App\Models\ComputerBooking::STATUS_ACTIVE])) {
+                                $startTs = \Carbon\Carbon::parse($b->booking_date->toDateString().' '.$b->start_time);
+                                $endTs = \Carbon\Carbon::parse($b->booking_date->toDateString().' '.$b->end_time);
+                                if ($endTs->lessThan($startTs)) { $endTs->addDay(); } // overnight slot
+
+                                if ($nowTs->greaterThanOrEqualTo($endTs)) {
+                                    $effective = $b->checked_in_at
+                                        ? \App\Models\ComputerBooking::STATUS_COMPLETED
+                                        : \App\Models\ComputerBooking::STATUS_NO_SHOW;
+                                } elseif (! $b->checked_in_at && $nowTs->greaterThanOrEqualTo($startTs->copy()->addMinutes($grace))) {
+                                    $effective = \App\Models\ComputerBooking::STATUS_NO_SHOW;
+                                } elseif ($b->checked_in_at && $nowTs->greaterThanOrEqualTo($startTs)) {
+                                    $effective = \App\Models\ComputerBooking::STATUS_ACTIVE;
+                                } elseif (! $b->checked_in_at && $nowTs->lessThan($startTs)) {
+                                    $effective = \App\Models\ComputerBooking::STATUS_CONFIRMED;
+                                } elseif (! $b->checked_in_at && $nowTs->between($startTs, $startTs->copy()->addMinutes($grace))) {
+                                    // Within grace window — still confirmed but late
+                                    $effective = \App\Models\ComputerBooking::STATUS_CONFIRMED;
+                                }
+                            }
+
+                            $isCancelled = in_array($effective, ['cancelled', 'no_show', 'overridden']);
                             $statusLabelMap = [
                                 'confirmed' => ['Dikonfirmasi', 'k-pill-primary', false],
                                 'active'    => ['Sedang digunakan', 'k-pill-live', true],
@@ -335,7 +365,7 @@ setTimeout(() => window.location.reload(), 30_000);
                                 'no_show'   => ['No-show', 'k-pill-danger', false],
                                 'overridden'=> ['Diambil alih', 'k-pill-warn', false],
                             ];
-                            [$lbl, $tone, $live] = $statusLabelMap[$b->status] ?? [ucfirst($b->status), 'k-pill-neutral', false];
+                            [$lbl, $tone, $live] = $statusLabelMap[$effective] ?? [ucfirst($effective), 'k-pill-neutral', false];
                         @endphp
                         <div class="k-row {{ $isCurrent ? 'current' : '' }}">
                             <div class="k-row-time {{ $isCancelled ? 'cancelled' : '' }}">{{ $b->start_time }} – {{ $b->end_time }}</div>
