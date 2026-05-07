@@ -2,9 +2,9 @@
     <form wire:submit="save">
         {{ $this->form }}
 
-        <div class="mt-6">
+        <div class="mt-6 flex justify-end">
             <x-filament::button type="submit">
-                Save Settings
+                Simpan Semua
             </x-filament::button>
         </div>
     </form>

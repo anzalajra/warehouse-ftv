@@ -188,11 +188,18 @@
                     <span>Saya menyetujui Syarat &amp; Ketentuan di atas.</span>
                 </label>
 
+                @php
+                    $permitRequired = (bool) (\App\Models\Setting::get('computer_night_permit_required') ?? true);
+                    $permitText = \App\Models\Setting::get('computer_night_permit_text') ?? 'Saya sudah memiliki perizinan menginap di kampus.';
+                @endphp
                 <template x-if="hasNightSlot">
-                    <label class="flex items-start gap-2 text-sm">
-                        <input type="checkbox" name="permit" value="1" required class="mt-0.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500">
-                        <span>Saya sudah memiliki perizinan menginap di kampus.</span>
-                    </label>
+                    <div class="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+                        <p class="text-amber-900 mb-2 whitespace-pre-line">{{ $permitText }}</p>
+                        <label class="flex items-start gap-2 text-amber-900">
+                            <input type="checkbox" name="permit" value="1" {{ $permitRequired ? 'required' : '' }} class="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500">
+                            <span>Saya menyetujui pernyataan di atas.</span>
+                        </label>
+                    </div>
                 </template>
 
                 <div class="pt-2">

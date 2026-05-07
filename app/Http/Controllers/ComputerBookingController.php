@@ -74,7 +74,8 @@ class ComputerBookingController extends Controller
             })
             ->exists();
 
-        if ($hasNight && ! $request->boolean('permit')) {
+        $permitRequired = (bool) (\App\Models\Setting::get('computer_night_permit_required') ?? true);
+        if ($hasNight && $permitRequired && ! $request->boolean('permit')) {
             return back()->withInput()->withErrors(['permit' => 'Anda harus mengkonfirmasi perizinan menginap untuk slot jam malam.']);
         }
 

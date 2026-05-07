@@ -39,9 +39,9 @@ class ComputerValidationService
             return ['ok' => false, 'error' => 'Waktu mulai harus sebelum waktu selesai.'];
         }
 
-        $startsAt = Carbon::parse($date->toDateString().' '.$start);
-        if ($startsAt->isPast()) {
-            return ['ok' => false, 'error' => 'Tidak bisa booking di waktu yang sudah lewat.'];
+        $endsAt = Carbon::parse($date->toDateString().' '.$end);
+        if ($endsAt->isPast()) {
+            return ['ok' => false, 'error' => 'Tidak bisa booking di slot yang sudah selesai.'];
         }
 
         $matchesSlot = ComputerBookingSlot::active()
@@ -146,8 +146,8 @@ class ComputerValidationService
             $end = $slot->end_time;
             $available = self::checkComputerAvailability($computerId, $date, $start, $end);
 
-            $startsAt = Carbon::parse($date->toDateString().' '.$start);
-            if ($startsAt->isPast()) {
+            $endsAt = Carbon::parse($date->toDateString().' '.$end);
+            if ($endsAt->isPast()) {
                 $available = false;
             }
 
