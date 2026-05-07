@@ -25,8 +25,9 @@
     <div class="err" id="err"></div>
     <div class="row">
       <button class="cancel" id="cancel">Batal</button>
-      <button class="ok" id="ok">Konfirmasi</button>
+      <button class="ok" id="ok">Tutup App</button>
     </div>
+    <button id="unpair" style="margin-top:10px;width:100%;padding:9px 0;border:0;border-radius:10px;background:#fef3c7;color:#92400e;font-weight:600;font-size:13px;cursor:pointer;">Unpair & Re-pair</button>
   </div>
 
 <script>
@@ -47,8 +48,18 @@ async function submit() {
   }
 }
 
+async function unpair() {
+  const value = pin.value.trim();
+  if (!value) { err.textContent = 'Masukkan PIN dulu.'; return; }
+  const ok = await ipcRenderer.invoke('admin:verify-pin', value);
+  if (!ok) { err.textContent = 'PIN salah.'; pin.value = ''; pin.focus(); return; }
+  if (!confirm('Yakin unpair? Aplikasi akan restart ke layar pairing.')) return;
+  ipcRenderer.send('admin:unpair');
+}
+
 document.getElementById('ok').addEventListener('click', submit);
 document.getElementById('cancel').addEventListener('click', () => ipcRenderer.send('admin:close-cancelled'));
+document.getElementById('unpair').addEventListener('click', unpair);
 pin.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') submit();
   if (e.key === 'Escape') ipcRenderer.send('admin:close-cancelled');

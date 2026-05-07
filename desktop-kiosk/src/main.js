@@ -4,7 +4,7 @@ const { app, BrowserWindow, Menu, ipcMain, globalShortcut } = require('electron'
 const path = require('path');
 const { exec } = require('child_process');
 
-const { SERVER_BASE, readConfig, writeConfig } = require('./config');
+const { SERVER_BASE, readConfig, writeConfig, clearConfig } = require('./config');
 const { HeartbeatService } = require('./heartbeat');
 const { startAutoUpdater } = require('./auto-update');
 const { NetworkMonitor } = require('./network');
@@ -132,6 +132,20 @@ ipcMain.on('admin:close-confirmed', () => {
 ipcMain.on('admin:close-cancelled', () => {
   if (adminWindow && !adminWindow.isDestroyed()) adminWindow.close();
 });
+
+ipcMain.on('admin:unpair', () => {
+  if (adminWindow && !adminWindow.isDestroyed()) adminWindow.close();
+  unpairAndRestart();
+});
+
+function unpairAndRestart() {
+  if (heartbeat) heartbeat.stop();
+  if (network) network.stop();
+  globalShortcut.unregisterAll();
+  clearConfig();
+  app.relaunch();
+  app.exit(0);
+}
 
 function forceQuit() {
   globalShortcut.unregisterAll();
@@ -286,6 +300,7 @@ app.whenReady().then(() => {
   registerAdminShortcut();
 
   heartbeat = new HeartbeatService(config);
+  heartbeat.onUnpaired = () => unpairAndRestart();
   heartbeat.start();
 
   // Network monitor — probe SERVER_BASE root

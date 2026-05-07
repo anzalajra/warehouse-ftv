@@ -11,6 +11,7 @@ class HeartbeatService {
     this.whitelist = config.running_apps_whitelist || [];
     this.adminPin = config.admin_pin || '9999';
     this.onSettingsUpdate = null;
+    this.onUnpaired = null; // called when server says token invalid
     this.timer = null;
     this.failureCount = 0;
   }
@@ -51,6 +52,14 @@ class HeartbeatService {
         },
         body: JSON.stringify(payload),
       });
+
+      if (res.status === 401) {
+        // Server invalidated this kiosk's token — unpair locally and reset.
+        if (typeof this.onUnpaired === 'function') {
+          this.onUnpaired();
+        }
+        return;
+      }
 
       if (!res.ok) {
         throw new Error('HTTP ' + res.status);

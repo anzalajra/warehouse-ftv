@@ -60,6 +60,30 @@ class EditComputer extends EditRecord
                         ->send();
                 }),
 
+            Action::make('unpairKiosk')
+                ->label('Unpair Kiosk App')
+                ->icon('heroicon-o-link-slash')
+                ->color('danger')
+                ->visible(fn () => ! empty($this->record->kiosk_token))
+                ->requiresConfirmation()
+                ->modalHeading('Unpair Kiosk App')
+                ->modalDescription('Token kiosk akan dihapus. Aplikasi kiosk di komputer akan otomatis kembali ke layar pairing pada heartbeat berikutnya (dalam ~30 detik).')
+                ->modalSubmitActionLabel('Unpair')
+                ->action(function () {
+                    $this->record->kiosk_token = null;
+                    $this->record->kiosk_paired_at = null;
+                    $this->record->last_seen_at = null;
+                    $this->record->last_heartbeat_at = null;
+                    $this->record->last_heartbeat_data = null;
+                    $this->record->save();
+
+                    Notification::make()
+                        ->title('Kiosk di-unpair')
+                        ->body('Aplikasi kiosk akan reset ke pairing pada heartbeat berikutnya.')
+                        ->success()
+                        ->send();
+                }),
+
             Action::make('showKioskStatus')
                 ->label('Kiosk Status')
                 ->icon('heroicon-o-signal')

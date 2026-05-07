@@ -1,6 +1,6 @@
 {
   "name": "warehouse-ftv-kiosk",
-  "version": "1.0.0",
+  "version": "1.1.2",
   "description": "Kiosk app untuk komputer lab FTV UPI — full-screen check-in shell + heartbeat ke server warehouse.",
   "main": "src/main.js",
   "private": true,
