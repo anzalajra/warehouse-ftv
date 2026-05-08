@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Products\Schemas;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\CustomerCategory;
+use App\Models\ProductTag;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\RichEditor;
@@ -150,6 +151,26 @@ class ProductForm
                     ->label('Price Includes Tax (Harga Termasuk Pajak)')
                     ->default(false)
                     ->helperText('If enabled, the price is considered inclusive of tax.'),
+
+                Select::make('tags')
+                    ->label('Tags')
+                    ->relationship('tags', 'name')
+                    ->multiple()
+                    ->preload()
+                    ->searchable()
+                    ->helperText('Tags akan ditampilkan sebagai capsule di storefront dan dapat digunakan sebagai filter.')
+                    ->createOptionForm([
+                        TextInput::make('name')
+                            ->required()
+                            ->maxLength(255),
+                        TextInput::make('color')
+                            ->label('Color (hex)')
+                            ->placeholder('#3b82f6')
+                            ->maxLength(32),
+                    ])
+                    ->createOptionUsing(function (array $data): int {
+                        return ProductTag::create($data)->getKey();
+                    }),
 
                 CheckboxList::make('excludedCustomerCategories')
                     ->label('Hide from Customer Categories')

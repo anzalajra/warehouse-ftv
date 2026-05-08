@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Category;
+use App\Models\ProductTag;
 use App\Models\Rental;
 use App\Models\ProductUnit;
 use App\Models\Setting;
@@ -17,7 +18,7 @@ class CatalogController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'units'])
+        $query = Product::with(['category', 'units', 'tags'])
             ->where('is_active', true)
             ->visibleForCustomer(Auth::guard('customer')->user())
             ->whereHas('category', fn ($q) => $q->where('slug', '!=', 'accessories-kits'));
@@ -60,6 +61,14 @@ class CatalogController extends Controller
             $query->where('category_id', $request->category);
         }
 
+        // Filter by tags (slugs). Product must have ALL selected tags.
+        $selectedTagSlugs = array_filter((array) $request->input('tags', []));
+        if (! empty($selectedTagSlugs)) {
+            foreach ($selectedTagSlugs as $tagSlug) {
+                $query->whereHas('tags', fn ($q) => $q->where('slug', $tagSlug));
+            }
+        }
+
         // Search
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -86,16 +95,17 @@ class CatalogController extends Controller
 
         $products = $query->paginate(12)->withQueryString();
         $categories = Category::visibleOnStorefront()->get();
+        $tags = ProductTag::orderBy('sort_order')->orderBy('name')->get();
 
         $operationalDays = array_map('strval', json_decode(Setting::get('operational_days'), true) ?? ['1', '2', '3', '4', '5', '6', '0']);
         $holidays = json_decode(Setting::get('holidays'), true) ?? [];
 
-        return view('frontend.catalog.index', compact('products', 'categories', 'operationalDays', 'holidays'));
+        return view('frontend.catalog.index', compact('products', 'categories', 'tags', 'selectedTagSlugs', 'operationalDays', 'holidays'));
     }
 
     public function show(Product $product)
     {
-        $product->load(['category', 'units.kits', 'variations']);
+        $product->load(['category', 'units.kits', 'variations', 'tags']);
 
         // Show total units that are not retired or in maintenance
         $availableUnits = $product->units()

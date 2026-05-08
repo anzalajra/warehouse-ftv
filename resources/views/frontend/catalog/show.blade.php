@@ -61,6 +61,22 @@
         <div>
             <span class="text-sm text-primary-600">{{ $product->category->name }}</span>
             <h1 class="text-3xl font-bold mt-2 mb-4">{{ $product->name }}</h1>
+
+            @if($product->tags->isNotEmpty())
+                <div class="flex flex-wrap gap-2 mb-4">
+                    @foreach($product->tags as $tag)
+                        @php
+                            $tagColor = $tag->color ?: '#3b82f6';
+                        @endphp
+                        <a href="{{ route('catalog.index', ['tags' => [$tag->slug]]) }}"
+                           class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border transition hover:opacity-80"
+                           style="background-color: {{ $tagColor }}1a; color: {{ $tagColor }}; border-color: {{ $tagColor }}40;">
+                            {{ $tag->name }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+
             <p class="text-gray-600 mb-6">{{ $product->description }}</p>
 
             <div class="text-3xl font-bold text-primary-600 mb-6">

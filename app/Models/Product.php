@@ -140,6 +140,13 @@ class Product extends Model
         return $this->hasMany(ProductComponent::class, 'parent_product_id');
     }
 
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(ProductTag::class, 'product_product_tag')
+            ->orderBy('sort_order')
+            ->orderBy('name');
+    }
+
     // Relasi ke Product (Sebagai Parent)
     public function parentProducts(): BelongsToMany
     {

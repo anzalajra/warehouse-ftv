@@ -45,7 +45,13 @@
                     <h3 class="font-semibold mb-4">Search</h3>
                     <form action="{{ route('catalog.index') }}" method="GET">
                         @foreach(request()->except(['search', 'page']) as $key => $value)
-                            <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                            @if(is_array($value))
+                                @foreach($value as $v)
+                                    <input type="hidden" name="{{ $key }}[]" value="{{ $v }}">
+                                @endforeach
+                            @else
+                                <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                            @endif
                         @endforeach
                         <div class="relative">
                             <input type="text" name="search" value="{{ request('search') }}" placeholder="Search products..." class="w-full border rounded-lg pl-3 pr-10 py-2 text-sm">
@@ -79,6 +85,48 @@
                     </ul>
                 </div>
 
+                @if($tags->isNotEmpty())
+                    <!-- Tags -->
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <h3 class="font-semibold mb-4">Tags</h3>
+                        <form action="{{ route('catalog.index') }}" method="GET" id="tagsFilterForm">
+                            @foreach(request()->except(['tags', 'page']) as $key => $value)
+                                @if(is_array($value))
+                                    @foreach($value as $v)
+                                        <input type="hidden" name="{{ $key }}[]" value="{{ $v }}">
+                                    @endforeach
+                                @else
+                                    <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                                @endif
+                            @endforeach
+                            <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                @foreach($tags as $tag)
+                                    @php
+                                        $tagColor = $tag->color ?: '#3b82f6';
+                                        $checked = in_array($tag->slug, $selectedTagSlugs ?? []);
+                                    @endphp
+                                    <label class="flex items-center gap-2 cursor-pointer text-sm">
+                                        <input type="checkbox" name="tags[]" value="{{ $tag->slug }}"
+                                               onchange="document.getElementById('tagsFilterForm').submit()"
+                                               {{ $checked ? 'checked' : '' }}
+                                               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border"
+                                              style="background-color: {{ $tagColor }}1a; color: {{ $tagColor }}; border-color: {{ $tagColor }}40;">
+                                            {{ $tag->name }}
+                                        </span>
+                                    </label>
+                                @endforeach
+                            </div>
+                            @if(! empty($selectedTagSlugs))
+                                <a href="{{ route('catalog.index', request()->except(['tags', 'page'])) }}"
+                                   class="block mt-3 text-xs text-gray-500 hover:text-gray-700">
+                                    Clear tags
+                                </a>
+                            @endif
+                        </form>
+                    </div>
+                @endif
+
                 <!-- Filters -->
                 <div class="bg-white rounded-lg shadow p-6">
                     <h3 class="font-semibold mb-4">Filters</h3>
@@ -89,6 +137,9 @@
                         @if(request('search'))
                             <input type="hidden" name="search" value="{{ request('search') }}">
                         @endif
+                        @foreach((array) request('tags', []) as $tagSlug)
+                            <input type="hidden" name="tags[]" value="{{ $tagSlug }}">
+                        @endforeach
 
                         <!-- Date Range -->
                         <div class="mb-4">
@@ -157,6 +208,17 @@
                         <div class="p-4 border-t border-gray-100">
                             <p class="text-xs text-primary-600 mb-1">{{ $product->category->name }}</p>
                             <h3 class="font-semibold mb-2">{{ $product->name }}</h3>
+                            @if($product->tags->isNotEmpty())
+                                <div class="flex flex-wrap gap-1 mb-2">
+                                    @foreach($product->tags->take(3) as $tag)
+                                        @php $tagColor = $tag->color ?: '#3b82f6'; @endphp
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border"
+                                              style="background-color: {{ $tagColor }}1a; color: {{ $tagColor }}; border-color: {{ $tagColor }}40;">
+                                            {{ $tag->name }}
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @endif
                             <p class="text-sm text-gray-600 mb-3 line-clamp-2">{{ $product->description }}</p>
                             <div class="flex justify-between items-center">
                                 <p class="text-primary-600 font-bold">Rp {{ number_format($product->daily_rate, 0, ',', '.') }}/day</p>
