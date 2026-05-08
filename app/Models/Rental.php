@@ -397,80 +397,152 @@ class Rental extends Model
      */
     public function checkAvailability(): array
     {
-        if (!$this->relationLoaded('items')) {
+        if (!$this->relationLoaded('items') || !$this->items->first()?->relationLoaded('productUnit')) {
             $this->load(['items.productUnit.kits']);
         }
 
         \Illuminate\Support\Facades\Log::info("Checking availability for Rental {$this->id} ({$this->rental_code})");
-        $conflicts = [];
 
-        foreach ($this->items as $item) {
-            // Get all related unit IDs that would cause a conflict
-            // 1. The unit itself
-            $conflictUnitIds = [$item->product_unit_id];
-            
-            // 2. Parent units (Units that use this unit as a kit)
-            // If I rent a Lens, I cannot rent the Camera Kit that contains it.
-            $parentIds = \App\Models\UnitKit::where('linked_unit_id', $item->product_unit_id)->pluck('unit_id')->toArray();
-            $conflictUnitIds = array_merge($conflictUnitIds, $parentIds);
+        $items = $this->items;
+        if ($items->isEmpty()) {
+            return [];
+        }
 
-            // 3. Child units (Units that are kits of this unit)
-            // If I rent a Camera Kit, I cannot rent the Lens inside it.
-            if ($item->productUnit) {
-                 $childIds = $item->productUnit->kits()->whereNotNull('linked_unit_id')->pluck('linked_unit_id')->toArray();
-                 $conflictUnitIds = array_merge($conflictUnitIds, $childIds);
+        // 1. Collect all item unit IDs in this rental.
+        $itemUnitIds = $items->pluck('product_unit_id')->filter()->unique()->values()->all();
+
+        // 2. Batch-fetch parent UnitKit relationships (units that contain any of our item units as kits).
+        // Map: linked_unit_id => [parent unit_id, ...]
+        $parentMap = \App\Models\UnitKit::whereIn('linked_unit_id', $itemUnitIds)
+            ->get(['unit_id', 'linked_unit_id'])
+            ->groupBy('linked_unit_id')
+            ->map(fn ($rows) => $rows->pluck('unit_id')->all())
+            ->all();
+
+        // 3. Build per-item conflict unit ID sets, plus a global union of all conflict unit IDs.
+        $perItemConflictIds = [];
+        $allConflictIds = [];
+        foreach ($items as $item) {
+            $unitId = $item->product_unit_id;
+            $ids = [$unitId];
+
+            // Parents (units that use this unit as a kit)
+            if (!empty($parentMap[$unitId] ?? null)) {
+                $ids = array_merge($ids, $parentMap[$unitId]);
             }
-            
-            $conflictUnitIds = array_unique($conflictUnitIds);
 
-            \Illuminate\Support\Facades\Log::info("Item {$item->id} (Unit {$item->product_unit_id}) conflicts with units: " . implode(',', $conflictUnitIds));
+            // Children (kits of this unit) — already eager-loaded
+            if ($item->productUnit && $item->productUnit->relationLoaded('kits')) {
+                $childIds = $item->productUnit->kits
+                    ->whereNotNull('linked_unit_id')
+                    ->pluck('linked_unit_id')
+                    ->all();
+                $ids = array_merge($ids, $childIds);
+            }
 
-            // Check if any of the conflicting units are already rented in an overlapping period.
-            // Use strict (exclusive) date overlap: A overlaps B iff A.start < B.end AND A.end > B.start.
-            // Inclusive comparison would falsely flag back-to-back rentals (one ends the same day another starts).
-            $conflictingRentals = self::where('id', '!=', $this->id)
-                ->whereIn('status', [self::STATUS_QUOTATION, self::STATUS_CONFIRMED, self::STATUS_ACTIVE, self::STATUS_LATE_PICKUP, self::STATUS_LATE_RETURN])
-                ->where('start_date', '<', $this->end_date)
-                ->where('end_date', '>', $this->start_date)
-                ->whereHas('items', function ($query) use ($conflictUnitIds) {
-                    $query->where(function ($q) use ($conflictUnitIds) {
-                        // 1. Direct match (Item IS one of the conflict units)
-                        $q->whereIn('product_unit_id', $conflictUnitIds)
-                        // 2. Item CONTAINS one of the conflict units (Item is a Parent of a conflict unit)
-                        ->orWhereHas('productUnit', function ($pu) use ($conflictUnitIds) {
-                            $pu->whereHas('kits', function ($k) use ($conflictUnitIds) {
-                                $k->whereIn('linked_unit_id', $conflictUnitIds);
-                            });
-                        });
-                    });
-                })
-                ->with(['customer', 'items.productUnit.product'])
-                ->get();
+            $ids = array_values(array_unique(array_filter($ids)));
+            $perItemConflictIds[$item->id] = $ids;
+            $allConflictIds = array_merge($allConflictIds, $ids);
+        }
+        $allConflictIds = array_values(array_unique($allConflictIds));
 
-            if ($conflictingRentals->isNotEmpty()) {
-                // Identify exactly which item(s) on each conflicting rental matched, so the UI can show specific serials.
-                $conflictingRentals->each(function ($otherRental) use ($conflictUnitIds) {
-                    $matchingItems = $otherRental->items->filter(function ($otherItem) use ($conflictUnitIds) {
-                        if (in_array($otherItem->product_unit_id, $conflictUnitIds)) {
+        if (empty($allConflictIds)) {
+            return [];
+        }
+
+        // 4. Single query: find every overlapping rental that has an item in $allConflictIds
+        //    OR an item whose unit contains (as a kit) any unit in $allConflictIds.
+        // Use strict (exclusive) date overlap: A overlaps B iff A.start < B.end AND A.end > B.start.
+
+        // 4a. Direct-match: rental_items.product_unit_id IN (...)
+        $directRentalIds = \App\Models\RentalItem::whereIn('product_unit_id', $allConflictIds)
+            ->where('rental_id', '!=', $this->id)
+            ->pluck('rental_id');
+
+        // 4b. Container-match: rental_items whose productUnit has a kit linked to any conflict unit.
+        $containerUnitIds = \App\Models\UnitKit::whereIn('linked_unit_id', $allConflictIds)
+            ->pluck('unit_id')
+            ->unique()
+            ->values()
+            ->all();
+
+        $containerRentalIds = collect();
+        if (!empty($containerUnitIds)) {
+            $containerRentalIds = \App\Models\RentalItem::whereIn('product_unit_id', $containerUnitIds)
+                ->where('rental_id', '!=', $this->id)
+                ->pluck('rental_id');
+        }
+
+        $candidateRentalIds = $directRentalIds->merge($containerRentalIds)->unique()->values();
+
+        if ($candidateRentalIds->isEmpty()) {
+            return [];
+        }
+
+        $overlappingRentals = self::whereIn('id', $candidateRentalIds)
+            ->whereIn('status', [self::STATUS_QUOTATION, self::STATUS_CONFIRMED, self::STATUS_ACTIVE, self::STATUS_LATE_PICKUP, self::STATUS_LATE_RETURN])
+            ->where('start_date', '<', $this->end_date)
+            ->where('end_date', '>', $this->start_date)
+            ->with(['customer', 'items.productUnit.product', 'items.productUnit.kits'])
+            ->get();
+
+        if ($overlappingRentals->isEmpty()) {
+            return [];
+        }
+
+        // 5. Build conflicts list per item by filtering the already-loaded set in-memory.
+        $conflicts = [];
+        foreach ($items as $item) {
+            $itemConflictIds = $perItemConflictIds[$item->id] ?? [];
+            if (empty($itemConflictIds)) {
+                continue;
+            }
+
+            $matchedRentals = $overlappingRentals->filter(function ($otherRental) use ($itemConflictIds) {
+                foreach ($otherRental->items as $otherItem) {
+                    if (in_array($otherItem->product_unit_id, $itemConflictIds, true)) {
+                        return true;
+                    }
+                    if ($otherItem->productUnit && $otherItem->productUnit->relationLoaded('kits')) {
+                        $linkedIds = $otherItem->productUnit->kits
+                            ->whereNotNull('linked_unit_id')
+                            ->pluck('linked_unit_id')
+                            ->all();
+                        if (array_intersect($linkedIds, $itemConflictIds)) {
                             return true;
                         }
-                        if ($otherItem->productUnit) {
-                            $linkedIds = $otherItem->productUnit->kits()->whereNotNull('linked_unit_id')->pluck('linked_unit_id')->toArray();
-                            if (array_intersect($linkedIds, $conflictUnitIds)) {
-                                return true;
-                            }
-                        }
-                        return false;
-                    })->values();
-                    $otherRental->setRelation('matchingItems', $matchingItems);
-                });
+                    }
+                }
+                return false;
+            })->values();
 
-                \Illuminate\Support\Facades\Log::warning("Conflict detected for Rental {$this->id} with rentals: " . $conflictingRentals->pluck('rental_code')->implode(', '));
-                $conflicts[] = [
-                    'product_unit' => $item->productUnit,
-                    'conflicting_rentals' => $conflictingRentals,
-                ];
+            if ($matchedRentals->isEmpty()) {
+                continue;
             }
+
+            // Annotate each conflicting rental with the specific items that matched (UI shows serials).
+            $matchedRentals->each(function ($otherRental) use ($itemConflictIds) {
+                $matchingItems = $otherRental->items->filter(function ($otherItem) use ($itemConflictIds) {
+                    if (in_array($otherItem->product_unit_id, $itemConflictIds, true)) {
+                        return true;
+                    }
+                    if ($otherItem->productUnit && $otherItem->productUnit->relationLoaded('kits')) {
+                        $linkedIds = $otherItem->productUnit->kits
+                            ->whereNotNull('linked_unit_id')
+                            ->pluck('linked_unit_id')
+                            ->all();
+                        return (bool) array_intersect($linkedIds, $itemConflictIds);
+                    }
+                    return false;
+                })->values();
+                $otherRental->setRelation('matchingItems', $matchingItems);
+            });
+
+            \Illuminate\Support\Facades\Log::warning("Conflict detected for Rental {$this->id} item {$item->id} with rentals: " . $matchedRentals->pluck('rental_code')->implode(', '));
+            $conflicts[] = [
+                'product_unit' => $item->productUnit,
+                'conflicting_rentals' => $matchedRentals,
+            ];
         }
 
         return $conflicts;
