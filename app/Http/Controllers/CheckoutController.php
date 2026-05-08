@@ -254,6 +254,45 @@ class CheckoutController extends Controller
             return $item->start_date->format('Y-m-d') . '_' . $item->end_date->format('Y-m-d');
         });
 
+        // PRE-FETCH availability data in batched queries (avoids N+1 in the loop below).
+        // For each (product_id, start_date, end_date) tuple we need to know which units are
+        // already reserved by overlapping rentals in the relevant statuses.
+        $allProductIds = $cartItems->pluck('productUnit.product_id')->filter()->unique()->values()->all();
+
+        // Pre-load all candidate units per product (excluding maintenance/retired) in one query.
+        $unitsByProduct = \App\Models\ProductUnit::whereIn('product_id', $allProductIds)
+            ->whereNotIn('status', [\App\Models\ProductUnit::STATUS_MAINTENANCE, \App\Models\ProductUnit::STATUS_RETIRED])
+            ->get(['id', 'product_id'])
+            ->groupBy('product_id');
+
+        // Pre-load every potentially-blocking RentalItem (unit_id, start_date, end_date) for the
+        // products we care about. Single query joining rentals.
+        $blockingItems = \App\Models\RentalItem::query()
+            ->select('rental_items.product_unit_id', 'rentals.start_date', 'rentals.end_date')
+            ->join('rentals', 'rentals.id', '=', 'rental_items.rental_id')
+            ->whereIn('rentals.status', [
+                Rental::STATUS_QUOTATION,
+                Rental::STATUS_CONFIRMED,
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_LATE_PICKUP,
+                Rental::STATUS_LATE_RETURN,
+            ])
+            ->whereIn('rental_items.product_unit_id', $unitsByProduct->flatten()->pluck('id')->all() ?: [0])
+            ->get();
+
+        // Helper: given a date range, return set of unit_ids that overlap.
+        $blockedUnitsFor = function ($startDate, $endDate) use ($blockingItems) {
+            $start = Carbon::parse($startDate);
+            $end = Carbon::parse($endDate);
+            $blocked = [];
+            foreach ($blockingItems as $row) {
+                if (Carbon::parse($row->start_date)->lt($end) && Carbon::parse($row->end_date)->gt($start)) {
+                    $blocked[$row->product_unit_id] = true;
+                }
+            }
+            return $blocked;
+        };
+
         DB::beginTransaction();
 
         try {
@@ -263,7 +302,7 @@ class CheckoutController extends Controller
             foreach ($groupedItems as $dateKey => $items) {
                 $firstItem = $items->first();
                 $subtotal = $items->sum('subtotal');
-                
+
                 // Calculate proportional discount for this rental
                 $rentalDiscount = 0;
                 $rentalDailyDiscountAmount = 0;
@@ -274,7 +313,7 @@ class CheckoutController extends Controller
                     $rentalDailyDiscountAmount = $globalDailyDiscountAmount * $proportion;
                     $rentalDatePromotionAmount = $globalDatePromotionAmount * $proportion;
                 }
-                
+
                 $rentalTotalDiscount = $rentalDiscount + $rentalDailyDiscountAmount + $rentalDatePromotionAmount;
 
                 // Deposit calculation
@@ -311,51 +350,109 @@ class CheckoutController extends Controller
                     'notes' => $request->notes,
                 ]);
 
-                foreach ($items as $cartItem) {
-                    // VALIDATION: Ensure unit is still available
-                    $product = $cartItem->productUnit->product;
-                    $startDate = $cartItem->start_date;
-                    $endDate = $cartItem->end_date;
+                // Compute blocked units once for this date range (all items in group share dates).
+                $blockedForRange = $blockedUnitsFor($firstItem->start_date, $firstItem->end_date);
 
-                    // Get fresh availability from DB
-                    // This checks against OTHER existing rentals (Confirmed, Active, etc.)
-                    $availableUnits = $product->findAvailableUnits($startDate, $endDate);
-                    
-                    // Filter out units we already reserved in this current checkout session
-                    $candidates = $availableUnits->whereNotIn('id', $reservedUnitIds);
-                    
+                // Resolve final unit IDs for every cart item BEFORE inserting, so we can bulk-insert.
+                $resolvedItems = []; // [['cart' => CartItem, 'unit_id' => int], ...]
+                foreach ($items as $cartItem) {
+                    $product = $cartItem->productUnit->product;
+                    $candidateUnits = $unitsByProduct->get($product->id, collect());
                     $finalUnitId = null;
 
-                    // 1. Check if the unit currently in cart is valid
-                    if ($candidates->contains('id', $cartItem->product_unit_id)) {
+                    if (
+                        !isset($blockedForRange[$cartItem->product_unit_id])
+                        && !in_array($cartItem->product_unit_id, $reservedUnitIds, true)
+                        && $candidateUnits->contains('id', $cartItem->product_unit_id)
+                    ) {
                         $finalUnitId = $cartItem->product_unit_id;
-                    } 
-                    // 2. If not, try to auto-switch to another available unit
-                    else {
-                        $replacement = $candidates->first();
-                        if ($replacement) {
-                            $finalUnitId = $replacement->id;
+                    } else {
+                        foreach ($candidateUnits as $unit) {
+                            if (
+                                !isset($blockedForRange[$unit->id])
+                                && !in_array($unit->id, $reservedUnitIds, true)
+                            ) {
+                                $finalUnitId = $unit->id;
+                                break;
+                            }
                         }
                     }
 
-                    // 3. If no unit available, fail the transaction
                     if (!$finalUnitId) {
                         throw new \Exception("Maaf, produk {$product->name} tidak lagi tersedia untuk tanggal yang dipilih (Unit penuh).");
                     }
 
-                    // Reserve this unit for this transaction
                     $reservedUnitIds[] = $finalUnitId;
+                    $resolvedItems[] = ['cart' => $cartItem, 'unit_id' => $finalUnitId];
+                }
 
-                    $rentalItem = RentalItem::create([
+                // BULK INSERT rental items — bypasses the saving/created/saved observer chain
+                // that would otherwise fire 81+ times. We replicate the necessary side-effects
+                // (kit attachment, parent_item_id linking, rental totals refresh) once, in batch.
+                $now = now();
+                $insertRows = [];
+                foreach ($resolvedItems as $r) {
+                    $cartItem = $r['cart'];
+                    $gross = $cartItem->daily_rate * $cartItem->days;
+                    // Discount handling mirrors RentalItem::saving (no item-level discount on cart checkout).
+                    $insertRows[] = [
                         'rental_id' => $rental->id,
-                        'product_unit_id' => $finalUnitId, // Use the validated unit ID
+                        'product_unit_id' => $r['unit_id'],
                         'daily_rate' => $cartItem->daily_rate,
                         'days' => $cartItem->days,
-                        'subtotal' => $cartItem->subtotal,
-                    ]);
+                        'subtotal' => max(0, $gross),
+                        'discount' => 0,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+                RentalItem::insert($insertRows);
 
-                    // Attach kits automatically
-                    $rentalItem->attachKitsFromUnit();
+                // Reload items so we have IDs for the post-processing steps below.
+                $rental->load(['items.productUnit.kits']);
+
+                // ── Post-processing: replicate observer side-effects in batch ───────────────
+                // (a) Bulk-attach kits for every newly created rental item in ONE insert.
+                $kitInsertRows = [];
+                foreach ($rental->items as $item) {
+                    if (!$item->productUnit) continue;
+                    foreach ($item->productUnit->kits as $kit) {
+                        if (in_array($kit->condition, ['broken', 'lost'], true)) continue;
+                        $kitInsertRows[] = [
+                            'rental_item_id' => $item->id,
+                            'unit_kit_id' => $kit->id,
+                            'condition_out' => $kit->condition,
+                            'is_returned' => false,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ];
+                    }
+                }
+                if (!empty($kitInsertRows)) {
+                    \App\Models\RentalItemKit::insert($kitInsertRows);
+                }
+
+                // (b) Bulk-link parent_item_id (mirrors RentalItem::saved logic, but as one pass).
+                $itemUnitIds = $rental->items->pluck('product_unit_id')->all();
+                $parentUnitMap = \App\Models\UnitKit::whereIn('linked_unit_id', $itemUnitIds)
+                    ->get(['unit_id', 'linked_unit_id'])
+                    ->groupBy('linked_unit_id')
+                    ->map(fn ($rows) => $rows->pluck('unit_id')->all())
+                    ->all();
+
+                $itemsByUnit = $rental->items->keyBy('product_unit_id');
+                foreach ($rental->items as $childItem) {
+                    $possibleParentUnitIds = $parentUnitMap[$childItem->product_unit_id] ?? [];
+                    foreach ($possibleParentUnitIds as $parentUnitId) {
+                        if ($itemsByUnit->has($parentUnitId)) {
+                            $parentItem = $itemsByUnit->get($parentUnitId);
+                            if ($parentItem->id !== $childItem->id) {
+                                \App\Models\RentalItem::where('id', $childItem->id)
+                                    ->update(['parent_item_id' => $parentItem->id]);
+                            }
+                            break;
+                        }
+                    }
                 }
 
                 // Create initial deliveries (Draft SJK & SJM)
@@ -366,13 +463,24 @@ class CheckoutController extends Controller
                 $rental->touch();
 
                 // FINAL AVAILABILITY CHECK
-                // Ensure no conflicts were missed by the query builder logic
+                // Ensure no conflicts were missed by the query builder logic (kit/unit cross-conflicts).
                 $conflicts = $rental->checkAvailability();
                 if (!empty($conflicts)) {
                     throw new \Exception("Beberapa item dalam pesanan Anda tidak tersedia karena bentrok dengan penyewaan lain (Kit/Unit Conflict). Silakan pilih tanggal atau unit lain.");
                 }
 
                 $rentals[] = $rental;
+            }
+
+            // Bulk-update product_unit statuses for all freshly reserved units.
+            // Replicates ProductUnit::refreshStatus() side-effect that the per-item RentalItem
+            // observer would normally trigger — done once for the whole batch instead of N times.
+            // For a quotation rental, the status flips from 'available' → 'scheduled'.
+            // We only touch units currently 'available' to avoid clobbering 'maintenance'/'rented'/'retired'.
+            if (!empty($reservedUnitIds)) {
+                \App\Models\ProductUnit::whereIn('id', $reservedUnitIds)
+                    ->where('status', \App\Models\ProductUnit::STATUS_AVAILABLE)
+                    ->update(['status' => \App\Models\ProductUnit::STATUS_SCHEDULED]);
             }
 
             // Clear cart and session
