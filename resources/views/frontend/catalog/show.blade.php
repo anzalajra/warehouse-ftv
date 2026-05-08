@@ -77,7 +77,7 @@
                 </div>
             @endif
 
-            <p class="text-gray-600 mb-6">{{ $product->description }}</p>
+            <div class="prose prose-sm max-w-none text-gray-600 mb-6">{!! $product->description !!}</div>
 
             <div class="text-3xl font-bold text-primary-600 mb-6">
                 Rp {{ number_format($product->daily_rate, 0, ',', '.') }} <span class="text-base font-normal text-gray-500">/ day</span>

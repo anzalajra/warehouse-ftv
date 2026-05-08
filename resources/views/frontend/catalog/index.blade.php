@@ -219,7 +219,7 @@
                                     @endforeach
                                 </div>
                             @endif
-                            <p class="text-sm text-gray-600 mb-3 line-clamp-2">{{ $product->description }}</p>
+                            <p class="text-sm text-gray-600 mb-3 line-clamp-2">{{ Str::limit(strip_tags($product->description), 160) }}</p>
                             <div class="flex justify-between items-center">
                                 <p class="text-primary-600 font-bold">Rp {{ number_format($product->daily_rate, 0, ',', '.') }}/day</p>
                                 <span class="text-xs text-gray-500">{{ $product->units->whereNotIn('status', ['maintenance', 'retired'])->count() }} available</span>
