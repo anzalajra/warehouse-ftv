@@ -163,6 +163,12 @@ if (!$isInstalled) {
         Route::get('/admin/documents/{document}/{filename?}', [App\Http\Controllers\CustomerDocumentController::class, 'viewForAdmin'])->name('admin.documents.view');
     });
 
+    // User Impersonation (admin -> customer)
+    Route::middleware(['auth'])->group(function () {
+        Route::get('/admin/impersonate/{user}', [App\Http\Controllers\ImpersonateController::class, 'start'])->name('impersonate.start');
+    });
+    Route::get('/impersonate/stop', [App\Http\Controllers\ImpersonateController::class, 'stop'])->name('impersonate.stop');
+
     // Backup Download
     Route::middleware(['auth'])->group(function () {
         Route::get('/admin/backup/download/{backupHistory}', function (\App\Models\BackupHistory $backupHistory) {

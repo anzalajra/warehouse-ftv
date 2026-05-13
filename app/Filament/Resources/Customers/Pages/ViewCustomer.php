@@ -68,6 +68,16 @@ class ViewCustomer extends ViewRecord
                         ->send();
                 }),
 
+            Action::make('impersonate')
+                ->label('Impersonate User')
+                ->icon('heroicon-o-arrow-right-on-rectangle')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalHeading('Impersonate User')
+                ->modalDescription('Anda akan masuk ke akun customer ini tanpa password. Gunakan hanya untuk maintenance / cek kesalahan customer.')
+                ->url(fn () => route('impersonate.start', ['user' => $this->record->id]))
+                ->openUrlInNewTab(),
+
             EditAction::make(),
         ];
     }

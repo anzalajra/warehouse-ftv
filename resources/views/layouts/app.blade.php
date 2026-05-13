@@ -30,6 +30,20 @@
         @endif
     </head>
     <body class="font-sans antialiased">
+        @if(session()->has('impersonator_id'))
+            <div class="bg-amber-500 text-white text-sm">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-3">
+                    <span>
+                        <strong>Mode Impersonate:</strong>
+                        Anda sedang masuk sebagai <strong>{{ auth('customer')->user()?->name }}</strong>.
+                    </span>
+                    <a href="{{ route('impersonate.stop') }}" class="bg-white text-amber-700 font-semibold px-3 py-1 rounded hover:bg-amber-50 whitespace-nowrap">
+                        Berhenti Impersonate
+                    </a>
+                </div>
+            </div>
+        @endif
+
         <div class="min-h-screen bg-gray-100">
             @include('layouts.navigation')
 

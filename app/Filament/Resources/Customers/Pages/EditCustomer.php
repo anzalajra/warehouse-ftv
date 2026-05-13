@@ -85,6 +85,16 @@ class EditCustomer extends EditRecord
                         ->send();
                 }),
 
+            Action::make('impersonate')
+                ->label('Impersonate User')
+                ->icon('heroicon-o-arrow-right-on-rectangle')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalHeading('Impersonate User')
+                ->modalDescription('Anda akan masuk ke akun customer ini tanpa password. Gunakan hanya untuk maintenance / cek kesalahan customer. Semua aksi yang Anda lakukan akan tercatat atas nama customer tersebut.')
+                ->url(fn () => route('impersonate.start', ['user' => $this->record->id]))
+                ->openUrlInNewTab(),
+
             Action::make('save')
                 ->label('Save Changes')
                 ->action('save')
