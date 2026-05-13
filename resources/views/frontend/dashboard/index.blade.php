@@ -4,13 +4,49 @@
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    <div class="flex items-center gap-3 mb-8">
+    <div class="flex items-center gap-3 mb-8 flex-wrap">
         <h1 class="text-2xl font-bold">Welcome, {{ $customer->name }}!</h1>
         @if($customer->category)
             <span class="px-3 py-1 rounded-full text-sm font-medium text-white shadow-sm" style="background-color: {{ $customer->category->badge_color ?? '#6b7280' }}">
                 {{ $customer->category->name }}
             </span>
         @endif
+
+        @php
+            $__dashFields = json_decode(\App\Models\Setting::get('registration_custom_fields', '[]'), true) ?: [];
+            $__customValues = $customer->custom_fields ?? [];
+        @endphp
+        @foreach($__dashFields as $__df)
+            @php
+                if (empty($__df['display_on_dashboard']) || empty($__df['name'])) continue;
+                $__val = $__customValues[$__df['name']] ?? null;
+                if ($__val === null || $__val === '' || $__val === []) continue;
+
+                // Map select/radio values to their labels if options provided
+                $__rawOpts = $__df['options'] ?? [];
+                if (is_string($__rawOpts)) {
+                    $__rawOpts = array_filter(array_map('trim', explode(',', $__rawOpts)), fn($v) => $v !== '');
+                }
+                $__display = $__val;
+                if ($__df['type'] === 'checkbox') {
+                    $__display = $__val ? ($__df['label'] ?? 'Yes') : null;
+                } elseif (in_array($__df['type'] ?? null, ['select', 'radio']) && !empty($__rawOpts)) {
+                    foreach ($__rawOpts as $__o) {
+                        if (is_array($__o)) {
+                            if (($__o['value'] ?? null) == $__val) { $__display = $__o['label'] ?? $__val; break; }
+                        } else {
+                            if ($__o == $__val) { $__display = $__o; break; }
+                        }
+                    }
+                }
+            @endphp
+            @if($__display !== null && $__display !== '')
+                <span class="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 border border-gray-200 shadow-sm">
+                    <span class="text-gray-500">{{ $__df['label'] ?? $__df['name'] }}:</span>
+                    <span class="font-semibold">{{ $__display }}</span>
+                </span>
+            @endif
+        @endforeach
     </div>
 
     <!-- Verification Warning -->

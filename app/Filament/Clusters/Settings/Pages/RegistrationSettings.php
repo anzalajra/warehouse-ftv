@@ -106,6 +106,9 @@ class RegistrationSettings extends Page implements HasForms
                                     ->visible(fn ($get) => in_array($get('type'), ['select', 'radio']))
                                     ->required(fn ($get) => in_array($get('type'), ['select', 'radio'])),
                                 Checkbox::make('required')->label('Required Field'),
+                                Checkbox::make('display_on_dashboard')
+                                    ->label('Display on Dashboard')
+                                    ->helperText('Tampilkan nilai field ini sebagai capsule di samping nama user di /customer/dashboard.'),
                             ])
                             ->collapsible()
                             ->itemLabel(fn (array $state): ?string => $state['label'] ?? null),
