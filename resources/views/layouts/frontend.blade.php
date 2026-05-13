@@ -337,6 +337,45 @@
         </div>
     @endif
 
+    @auth('customer')
+        @php
+            $__blockedUser = auth('customer')->user();
+            $__blockedAtTs = $__blockedUser && $__blockedUser->blocked_at ? $__blockedUser->blocked_at->timestamp : null;
+            $__seenAtTs = session('blocked_popup_seen_at');
+            $__showBlockedPopup = $__blockedUser && $__blockedUser->isBlocked() && $__blockedAtTs && (!$__seenAtTs || $__seenAtTs < $__blockedAtTs);
+        @endphp
+        @if($__showBlockedPopup)
+            <div id="blocked-account-popup" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden">
+                    <div class="bg-red-600 px-6 py-4 flex items-center gap-3">
+                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636"/>
+                        </svg>
+                        <h2 class="text-lg font-bold text-white">Akun Anda Diblokir</h2>
+                    </div>
+                    <div class="px-6 py-5">
+                        <p class="text-gray-700 mb-3">Maaf, akun Anda telah diblokir oleh admin. Anda tidak dapat melakukan rental untuk sementara waktu.</p>
+                        @if($__blockedUser->blocked_reason)
+                            <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
+                                <span class="font-semibold">Alasan:</span><br>
+                                {{ $__blockedUser->blocked_reason }}
+                            </div>
+                        @endif
+                        <p class="text-xs text-gray-500 mt-3">Silakan hubungi admin untuk informasi lebih lanjut.</p>
+                    </div>
+                    <div class="px-6 py-4 bg-gray-50 flex justify-end">
+                        <form method="POST" action="{{ route('customer.blocked-popup.acknowledge') }}">
+                            @csrf
+                            <button type="submit" class="px-5 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700">
+                                Saya Mengerti
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        @endif
+    @endauth
+
     <!-- Main Content -->
     <main>
         @yield('content')

@@ -42,7 +42,15 @@ class User extends Authenticatable implements FilamentUser
         'is_tax_exempt',
         'is_pkp',
         'tax_type',
+        'account_status',
+        'blocked_reason',
+        'blocked_at',
+        'blocked_by',
     ];
+
+    public const ACCOUNT_STATUS_ACTIVE = 'active';
+    public const ACCOUNT_STATUS_BLOCKED = 'blocked';
+    public const ACCOUNT_STATUS_RED_NOTICE = 'red_notice';
 
     /**
      * The attributes that should be hidden for serialization.
@@ -68,7 +76,53 @@ class User extends Authenticatable implements FilamentUser
             'is_verified' => 'boolean',
             'custom_fields' => 'array',
             'is_tax_exempt' => 'boolean',
+            'blocked_at' => 'datetime',
         ];
+    }
+
+    public function isBlocked(): bool
+    {
+        return $this->account_status === self::ACCOUNT_STATUS_BLOCKED;
+    }
+
+    public function isRedNotice(): bool
+    {
+        return $this->account_status === self::ACCOUNT_STATUS_RED_NOTICE;
+    }
+
+    public function block(string $reason, int $userId): void
+    {
+        $this->update([
+            'account_status' => self::ACCOUNT_STATUS_BLOCKED,
+            'blocked_reason' => $reason,
+            'blocked_at' => now(),
+            'blocked_by' => $userId,
+        ]);
+    }
+
+    public function unblock(): void
+    {
+        $this->update([
+            'account_status' => self::ACCOUNT_STATUS_ACTIVE,
+            'blocked_reason' => null,
+            'blocked_at' => null,
+            'blocked_by' => null,
+        ]);
+    }
+
+    public function markRedNotice(): void
+    {
+        $this->update([
+            'account_status' => self::ACCOUNT_STATUS_RED_NOTICE,
+            'blocked_reason' => null,
+            'blocked_at' => null,
+            'blocked_by' => null,
+        ]);
+    }
+
+    public function clearRedNotice(): void
+    {
+        $this->update(['account_status' => self::ACCOUNT_STATUS_ACTIVE]);
     }
 
     protected static function booted()
@@ -159,6 +213,10 @@ class User extends Authenticatable implements FilamentUser
      */
     public function getVerificationStatus(): string
     {
+        if ($this->isBlocked()) {
+            return 'blocked';
+        }
+
         if ($this->is_verified) {
             return 'verified';
         }
@@ -201,6 +259,7 @@ class User extends Authenticatable implements FilamentUser
             'verified' => 'Terverifikasi',
             'pending' => 'Sedang Diverifikasi',
             'not_verified' => 'Belum Verifikasi',
+            'blocked' => 'Blocked',
         };
     }
 
@@ -210,12 +269,13 @@ class User extends Authenticatable implements FilamentUser
             'verified' => 'success',
             'pending' => 'warning',
             'not_verified' => 'danger',
+            'blocked' => 'danger',
         };
     }
 
     public function canRent(): bool
     {
-        return $this->is_verified;
+        return $this->is_verified && !$this->isBlocked();
     }
 
     public function getMissingRequiredDocuments()

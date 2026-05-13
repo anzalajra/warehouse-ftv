@@ -14,6 +14,13 @@ use Illuminate\Validation\Rules;
 
 class CustomerDashboardController extends Controller
 {
+    public function acknowledgeBlockedPopup(Request $request)
+    {
+        $request->session()->put('blocked_popup_seen_at', time());
+
+        return back();
+    }
+
     public function index()
     {
         $customer = Auth::guard('customer')->user();

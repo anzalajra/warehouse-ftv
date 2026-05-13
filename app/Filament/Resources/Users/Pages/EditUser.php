@@ -104,6 +104,88 @@ class EditUser extends EditRecord
                     return redirect($this->getResource()::getUrl('edit', ['record' => $this->record]));
                 }),
 
+            Action::make('block')
+                ->label('Block Account')
+                ->icon('heroicon-o-no-symbol')
+                ->color('danger')
+                ->visible(fn () => !$this->record->isBlocked())
+                ->form([
+                    Textarea::make('blocked_reason')
+                        ->label('Reason')
+                        ->required()
+                        ->rows(4)
+                        ->placeholder('Jelaskan alasan akun ini diblokir...'),
+                ])
+                ->modalHeading('Block Account')
+                ->modalDescription('Akun customer ini akan diblokir dan tidak dapat melakukan rental.')
+                ->action(function (array $data) {
+                    $this->record->block($data['blocked_reason'], Auth::id());
+
+                    Notification::make()
+                        ->title('Akun berhasil diblokir')
+                        ->success()
+                        ->send();
+
+                    return redirect($this->getResource()::getUrl('edit', ['record' => $this->record]));
+                }),
+
+            Action::make('unblock')
+                ->label('Unblock Account')
+                ->icon('heroicon-o-lock-open')
+                ->color('success')
+                ->requiresConfirmation()
+                ->modalHeading('Unblock Account')
+                ->modalDescription('Akun akan kembali aktif. Pertimbangkan untuk menandai sebagai "Red Notice" jika perlu.')
+                ->visible(fn () => $this->record->isBlocked())
+                ->action(function () {
+                    $this->record->unblock();
+
+                    Notification::make()
+                        ->title('Akun berhasil di-unblock')
+                        ->success()
+                        ->send();
+
+                    return redirect($this->getResource()::getUrl('edit', ['record' => $this->record]));
+                }),
+
+            Action::make('markRedNotice')
+                ->label('Tandai Red Notice')
+                ->icon('heroicon-o-exclamation-triangle')
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('Tandai sebagai Red Notice')
+                ->modalDescription('Akun akan ditandai sebagai red notice. Status ini hanya bisa diubah secara manual.')
+                ->visible(fn () => !$this->record->isBlocked() && !$this->record->isRedNotice())
+                ->action(function () {
+                    $this->record->markRedNotice();
+
+                    Notification::make()
+                        ->title('Akun ditandai sebagai Red Notice')
+                        ->success()
+                        ->send();
+
+                    return redirect($this->getResource()::getUrl('edit', ['record' => $this->record]));
+                }),
+
+            Action::make('clearRedNotice')
+                ->label('Hapus Red Notice')
+                ->icon('heroicon-o-check')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalHeading('Hapus Red Notice')
+                ->modalDescription('Status red notice akan dihapus dan akun kembali normal.')
+                ->visible(fn () => $this->record->isRedNotice())
+                ->action(function () {
+                    $this->record->clearRedNotice();
+
+                    Notification::make()
+                        ->title('Red Notice dihapus')
+                        ->success()
+                        ->send();
+
+                    return redirect($this->getResource()::getUrl('edit', ['record' => $this->record]));
+                }),
+
             DeleteAction::make(),
         ];
     }

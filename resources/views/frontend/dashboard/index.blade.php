@@ -14,9 +14,40 @@
     </div>
 
     <!-- Verification Warning -->
-    @if($verificationStatus !== 'verified')
-        <div class="mb-8 p-4 rounded-lg border 
-            @if($verificationStatus === 'pending') bg-yellow-50 border-yellow-300 
+    @if($verificationStatus === 'blocked')
+        <div class="mb-8 p-4 rounded-lg border bg-red-50 border-red-300">
+            <div class="flex items-start">
+                <div class="flex-shrink-0">
+                    <svg class="h-6 w-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636"/>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-red-800">Akun Anda Diblokir</h3>
+                    <p class="mt-1 text-sm text-red-700">Akun Anda telah diblokir oleh admin dan tidak dapat melakukan rental.</p>
+                    @if($customer->blocked_reason)
+                        <p class="mt-1 text-sm text-red-700"><span class="font-semibold">Alasan:</span> {{ $customer->blocked_reason }}</p>
+                    @endif
+                </div>
+            </div>
+        </div>
+    @elseif($customer->isRedNotice())
+        <div class="mb-8 p-4 rounded-lg border bg-orange-50 border-orange-300">
+            <div class="flex items-start">
+                <div class="flex-shrink-0">
+                    <svg class="h-6 w-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-orange-800">Red Notice</h3>
+                    <p class="mt-1 text-sm text-orange-700">Akun Anda berada dalam status Red Notice. Mohon perhatian khusus pada penggunaan layanan.</p>
+                </div>
+            </div>
+        </div>
+    @elseif($verificationStatus !== 'verified')
+        <div class="mb-8 p-4 rounded-lg border
+            @if($verificationStatus === 'pending') bg-yellow-50 border-yellow-300
             @else bg-red-50 border-red-300 @endif">
             <div class="flex items-start">
                 <div class="flex-shrink-0">
@@ -36,7 +67,7 @@
                         <p class="mt-1 text-sm text-yellow-700">Dokumen Anda sedang ditinjau oleh admin. Anda akan dapat melakukan rental setelah verifikasi disetujui.</p>
                     @else
                         <h3 class="text-sm font-medium text-red-800">Akun Belum Terverifikasi</h3>
-                        <p class="mt-1 text-sm text-red-700">Anda harus mengunggah dokumen yang diperlukan untuk melakukan rental. 
+                        <p class="mt-1 text-sm text-red-700">Anda harus mengunggah dokumen yang diperlukan untuk melakukan rental.
                             <a href="{{ route('customer.profile') }}" class="font-semibold underline">Lengkapi verifikasi sekarang →</a>
                         </p>
                     @endif
@@ -47,26 +78,31 @@
 
     <!-- Stats -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        @php
+            $isRedNoticeOnly = $verificationStatus !== 'blocked' && $customer->isRedNotice();
+            if ($verificationStatus === 'blocked') {
+                $statusBg = 'bg-red-100'; $statusText = 'text-red-600'; $statusLabel = 'Blocked';
+            } elseif ($isRedNoticeOnly) {
+                $statusBg = 'bg-orange-100'; $statusText = 'text-orange-600'; $statusLabel = 'Red Notice';
+            } elseif ($verificationStatus === 'verified') {
+                $statusBg = 'bg-green-100'; $statusText = 'text-green-600'; $statusLabel = 'Terverifikasi';
+            } elseif ($verificationStatus === 'pending') {
+                $statusBg = 'bg-yellow-100'; $statusText = 'text-yellow-600'; $statusLabel = 'Sedang Diverifikasi';
+            } else {
+                $statusBg = 'bg-red-100'; $statusText = 'text-red-600'; $statusLabel = 'Belum Verifikasi';
+            }
+        @endphp
         <div class="bg-white rounded-lg shadow p-6">
             <div class="flex items-center">
-                <div class="p-3 rounded-full mr-4
-                    @if($verificationStatus === 'verified') bg-green-100
-                    @elseif($verificationStatus === 'pending') bg-yellow-100
-                    @else bg-red-100 @endif">
-                    <svg class="w-6 h-6 
-                        @if($verificationStatus === 'verified') text-green-600
-                        @elseif($verificationStatus === 'pending') text-yellow-600
-                        @else text-red-600 @endif" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="p-3 rounded-full mr-4 {{ $statusBg }}">
+                    <svg class="w-6 h-6 {{ $statusText }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
                     </svg>
                 </div>
                 <div>
                     <p class="text-sm text-gray-600">Status</p>
-                    <p class="text-lg font-bold 
-                        @if($verificationStatus === 'verified') text-green-600
-                        @elseif($verificationStatus === 'pending') text-yellow-600
-                        @else text-red-600 @endif">
-                        {{ $customer->getVerificationStatusLabel() }}
+                    <p class="text-lg font-bold {{ $statusText }}">
+                        {{ $statusLabel }}
                     </p>
                 </div>
             </div>

@@ -15,7 +15,12 @@
                     </tr>
                     <tr class="border-b border-gray-200">
                         <td class="py-3 pr-6 font-medium text-gray-500">Customer</td>
-                        <td class="py-3 pr-6 font-semibold">{{ $rental->customer->name }}</td>
+                        <td class="py-3 pr-6 font-semibold">
+                            <span>{{ $rental->customer->name }}</span>
+                            @if($rental->customer && $rental->customer->isRedNotice())
+                                <x-filament::badge color="danger" class="ml-2">Red Notice</x-filament::badge>
+                            @endif
+                        </td>
                         <td class="py-3 pr-6 font-medium text-gray-500">End Date</td>
                         <td class="py-3 font-semibold">{{ $rental->end_date->format('d M Y H:i') }}</td>
                     </tr>

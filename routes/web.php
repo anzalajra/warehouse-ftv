@@ -117,6 +117,8 @@ if (!$isInstalled) {
         Route::post('/rentals/{rental}/mark-checklist-downloaded', [CustomerDashboardController::class, 'markChecklistDownloaded'])->name('rental.mark-checklist-downloaded');
         Route::post('/rentals/{rental}/mark-permit-clicked', [CustomerDashboardController::class, 'markPermitClicked'])->name('rental.mark-permit-clicked');
 
+        Route::post('/blocked-popup/acknowledge', [CustomerDashboardController::class, 'acknowledgeBlockedPopup'])->name('blocked-popup.acknowledge');
+
         // Notifications
         Route::get('/notifications/{id}/read', [App\Http\Controllers\NotificationController::class, 'markAsRead'])->name('notifications.read');
         Route::post('/notifications/read-all', [App\Http\Controllers\NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
