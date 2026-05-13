@@ -18,6 +18,38 @@ use App\Models\Setting;
 
 class UserForm
 {
+    /**
+     * Normalize custom-field options to a value=>label array, accepting:
+     *   - CSV string ("A,B,C")
+     *   - flat array of strings (["A","B"])
+     *   - array of {value,label} objects/arrays
+     * Returns array with non-null string labels only.
+     */
+    protected static function normalizeOptions($raw): array
+    {
+        if (is_string($raw)) {
+            $raw = array_filter(array_map('trim', explode(',', $raw)), fn ($v) => $v !== '');
+        }
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $opt) {
+            if (is_array($opt)) {
+                $value = $opt['value'] ?? null;
+                $label = $opt['label'] ?? $value;
+                if ($value === null || $value === '') continue;
+                $out[(string) $value] = (string) ($label ?? $value);
+            } else {
+                if ($opt === null || $opt === '') continue;
+                $out[(string) $opt] = (string) $opt;
+            }
+        }
+
+        return $out;
+    }
+
     public static function configure(Schema $schema): Schema
     {
         $customFields = json_decode(Setting::get('registration_custom_fields', '[]'), true);
@@ -42,13 +74,13 @@ class UserForm
                         $component = Textarea::make($fieldName)->label($label);
                         break;
                     case 'select':
-                        $options = collect($field['options'] ?? [])->pluck('label', 'value');
+                        $options = self::normalizeOptions($field['options'] ?? []);
                         $component = Select::make($fieldName)
                             ->label($label)
                             ->options($options);
                         break;
                     case 'radio':
-                        $options = collect($field['options'] ?? [])->pluck('label', 'value');
+                        $options = self::normalizeOptions($field['options'] ?? []);
                         $component = Radio::make($fieldName)
                             ->label($label)
                             ->options($options);
