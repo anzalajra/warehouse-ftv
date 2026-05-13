@@ -86,7 +86,7 @@ class UserForm
                                     ->maxLength(20),
                                 Select::make('customer_category_id')
                                     ->label('Category')
-                                    ->options(CustomerCategory::where('is_active', true)->pluck('name', 'id'))
+                                    ->options(CustomerCategory::where('is_active', true)->whereNotNull('name')->pluck('name', 'id'))
                                     ->searchable()
                                     ->preload()
                                     ->live(),
@@ -184,7 +184,7 @@ class UserForm
                                             ->tooltip('Reset Password to "resetpassword"')
                                     ),
                                 Select::make('roles')
-                                    ->relationship('roles', 'name')
+                                    ->relationship('roles', 'name', fn ($query) => $query->whereNotNull('name'))
                                     ->multiple()
                                     ->preload()
                                     ->searchable(),

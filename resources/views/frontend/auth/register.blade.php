@@ -186,6 +186,23 @@
                                     $visibleCats = array_map('strval', $visibleCats);
                                     $visibleCatsJson = json_encode($visibleCats);
                                     $isRequired = $field['required'] ?? false;
+
+                                    // Normalize options: stored as comma-separated string from settings repeater
+                                    $rawOptions = $field['options'] ?? [];
+                                    if (is_string($rawOptions)) {
+                                        $rawOptions = array_filter(array_map('trim', explode(',', $rawOptions)), fn($v) => $v !== '');
+                                    }
+                                    $normalizedOptions = [];
+                                    foreach ($rawOptions as $opt) {
+                                        if (is_array($opt)) {
+                                            $normalizedOptions[] = [
+                                                'value' => $opt['value'] ?? ($opt['label'] ?? ''),
+                                                'label' => $opt['label'] ?? ($opt['value'] ?? ''),
+                                            ];
+                                        } else {
+                                            $normalizedOptions[] = ['value' => $opt, 'label' => $opt];
+                                        }
+                                    }
                                 @endphp
                                 <div x-data="{ visibleCats: {{ $visibleCatsJson }} }" 
                                      x-show="visibleCats.length === 0 || visibleCats.includes(String(categoryId))"
@@ -211,7 +228,7 @@
                                         <select id="{{ $fieldName }}" name="{{ $fieldName }}" 
                                             class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-primary-500 focus:border-primary-500">
                                             <option value="">Select {{ $field['label'] }}</option>
-                                            @foreach($field['options'] ?? [] as $option)
+                                            @foreach($normalizedOptions as $option)
                                                 <option value="{{ $option['value'] }}" {{ old($fieldName) == $option['value'] ? 'selected' : '' }}>
                                                     {{ $option['label'] }}
                                                 </option>
@@ -220,7 +237,7 @@
                                     
                                     @elseif($field['type'] === 'radio')
                                         <div class="mt-2 space-y-2">
-                                            @foreach($field['options'] ?? [] as $option)
+                                            @foreach($normalizedOptions as $option)
                                                 <div class="flex items-center">
                                                     <input id="{{ $fieldName }}_{{ $option['value'] }}" name="{{ $fieldName }}" type="radio" value="{{ $option['value'] }}"
                                                         {{ old($fieldName) == $option['value'] ? 'checked' : '' }}

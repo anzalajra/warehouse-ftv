@@ -169,10 +169,27 @@
                                 $visibleCats = $field['visible_for_categories'] ?? [];
                                 $isRequired = $field['required'] ?? false;
                                 $currentValue = $customer->custom_fields[$field['name']] ?? '';
-                                
+
                                 // Check visibility
                                 if (!empty($visibleCats) && !in_array($customer->customer_category_id, $visibleCats)) {
                                     continue;
+                                }
+
+                                // Normalize options: stored as comma-separated string from settings repeater
+                                $rawOptions = $field['options'] ?? [];
+                                if (is_string($rawOptions)) {
+                                    $rawOptions = array_filter(array_map('trim', explode(',', $rawOptions)), fn($v) => $v !== '');
+                                }
+                                $normalizedOptions = [];
+                                foreach ($rawOptions as $opt) {
+                                    if (is_array($opt)) {
+                                        $normalizedOptions[] = [
+                                            'value' => $opt['value'] ?? ($opt['label'] ?? ''),
+                                            'label' => $opt['label'] ?? ($opt['value'] ?? ''),
+                                        ];
+                                    } else {
+                                        $normalizedOptions[] = ['value' => $opt, 'label' => $opt];
+                                    }
                                 }
                             @endphp
                             
@@ -187,7 +204,7 @@
                                 @if($field['type'] === 'select')
                                     <select id="{{ $fieldName }}" name="{{ $fieldName }}" class="w-full border rounded-lg px-3 py-2 bg-white focus:ring-primary-500 focus:border-primary-500">
                                         <option value="">Pilih {{ $field['label'] }}</option>
-                                        @foreach($field['options'] ?? [] as $option)
+                                        @foreach($normalizedOptions as $option)
                                             <option value="{{ $option['value'] }}" {{ $currentValue == $option['value'] ? 'selected' : '' }}>
                                                 {{ $option['label'] }}
                                             </option>
@@ -196,7 +213,7 @@
 
                                 @elseif($field['type'] === 'radio')
                                     <div class="mt-2 space-y-2">
-                                        @foreach($field['options'] ?? [] as $option)
+                                        @foreach($normalizedOptions as $option)
                                             <div class="flex items-center">
                                                 <input id="{{ $fieldName }}_{{ $loop->index }}" name="{{ $fieldName }}" type="radio" value="{{ $option['value'] }}" 
                                                     {{ $currentValue == $option['value'] ? 'checked' : '' }}
