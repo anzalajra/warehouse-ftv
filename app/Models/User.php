@@ -189,6 +189,45 @@ class User extends Authenticatable implements FilamentUser
         return $this->category ? (float) $this->category->discount_percentage : 0.0;
     }
 
+    /**
+     * Return list of custom registration fields the user's category requires
+     * but which are currently empty on the user's `custom_fields`. Each entry
+     * is the original field definition from `registration_custom_fields` setting.
+     */
+    public function getMissingRequiredCustomFields(): array
+    {
+        if (!$this->category) {
+            return [];
+        }
+
+        $requiredKeys = $this->category->required_custom_fields ?? [];
+        if (empty($requiredKeys) || !is_array($requiredKeys)) {
+            return [];
+        }
+
+        $allFields = json_decode(\App\Models\Setting::get('registration_custom_fields', '[]'), true) ?: [];
+        $byKey = [];
+        foreach ($allFields as $f) {
+            if (!empty($f['name'])) {
+                $byKey[$f['name']] = $f;
+            }
+        }
+
+        $current = $this->custom_fields ?? [];
+        $missing = [];
+        foreach ($requiredKeys as $key) {
+            if (!isset($byKey[$key])) {
+                continue;
+            }
+            $value = $current[$key] ?? null;
+            if ($value === null || $value === '' || $value === []) {
+                $missing[] = $byKey[$key];
+            }
+        }
+
+        return $missing;
+    }
+
     public function getActiveRentals()
     {
         return $this->rentals()

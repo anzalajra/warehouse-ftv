@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CustomerCategories\Schemas;
 
+use App\Models\Setting;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\TagsInput;
@@ -49,6 +50,22 @@ class CustomerCategoryForm
                 CheckboxList::make('documentTypes')
                     ->relationship('documentTypes', 'name')
                     ->label('Required Documents')
+                    ->columns(2)
+                    ->columnSpanFull(),
+
+                CheckboxList::make('required_custom_fields')
+                    ->label('Required Custom Registration Fields')
+                    ->helperText('Pilih custom registration fields yang wajib diisi oleh customer di kategori ini. Field didefinisikan di Settings → Registration & Verification.')
+                    ->options(function (): array {
+                        $fields = json_decode(Setting::get('registration_custom_fields', '[]'), true) ?: [];
+                        $options = [];
+                        foreach ($fields as $field) {
+                            if (!empty($field['name']) && !empty($field['label'])) {
+                                $options[$field['name']] = $field['label'] . ' (' . $field['name'] . ')';
+                            }
+                        }
+                        return $options;
+                    })
                     ->columns(2)
                     ->columnSpanFull(),
 

@@ -15,12 +15,14 @@ class CustomerCategory extends Model
         'badge_color',
         'discount_percentage',
         'benefits',
+        'required_custom_fields',
         'is_active',
     ];
 
     protected $casts = [
         'discount_percentage' => 'decimal:2',
         'benefits' => 'array',
+        'required_custom_fields' => 'array',
         'is_active' => 'boolean',
     ];
 
