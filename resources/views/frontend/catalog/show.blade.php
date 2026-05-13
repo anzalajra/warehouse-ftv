@@ -97,11 +97,22 @@
 
                 <!-- Verification Warning -->
                 @if(!$canRent)
-                    <div class="mb-6 p-4 rounded-lg border 
-                        @if($verificationStatus === 'pending') bg-yellow-50 border-yellow-300 
+                    <div class="mb-6 p-4 rounded-lg border
+                        @if($verificationStatus === 'pending') bg-yellow-50 border-yellow-300
                         @else bg-red-50 border-red-300 @endif">
                         <div class="flex items-start">
-                            @if($verificationStatus === 'pending')
+                            @if($verificationStatus === 'blocked')
+                                <svg class="h-5 w-5 text-red-500 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636"/>
+                                </svg>
+                                <div>
+                                    <p class="text-sm font-medium text-red-800">Akun Diblokir</p>
+                                    <p class="text-sm text-red-700">Akun Anda telah diblokir oleh admin sehingga tidak dapat melakukan rental.</p>
+                                    @if($customer->blocked_reason)
+                                        <p class="text-sm text-red-700 mt-1"><span class="font-semibold">Alasan:</span> {{ $customer->blocked_reason }}</p>
+                                    @endif
+                                </div>
+                            @elseif($verificationStatus === 'pending')
                                 <svg class="h-5 w-5 text-yellow-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                 </svg>
@@ -210,7 +221,11 @@
                     @endif
                 @else
                     <button type="button" disabled class="w-full bg-gray-400 text-white py-3 rounded-lg font-semibold cursor-not-allowed">
-                        Verifikasi Diperlukan
+                        @if($verificationStatus === 'blocked')
+                            Akun Diblokir
+                        @else
+                            Verifikasi Diperlukan
+                        @endif
                     </button>
                 @endif
                     </form>

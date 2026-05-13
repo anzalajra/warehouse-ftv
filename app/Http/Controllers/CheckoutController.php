@@ -19,8 +19,15 @@ class CheckoutController extends Controller
     {
         $customer = Auth::guard('customer')->user();
 
-        // Check if customer is verified
+        // Check if customer is verified / not blocked
         if (!$customer->canRent()) {
+            if ($customer->isBlocked()) {
+                $msg = 'Akun Anda telah diblokir oleh admin dan tidak dapat melakukan checkout.';
+                if ($customer->blocked_reason) {
+                    $msg .= ' Alasan: ' . $customer->blocked_reason;
+                }
+                return redirect()->route('customer.dashboard')->with('error', $msg);
+            }
             return redirect()->route('customer.profile')
                 ->with('error', 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout. Silakan lengkapi dokumen yang diperlukan.');
         }
@@ -200,8 +207,15 @@ class CheckoutController extends Controller
     {
         $customer = Auth::guard('customer')->user();
 
-        // Check if customer is verified
+        // Check if customer is verified / not blocked
         if (!$customer->canRent()) {
+            if ($customer->isBlocked()) {
+                $msg = 'Akun Anda telah diblokir oleh admin dan tidak dapat melakukan checkout.';
+                if ($customer->blocked_reason) {
+                    $msg .= ' Alasan: ' . $customer->blocked_reason;
+                }
+                return redirect()->route('customer.dashboard')->with('error', $msg);
+            }
             return redirect()->route('customer.profile')
                 ->with('error', 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout.');
         }

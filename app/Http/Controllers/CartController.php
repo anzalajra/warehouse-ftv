@@ -47,9 +47,16 @@ class CartController extends Controller
     {
         $customer = Auth::guard('customer')->user();
 
-        // Check if customer is verified
+        // Check if customer is verified / not blocked
         if (!$customer->canRent()) {
-            $msg = 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan rental. Silakan lengkapi dokumen di halaman Profile.';
+            if ($customer->isBlocked()) {
+                $msg = 'Akun Anda telah diblokir oleh admin dan tidak dapat melakukan rental.';
+                if ($customer->blocked_reason) {
+                    $msg .= ' Alasan: ' . $customer->blocked_reason;
+                }
+            } else {
+                $msg = 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan rental. Silakan lengkapi dokumen di halaman Profile.';
+            }
             if ($request->expectsJson()) {
                 return response()->json(['message' => $msg], 403);
             }

@@ -12,18 +12,32 @@
 
     <!-- Verification Warning -->
     @if(!$canCheckout)
+        @php $__cartCustomer = auth('customer')->user(); @endphp
         <div class="mb-6 p-4 bg-red-50 border border-red-300 rounded-lg">
             <div class="flex items-start">
-                <svg class="h-6 w-6 text-red-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                </svg>
-                <div>
-                    <h3 class="text-sm font-medium text-red-800">Akun Belum Terverifikasi</h3>
-                    <p class="mt-1 text-sm text-red-700">
-                        Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout. 
-                        <a href="{{ route('customer.profile') }}" class="font-semibold underline">Lengkapi verifikasi sekarang →</a>
-                    </p>
-                </div>
+                @if($__cartCustomer && $__cartCustomer->isBlocked())
+                    <svg class="h-6 w-6 text-red-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728A9 9 0 015.636 5.636"/>
+                    </svg>
+                    <div>
+                        <h3 class="text-sm font-medium text-red-800">Akun Diblokir</h3>
+                        <p class="mt-1 text-sm text-red-700">Akun Anda telah diblokir oleh admin sehingga tidak dapat melakukan checkout.</p>
+                        @if($__cartCustomer->blocked_reason)
+                            <p class="mt-1 text-sm text-red-700"><span class="font-semibold">Alasan:</span> {{ $__cartCustomer->blocked_reason }}</p>
+                        @endif
+                    </div>
+                @else
+                    <svg class="h-6 w-6 text-red-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    <div>
+                        <h3 class="text-sm font-medium text-red-800">Akun Belum Terverifikasi</h3>
+                        <p class="mt-1 text-sm text-red-700">
+                            Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout.
+                            <a href="{{ route('customer.profile') }}" class="font-semibold underline">Lengkapi verifikasi sekarang →</a>
+                        </p>
+                    </div>
+                @endif
             </div>
         </div>
     @endif
@@ -269,7 +283,11 @@
                         </a>
                     @else
                         <button disabled class="w-full bg-gray-400 text-white py-3 rounded-lg font-semibold cursor-not-allowed">
+                            @if(auth('customer')->user() && auth('customer')->user()->isBlocked())
+                                Akun Diblokir
+                            @else
                             Verifikasi Diperlukan
+                            @endif
                         </button>
                         <p class="text-xs text-center text-gray-500 mt-2">
                             <a href="{{ route('customer.profile') }}" class="text-primary-600 hover:underline">Lengkapi verifikasi</a> untuk checkout
