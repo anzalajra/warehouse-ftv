@@ -33,6 +33,74 @@
     @endif
 </head>
 <body class="font-sans antialiased bg-gray-50">
+    @php
+        try {
+            $__activeBanners = \App\Models\Announcement::activeBanners();
+            $__activePopup = \App\Models\Announcement::activePopup();
+        } catch (\Throwable $e) {
+            $__activeBanners = collect();
+            $__activePopup = null;
+        }
+    @endphp
+
+    @foreach($__activeBanners as $__banner)
+        <div class="text-sm" style="background-color: {{ $__banner->banner_bg_color ?? '#0ea5e9' }}; color: {{ $__banner->banner_text_color ?? '#ffffff' }};">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-center gap-3 text-center">
+                <span>{{ $__banner->content }}</span>
+                @if($__banner->link_url)
+                    <a href="{{ $__banner->link_url }}" class="underline font-semibold whitespace-nowrap hover:opacity-80">
+                        {{ $__banner->link_label ?: 'Selengkapnya' }}
+                    </a>
+                @endif
+            </div>
+        </div>
+    @endforeach
+
+    @if($__activePopup)
+        <div id="announcement-popup-{{ $__activePopup->id }}"
+             class="fixed inset-0 z-[110] hidden items-center justify-center bg-black/60 p-4"
+             data-announcement-id="{{ $__activePopup->id }}">
+            <div class="bg-white rounded-lg shadow-xl max-w-lg w-full overflow-hidden relative">
+                <button type="button"
+                        onclick="document.getElementById('announcement-popup-{{ $__activePopup->id }}').remove(); try { sessionStorage.setItem('announcement_dismissed_{{ $__activePopup->id }}', '1'); } catch(e) {}"
+                        class="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white rounded-full w-8 h-8 flex items-center justify-center text-gray-700 shadow">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+                @if($__activePopup->image_path)
+                    @if($__activePopup->link_url)
+                        <a href="{{ $__activePopup->link_url }}">
+                            <img src="{{ \Illuminate\Support\Facades\Storage::url($__activePopup->image_path) }}"
+                                 alt="{{ $__activePopup->title }}"
+                                 class="w-full h-auto block">
+                        </a>
+                    @else
+                        <img src="{{ \Illuminate\Support\Facades\Storage::url($__activePopup->image_path) }}"
+                             alt="{{ $__activePopup->title }}"
+                             class="w-full h-auto block">
+                    @endif
+                @endif
+                @if($__activePopup->link_url && $__activePopup->link_label)
+                    <div class="px-6 py-4 bg-gray-50 flex justify-end">
+                        <a href="{{ $__activePopup->link_url }}" class="px-5 py-2 bg-primary-600 text-white rounded font-medium hover:bg-primary-700">
+                            {{ $__activePopup->link_label }}
+                        </a>
+                    </div>
+                @endif
+            </div>
+        </div>
+        <script>
+            (function() {
+                try {
+                    if (sessionStorage.getItem('announcement_dismissed_{{ $__activePopup->id }}')) return;
+                } catch(e) {}
+                var el = document.getElementById('announcement-popup-{{ $__activePopup->id }}');
+                if (el) { el.classList.remove('hidden'); el.classList.add('flex'); }
+            })();
+        </script>
+    @endif
+
     @if(session()->has('impersonator_id'))
         <div class="bg-amber-500 text-white text-sm">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-3">
