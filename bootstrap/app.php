@@ -30,6 +30,37 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if ($request->expectsJson()) return null;
+
+            $path = '/'.ltrim($request->path(), '/');
+            $isKioskRoute = str_starts_with($path, '/kiosk/checkin/')
+                || str_starts_with($path, '/m/kiosk-register/');
+            if (! $isKioskRoute) return null;
+
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
+                $status = $e->getStatusCode();
+                if ($status < 500 && $status !== 419) return null;
+            }
+
+            $errorId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+            try {
+                \Illuminate\Support\Facades\Log::error('Kiosk error '.$errorId.': '.$e->getMessage(), [
+                    'url' => $request->fullUrl(),
+                    'exception' => $e,
+                ]);
+            } catch (\Throwable $t) {}
+
+            return response()->view('errors.kiosk-error', [
+                'errorId' => $errorId,
+                'errorMessage' => $e->getMessage() ?: class_basename($e),
+                'errorClass' => class_basename($e),
+                'requestUrl' => $request->fullUrl(),
+                'occurredAt' => now()->toIso8601String(),
+                'homeSlug' => $request->route('slug'),
+            ], 500);
+        });
+
         $exceptions->reportable(function (\Throwable $e) {
             // Skip non-critical exceptions
             if ($e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException) return;
