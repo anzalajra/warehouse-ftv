@@ -50,6 +50,7 @@ class ComputerBookingForm
                         ComputerBooking::STATUS_COMPLETED => 'Completed',
                         ComputerBooking::STATUS_CANCELLED => 'Cancelled',
                         ComputerBooking::STATUS_NO_SHOW => 'No Show',
+                        ComputerBooking::STATUS_OVERRIDDEN => 'Overridden',
                     ])
                     ->default(ComputerBooking::STATUS_CONFIRMED)
                     ->required(),

@@ -151,11 +151,11 @@ class KioskApiController extends Controller
         $endedAt = Carbon::parse($p['ended_at']);
         $booking->actual_ended_at = $endedAt;
         if ($booking->actual_started_at) {
-            $booking->actual_duration_seconds = $endedAt->diffInSeconds($booking->actual_started_at);
+            $booking->actual_duration_seconds = max(0, (int) abs($endedAt->diffInSeconds($booking->actual_started_at)));
         } elseif (isset($p['started_at'])) {
             $started = Carbon::parse($p['started_at']);
             $booking->actual_started_at = $started;
-            $booking->actual_duration_seconds = $endedAt->diffInSeconds($started);
+            $booking->actual_duration_seconds = max(0, (int) abs($endedAt->diffInSeconds($started)));
         }
         $booking->status = ComputerBooking::STATUS_COMPLETED;
         $booking->save();

@@ -89,7 +89,7 @@ class KioskMobileRegisterController extends Controller
                 'is_walk_in' => true,
             ];
 
-            if ($existing && $existing->user_id !== $user->id) {
+            if ($existing && $existing->user_id !== null && $existing->user_id !== $user->id) {
                 $existing->status = ComputerBooking::STATUS_OVERRIDDEN;
                 $existing->cancelled_reason = 'Diambil alih oleh '.$user->name.' (registrasi baru di kiosk).';
                 $existing->save();
