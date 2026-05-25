@@ -21,9 +21,11 @@ class ComputerResource extends Resource
 
     protected static ?string $cluster = ComputersCluster::class;
 
-    protected static ?string $navigationLabel = 'Computers';
+    protected static ?string $navigationLabel = 'Dashboard';
 
     protected static ?string $modelLabel = 'Computer';
+
+    protected static ?string $pluralModelLabel = 'Dashboard';
 
     protected static ?string $slug = 'computers';
 

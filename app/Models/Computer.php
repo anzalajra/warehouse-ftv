@@ -124,9 +124,25 @@ class Computer extends Model
     {
         $now = \Carbon\Carbon::now();
 
-        $booking = $this->bookings()
+        // Primary signal: someone is physically checked in and hasn't logged out.
+        // This catches walk-ins, overstayed sessions, and night-shift slots that
+        // cross midnight (where booking_date != today).
+        $active = $this->bookings()
             ->with('user:id,name')
-            ->whereIn('status', [ComputerBooking::STATUS_CONFIRMED, ComputerBooking::STATUS_ACTIVE])
+            ->where('status', ComputerBooking::STATUS_ACTIVE)
+            ->whereNotNull('checked_in_at')
+            ->whereNull('actual_ended_at')
+            ->orderByDesc('checked_in_at')
+            ->first();
+
+        if ($active) {
+            return $active->user;
+        }
+
+        // Fallback: a confirmed booking whose slot covers right now.
+        $confirmed = $this->bookings()
+            ->with('user:id,name')
+            ->where('status', ComputerBooking::STATUS_CONFIRMED)
             ->whereDate('booking_date', $now->toDateString())
             ->get()
             ->first(function (ComputerBooking $b) use ($now) {
@@ -136,7 +152,7 @@ class Computer extends Model
                 return $now->between($start, $end);
             });
 
-        return $booking?->user;
+        return $confirmed?->user;
     }
 
     public function runningApps(): array
