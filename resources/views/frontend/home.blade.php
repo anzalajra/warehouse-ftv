@@ -19,8 +19,8 @@
         overflow: hidden;
         position: relative;
     }
-    .home-ticker-inner { display: flex; align-items: flex-start; min-height: 52px; padding: 12px 16px 12px 18px; gap: 14px; }
-    .home-ticker-pill, .home-ticker-controls { margin-top: 2px; }
+    .home-ticker-inner { display: flex; align-items: center; min-height: 52px; padding: 12px 16px 12px 18px; gap: 14px; }
+    .home-ticker-pill, .home-ticker-controls { margin-top: 0; }
     .home-ticker-pill {
         display: inline-flex; align-items: center; gap: 8px;
         background: var(--primary-500, #E37715); color: #fff;
