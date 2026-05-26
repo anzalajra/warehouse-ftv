@@ -11,20 +11,25 @@ class CreateRental extends Page
 {
     protected static string $resource = RentalResource::class;
 
-    protected string $view = 'filament.rentals.editor';
-
     public ?Rental $record = null;
+
+    public function getView(): string
+    {
+        return 'filament.rentals.editor';
+    }
 
     public function getTitle(): string|Htmlable
     {
-        return 'Buat Rental Baru';
+        return '';
+    }
+
+    public function getHeading(): string|Htmlable
+    {
+        return '';
     }
 
     public function getBreadcrumbs(): array
     {
-        return [
-            RentalResource::getUrl('index') => 'Rentals',
-            'Baru',
-        ];
+        return [];
     }
 }

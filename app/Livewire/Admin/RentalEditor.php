@@ -42,7 +42,6 @@ class RentalEditor extends Component
 
     // Search
     public string $searchTerm = '';
-    public bool $scanMode = false;
 
     // Modals
     public bool $unitModalOpen = false;
@@ -68,7 +67,7 @@ class RentalEditor extends Component
             $this->deposit = (float) ($record->deposit ?? 0);
             $this->down_payment_amount = (float) ($record->down_payment_amount ?? 0);
             $this->notes = $record->notes;
-            $this->hydrateItems();
+            $this->loadItemsFromRecord();
         } else {
             $this->start_date = now()->format('Y-m-d\TH:i');
             $this->end_date = now()->addDay()->format('Y-m-d\TH:i');
@@ -76,7 +75,7 @@ class RentalEditor extends Component
         }
     }
 
-    protected function hydrateItems(): void
+    protected function loadItemsFromRecord(): void
     {
         $grouped = RentalForm::groupItemsForForm($this->record->items);
         $this->items = [];
@@ -227,9 +226,6 @@ class RentalEditor extends Component
         if (trim($this->searchTerm) === '') {
             return [];
         }
-        if ($this->scanMode) {
-            return []; // scan handled on Enter via scanSku()
-        }
 
         return $this->productOptions($this->searchTerm, 8);
     }
@@ -240,15 +236,14 @@ class RentalEditor extends Component
     protected function productOptions(?string $needle = null, int $limit = 50): array
     {
         $q = Product::query()
-            ->with(['variations:id,product_id,name,sku,daily_rate', 'category:id,name'])
+            ->with(['variations:id,product_id,name,daily_rate', 'category:id,name'])
             ->where('is_active', true);
 
         if ($needle) {
             $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $needle).'%';
             $q->where(function ($qq) use ($like) {
                 $qq->where('name', 'like', $like)
-                    ->orWhere('sku', 'like', $like)
-                    ->orWhereHas('variations', fn ($v) => $v->where('sku', 'like', $like)->orWhere('name', 'like', $like))
+                    ->orWhereHas('variations', fn ($v) => $v->where('name', 'like', $like))
                     ->orWhereHas('category', fn ($c) => $c->where('name', 'like', $like));
             });
         }
@@ -264,7 +259,7 @@ class RentalEditor extends Component
                         'composite_id' => "{$p->id}:{$v->id}",
                         'product_id' => $p->id,
                         'variation_id' => $v->id,
-                        'sku' => $v->sku ?? $p->sku ?? "P{$p->id}V{$v->id}",
+                        'sku' => "P{$p->id}V{$v->id}",
                         'name' => $p->name.' ('.$v->name.')',
                         'cat' => $cat,
                         'price' => (float) ($v->daily_rate ?? $p->daily_rate ?? 0),
@@ -276,7 +271,7 @@ class RentalEditor extends Component
                     'composite_id' => (string) $p->id,
                     'product_id' => $p->id,
                     'variation_id' => null,
-                    'sku' => $p->sku ?? "P{$p->id}",
+                    'sku' => "P{$p->id}",
                     'name' => $p->name,
                     'cat' => $cat,
                     'price' => (float) ($p->daily_rate ?? 0),
@@ -414,50 +409,54 @@ class RentalEditor extends Component
         $this->searchTerm = '';
     }
 
-    public function scanSku(): void
+    /**
+     * Resolve a scanned code (QR/barcode) to a product and add it.
+     * Products/variations don't have SKU columns in this system; matching is via:
+     *   - ProductUnit.serial_number  (the physical unit code on the QR/label)
+     *   - URL containing /products/{id} or /product-units/{id} (system QRs)
+     */
+    public function handleScanned(string $code): void
     {
-        $needle = trim($this->searchTerm);
+        $needle = trim($code);
         if ($needle === '') {
             return;
         }
 
-        // Try variation SKU first
-        $variation = ProductVariation::whereRaw('LOWER(sku) = ?', [strtolower($needle)])->first();
-        if ($variation) {
-            $this->addProduct("{$variation->product_id}:{$variation->id}", 1);
-            $this->searchTerm = '';
-
-            return;
-        }
-        $product = Product::whereRaw('LOWER(sku) = ?', [strtolower($needle)])->first();
-        if ($product) {
-            $this->addProduct((string) $product->id, 1);
-            $this->searchTerm = '';
-
-            return;
-        }
-
-        // Try unit serial — add the product the unit belongs to
-        $unit = ProductUnit::with('product')
-            ->whereRaw('LOWER(serial_number) = ?', [strtolower($needle)])
-            ->first();
+        // 1) Direct serial number match
+        $unit = ProductUnit::whereRaw('LOWER(serial_number) = ?', [strtolower($needle)])->first();
         if ($unit) {
             $composite = $unit->product_variation_id
                 ? "{$unit->product_id}:{$unit->product_variation_id}"
                 : (string) $unit->product_id;
             $this->addProduct($composite, 1);
-            $this->searchTerm = '';
 
             return;
         }
 
-        $this->dispatch('rent-toast', message: "SKU tidak ditemukan: {$needle}");
-    }
+        // 2) URL-embedded ID (e.g. system QR pointing to /admin/products/{id})
+        if (preg_match('#/(products|product-units)/(\d+)#', $needle, $m)) {
+            $resource = $m[1];
+            $id = (int) $m[2];
+            if ($resource === 'product-units') {
+                $u = ProductUnit::find($id);
+                if ($u) {
+                    $composite = $u->product_variation_id
+                        ? "{$u->product_id}:{$u->product_variation_id}"
+                        : (string) $u->product_id;
+                    $this->addProduct($composite, 1);
 
-    public function handleScanned(string $code): void
-    {
-        $this->searchTerm = $code;
-        $this->scanSku();
+                    return;
+                }
+            } else {
+                if (Product::whereKey($id)->exists()) {
+                    $this->addProduct((string) $id, 1);
+
+                    return;
+                }
+            }
+        }
+
+        $this->dispatch('rent-toast', message: "Kode tidak dikenali: {$needle}");
     }
 
     public function updateItem(string $key, string $field, $value): void
@@ -578,7 +577,7 @@ class RentalEditor extends Component
         $product = Product::find($row['product_id']);
         $variation = $row['variation_id'] ? ProductVariation::find($row['variation_id']) : null;
         $name = $variation ? ($product?->name.' ('.$variation->name.')') : ($product?->name ?? 'Produk');
-        $sku = $variation?->sku ?? $product?->sku ?? '';
+        $sku = $variation ? "P{$row['product_id']}V{$row['variation_id']}" : "P{$row['product_id']}";
 
         $excludeId = $this->record?->id;
         $allUsed = $this->allUsedUnitIds($this->unitModalKey);
@@ -762,6 +761,24 @@ class RentalEditor extends Component
     public function cancel()
     {
         return redirect(RentalResource::getUrl('index'));
+    }
+
+    // ─── Discount / deposit type toggles ───
+    public function toggleDiscountType(): void
+    {
+        $this->discount_type = $this->discount_type === 'percent' ? 'fixed' : 'percent';
+        // Clamp percent to 0-100 so an old Rp value doesn't stay as 750000%
+        if ($this->discount_type === 'percent') {
+            $this->discount = min(100, max(0, $this->discount));
+        }
+    }
+
+    public function toggleDepositType(): void
+    {
+        $this->deposit_type = $this->deposit_type === 'percent' ? 'fixed' : 'percent';
+        if ($this->deposit_type === 'percent') {
+            $this->deposit = min(100, max(0, $this->deposit));
+        }
     }
 
     public function render()

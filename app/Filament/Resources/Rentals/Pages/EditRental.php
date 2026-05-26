@@ -12,9 +12,12 @@ class EditRental extends Page
 {
     protected static string $resource = RentalResource::class;
 
-    protected string $view = 'filament.rentals.editor';
-
     public ?Rental $record = null;
+
+    public function getView(): string
+    {
+        return 'filament.rentals.editor';
+    }
 
     public function mount(int|string $record): void
     {
@@ -33,15 +36,16 @@ class EditRental extends Page
 
     public function getTitle(): string|Htmlable
     {
-        return 'Edit '.($this->record?->rental_code ?? 'Rental');
+        return '';
+    }
+
+    public function getHeading(): string|Htmlable
+    {
+        return '';
     }
 
     public function getBreadcrumbs(): array
     {
-        return [
-            RentalResource::getUrl('index') => 'Rentals',
-            $this->record?->rental_code ?? '—',
-            'Edit',
-        ];
+        return [];
     }
 }
