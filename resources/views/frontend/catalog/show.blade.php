@@ -79,6 +79,33 @@
 
             <div class="prose prose-sm max-w-none text-gray-600 mb-6">{!! $product->description !!}</div>
 
+            @php
+                $warehouseNames = $product->units
+                    ->pluck('warehouse.name')
+                    ->filter()
+                    ->unique()
+                    ->values();
+                $totalUnits = $product->units->count();
+            @endphp
+            <div class="mb-6 border border-gray-100 rounded-lg overflow-hidden">
+                <table class="w-full text-sm">
+                    <tbody class="divide-y divide-gray-100">
+                        <tr>
+                            <td class="px-4 py-2 bg-gray-50 text-gray-500 font-medium w-1/3">Brand</td>
+                            <td class="px-4 py-2 text-gray-900">{{ $product->brand?->name ?? '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td class="px-4 py-2 bg-gray-50 text-gray-500 font-medium">Warehouse</td>
+                            <td class="px-4 py-2 text-gray-900">{{ $warehouseNames->isNotEmpty() ? $warehouseNames->implode(', ') : '-' }}</td>
+                        </tr>
+                        <tr>
+                            <td class="px-4 py-2 bg-gray-50 text-gray-500 font-medium">Jumlah Unit</td>
+                            <td class="px-4 py-2 text-gray-900">{{ $totalUnits }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
             <div class="text-3xl font-bold text-primary-600 mb-6">
                 Rp {{ number_format($product->daily_rate, 0, ',', '.') }} <span class="text-base font-normal text-gray-500">/ day</span>
             </div>

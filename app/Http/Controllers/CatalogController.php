@@ -112,7 +112,7 @@ class CatalogController extends Controller
 
     public function show(Product $product)
     {
-        $product->load(['category', 'units.kits', 'variations', 'tags']);
+        $product->load(['category', 'brand', 'units.kits', 'units.warehouse', 'variations', 'tags']);
 
         // Show total units that are not retired or in maintenance
         $availableUnits = $product->units()
