@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Customers\Tables;
 
+use App\Models\CustomerDocument;
+use App\Models\DocumentType;
 use App\Models\User;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -10,6 +12,7 @@ use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class CustomersTable
 {
@@ -75,12 +78,39 @@ class CustomersTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('is_verified')
+                SelectFilter::make('verification_status')
                     ->label('Verification Status')
                     ->options([
-                        '1' => 'Verified',
-                        '0' => 'Not Verified',
-                    ]),
+                        'verified' => 'Verified',
+                        'pending' => 'Pending Approval',
+                        'not_verified' => 'Not Verified',
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        $value = $data['value'] ?? null;
+                        if (! $value) {
+                            return $query;
+                        }
+
+                        $requiredTypeIds = DocumentType::where('is_active', true)
+                            ->where('is_required', true)
+                            ->pluck('id');
+
+                        return match ($value) {
+                            'verified' => $query->where('is_verified', true),
+                            'pending' => $query
+                                ->where('is_verified', false)
+                                ->whereHas('documents', function ($q) use ($requiredTypeIds) {
+                                    $q->whereIn('document_type_id', $requiredTypeIds)
+                                        ->where('status', CustomerDocument::STATUS_PENDING);
+                                }),
+                            'not_verified' => $query
+                                ->where('is_verified', false)
+                                ->whereDoesntHave('documents', function ($q) use ($requiredTypeIds) {
+                                    $q->whereIn('document_type_id', $requiredTypeIds);
+                                }),
+                            default => $query,
+                        };
+                    }),
             ])
             ->recordActions([
                 ViewAction::make(),
