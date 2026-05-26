@@ -62,7 +62,19 @@ class RentalsTable
                     ->visibleFrom('sm'),
             ])
             ->filters([
-                //
+                \Filament\Tables\Filters\SelectFilter::make('status')
+                    ->multiple()
+                    ->options(Rental::getStatusOptions()),
+                \Filament\Tables\Filters\Filter::make('start_date')
+                    ->schema([
+                        DatePicker::make('from')->label('Start From'),
+                        DatePicker::make('until')->label('Start Until'),
+                    ])
+                    ->query(function ($query, array $data) {
+                        return $query
+                            ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('start_date', '>=', $date))
+                            ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('start_date', '<=', $date));
+                    }),
             ])
             ->actions([
                 // Confirm Button
@@ -643,7 +655,7 @@ class RentalsTable
                         Rental::STATUS_COMPLETED,
                     ])),
             ])
-            ->defaultSort('start_date', 'asc')
+            ->defaultSort('created_at', 'desc')
             ->recordUrl(fn (Rental $record) => RentalResource::getUrl('view', ['record' => $record]))
             ->poll('30s');
     }

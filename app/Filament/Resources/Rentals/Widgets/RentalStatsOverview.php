@@ -31,21 +31,32 @@ class RentalStatsOverview extends BaseWidget
 
         $confirmed = Rental::where('status', Rental::STATUS_CONFIRMED)->count();
 
+        $clickable = ['style' => 'cursor: pointer;'];
+
         return [
             Stat::make('Today Pickup', $todayPickup)
                 ->description('Scheduled to pickup today')
                 ->descriptionIcon('heroicon-m-truck')
-                ->color('warning'),
+                ->color('warning')
+                ->extraAttributes(array_merge($clickable, [
+                    'wire:click' => "\$dispatch('filter-rentals', { scope: 'today_pickup' })",
+                ])),
 
             Stat::make('Tomorrow Pickup', $tomorrowPickup)
                 ->description('Scheduled to pickup tomorrow')
                 ->descriptionIcon('heroicon-m-calendar-days')
-                ->color('info'),
+                ->color('info')
+                ->extraAttributes(array_merge($clickable, [
+                    'wire:click' => "\$dispatch('filter-rentals', { scope: 'tomorrow_pickup' })",
+                ])),
 
             Stat::make('Confirmed', $confirmed)
                 ->description('Confirmed rentals')
                 ->descriptionIcon('heroicon-m-check-badge')
-                ->color('success'),
+                ->color('success')
+                ->extraAttributes(array_merge($clickable, [
+                    'wire:click' => "\$dispatch('filter-rentals', { scope: 'confirmed' })",
+                ])),
         ];
     }
 }

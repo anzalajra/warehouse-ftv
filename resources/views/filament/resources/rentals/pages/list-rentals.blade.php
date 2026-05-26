@@ -1,6 +1,4 @@
 <x-filament-panels::page>
-    @livewire(\App\Filament\Resources\Rentals\Widgets\RentalStatsOverview::class)
-
     <div class="flex items-center justify-between mb-4">
         <div class="flex items-center space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit">
             <button 
