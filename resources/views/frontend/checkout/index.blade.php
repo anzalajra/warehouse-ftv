@@ -182,11 +182,11 @@
                     @endif
 
                     <button type="submit" class="w-full bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 transition">
-                        Confirm Booking
+                        Submit Booking
                     </button>
 
                     <p class="text-xs text-gray-500 mt-4 text-center">
-                        By confirming, your booking will be submitted for review. We will contact you for payment confirmation.
+                        Setelah submit, mohon untuk segera melakukan konfirmasi booking ke Admin.
                     </p>
                 </div>
             </div>
