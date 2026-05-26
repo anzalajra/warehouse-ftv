@@ -486,100 +486,16 @@
     </main>
 
     <!-- Footer -->
-    <footer class="bg-gray-800 text-white mt-16">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
-                <div>
-                    <h3 class="text-xl font-bold mb-4">{{ \App\Models\Setting::get('site_name', 'Gearent') }}</h3>
-                    <p class="text-gray-400">{{ \App\Models\Setting::get('site_tagline', 'Your trusted equipment rental partner.') }}</p>
-                    @if(\App\Models\Setting::get('site_address'))
-                        <p class="text-gray-400 mt-4 text-sm font-light leading-relaxed whitespace-pre-line">{{ \App\Models\Setting::get('site_address') }}</p>
-                    @endif
-                </div>
-                <div>
-                    <h4 class="font-semibold mb-4">Quick Links</h4>
-                    <ul class="space-y-2 text-gray-400">
-                        @php
-                            $footerItems = [];
-                            try {
-                                $navigationModel = \LaraZeus\Sky\SkyPlugin::get()->getModel('Navigation');
-                                $footerHandle = \App\Models\Setting::get('footer_navigation_handle', 'footer-menu');
-                                $footerMenu = $navigationModel::fromHandle($footerHandle);
-                                
-                                if ($footerMenu && !empty($footerMenu->items)) {
-                                     foreach($footerMenu->items as $item) {
-                                        $url = '#';
-                                        $target = $item['data']['target'] ?? '_self';
-                                        
-                                        if ($item['type'] === 'page_link' && isset($item['data']['page_id'])) {
-                                            $postModel = \LaraZeus\Sky\SkyPlugin::get()->getModel('Post');
-                                            $page = $postModel::find($item['data']['page_id']);
-                                            $url = $page ? route('page', $page->slug) : '#';
-                                        } elseif ($item['type'] === 'post_link' && isset($item['data']['post_id'])) {
-                                            $postModel = \LaraZeus\Sky\SkyPlugin::get()->getModel('Post');
-                                            $post = $postModel::find($item['data']['post_id']);
-                                            $url = $post ? route('post', $post->slug) : '#';
-                                        } elseif ($item['type'] === 'external-link' || $item['type'] === 'url') {
-                                            $url = $item['data']['url'] ?? '#';
-                                        }
-
-                                        $footerItems[] = [
-                                            'label' => $item['label'],
-                                            'url' => $url,
-                                            'target' => $target,
-                                        ];
-                                     }
-                                } else {
-                                     // Fallback to old system if no Sky menu found
-                                     $oldFooterMenu = \App\Models\NavigationMenu::where('handle', 'footer-menu')->first();
-                                     $footerItems = $oldFooterMenu ? $oldFooterMenu->items : [
-                                        ['label' => 'Home', 'url' => url('/'), 'target' => '_self'],
-                                        ['label' => 'Catalog', 'url' => route('catalog.index'), 'target' => '_self'],
-                                     ];
-                                }
-                            } catch (\Exception $e) {
-                                 $footerItems = [
-                                    ['label' => 'Home', 'url' => url('/'), 'target' => '_self'],
-                                    ['label' => 'Catalog', 'url' => route('catalog.index'), 'target' => '_self'],
-                                 ];
-                            }
-                        @endphp
-                        
-                        @foreach($footerItems as $item)
-                            <li>
-                                <a href="{{ $item['url'] }}" 
-                                   target="{{ $item['target'] ?? '_self' }}"
-                                   class="hover:text-white">
-                                    {{ $item['label'] }}
-                                </a>
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-                <div>
-                    <h4 class="font-semibold mb-4">Contact</h4>
-                    <ul class="space-y-2 text-gray-400">
-                        <li>Phone: {{ \App\Models\Setting::get('site_phone', '021-1234567') }}</li>
-                        <li>Email: {{ \App\Models\Setting::get('site_email', 'info@gearent.com') }}</li>
-                    </ul>
-                </div>
-                <div>
-                    <h4 class="font-semibold mb-4">Follow Us</h4>
-                    <div class="flex space-x-4">
-                        <a href="#" class="text-gray-400 hover:text-white">Instagram</a>
-                        <a href="#" class="text-gray-400 hover:text-white">Facebook</a>
-                    </div>
-                </div>
-            </div>
-            <div class="border-t border-gray-700 mt-8 pt-8 text-center text-gray-400">
-                @if(\App\Models\Setting::get('site_copyright'))
-                    {{ \App\Models\Setting::get('site_copyright') }}
-                @else
-                    &copy; {{ date('Y') }} {{ \App\Models\Setting::get('site_name', 'Gearent') }}. All rights reserved.
-                @endif
-                <div class="mt-2 text-xs text-gray-500">
-                    v{{ config('app.version') }}
-                </div>
+    @php
+        $waNumber = \App\Models\Setting::get('warehouse_whatsapp_number');
+        $waLink = \App\Helpers\WhatsAppHelper::getLink($waNumber, 'Halo, saya ingin bertanya tentang Warehouse FTV UPI.');
+    @endphp
+    <footer class="bg-gray-800 text-gray-400 mt-16 text-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div>&copy; {{ date('Y') }} Warehouse FTV UPI &middot; warehouse.ftvupi.id</div>
+            <div class="flex items-center gap-4">
+                <a href="{{ url('/syarat-ketentuan') }}" class="hover:text-white">Syarat dan Ketentuan</a>
+                <a href="{{ $waLink }}" target="_blank" rel="noopener" class="hover:text-white">WhatsApp</a>
             </div>
         </div>
     </footer>
