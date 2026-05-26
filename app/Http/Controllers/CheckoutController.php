@@ -7,6 +7,7 @@ use App\Models\RentalItem;
 use App\Models\Discount;
 use App\Models\DailyDiscount;
 use App\Models\DatePromotion;
+use App\Models\Setting;
 use App\Services\PromotionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,6 +18,12 @@ class CheckoutController extends Controller
 {
     public function index()
     {
+        if (Setting::isStorefrontRentalDisabled()) {
+            return redirect()->route('cart.index')
+                ->with('error', Setting::storefrontRentalDisabledMessage())
+                ->with('rental_disabled', true);
+        }
+
         $customer = Auth::guard('customer')->user();
 
         // Check if customer is verified / not blocked
@@ -205,6 +212,14 @@ class CheckoutController extends Controller
 
     public function process(Request $request)
     {
+        if (Setting::isStorefrontRentalDisabled()) {
+            $msg = Setting::storefrontRentalDisabledMessage();
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $msg, 'rental_disabled' => true], 403);
+            }
+            return redirect()->route('cart.index')->with('error', $msg)->with('rental_disabled', true);
+        }
+
         $customer = Auth::guard('customer')->user();
 
         // Check if customer is verified / not blocked

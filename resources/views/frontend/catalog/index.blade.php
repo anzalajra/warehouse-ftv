@@ -27,7 +27,9 @@
 @endpush
 
 @section('content')
+@php($rentalDisabled = \App\Models\Setting::isStorefrontRentalDisabled())
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <x-storefront-rental-disabled-banner />
     <div class="flex flex-col lg:flex-row gap-8">
         <!-- Sidebar Filters -->
         <aside class="lg:w-64 flex-shrink-0" x-data="{ filtersOpen: false }">
@@ -275,20 +277,27 @@
                                     View Details
                                 </a>
                                 @auth('customer')
-                                    <button type="button"
-                                            class="add-to-cart-btn block w-full bg-emerald-600 text-white py-2 px-3 rounded hover:bg-emerald-700 transition text-sm font-semibold sm:flex-1"
-                                            data-product-id="{{ $product->id }}"
-                                            data-product-name="{{ $product->name }}"
-                                            data-has-variations="{{ $hasVar ? '1' : '0' }}"
-                                            data-available="{{ $availableCount }}"
-                                            @if($hasVar) data-variations='@json($variationPayload)' @endif
-                                            @if($availableCount <= 0) disabled @endif>
-                                        @if($availableCount <= 0)
-                                            Habis
-                                        @else
-                                            Add to Cart
-                                        @endif
-                                    </button>
+                                    @if($rentalDisabled)
+                                        <button type="button" disabled
+                                                class="block w-full bg-gray-400 text-white py-2 px-3 rounded text-sm font-semibold cursor-not-allowed sm:flex-1">
+                                            Rental Dinonaktifkan
+                                        </button>
+                                    @else
+                                        <button type="button"
+                                                class="add-to-cart-btn block w-full bg-emerald-600 text-white py-2 px-3 rounded hover:bg-emerald-700 transition text-sm font-semibold sm:flex-1"
+                                                data-product-id="{{ $product->id }}"
+                                                data-product-name="{{ $product->name }}"
+                                                data-has-variations="{{ $hasVar ? '1' : '0' }}"
+                                                data-available="{{ $availableCount }}"
+                                                @if($hasVar) data-variations='@json($variationPayload)' @endif
+                                                @if($availableCount <= 0) disabled @endif>
+                                            @if($availableCount <= 0)
+                                                Habis
+                                            @else
+                                                Add to Cart
+                                            @endif
+                                        </button>
+                                    @endif
                                 @endauth
                             </div>
                         </div>

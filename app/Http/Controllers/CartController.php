@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Cart;
 use App\Models\ProductUnit;
 use App\Models\Rental;
+use App\Models\Setting;
 use App\Services\RentalValidationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,6 +14,18 @@ use Carbon\Carbon;
 
 class CartController extends Controller
 {
+    private function rejectIfRentalDisabled(Request $request)
+    {
+        if (! Setting::isStorefrontRentalDisabled()) {
+            return null;
+        }
+        $msg = Setting::storefrontRentalDisabledMessage();
+        if ($request->expectsJson()) {
+            return response()->json(['message' => $msg, 'rental_disabled' => true], 403);
+        }
+        return back()->with('error', $msg);
+    }
+
     public function index()
     {
         $customer = Auth::guard('customer')->user();
@@ -45,6 +58,8 @@ class CartController extends Controller
 
     public function add(Request $request)
     {
+        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+
         $customer = Auth::guard('customer')->user();
 
         // Check if customer is verified / not blocked
@@ -256,8 +271,10 @@ class CartController extends Controller
 
     public function updateAll(Request $request)
     {
+        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+
         $customer = Auth::guard('customer')->user();
-        
+
         $request->validate([
             'start_date' => 'required|date|after_or_equal:today',
             'end_date' => 'required|date|after:start_date',
@@ -319,8 +336,10 @@ class CartController extends Controller
 
     public function update(Request $request, Cart $cart)
     {
+        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+
         $customer = Auth::guard('customer')->user();
-        
+
         if ($cart->user_id != $customer->id) {
             abort(403);
         }
@@ -368,8 +387,10 @@ class CartController extends Controller
 
     public function updateQuantity(Request $request)
     {
+        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+
         $customer = Auth::guard('customer')->user();
-        
+
         $request->validate([
             'product_id' => 'required|exists:products,id',
             'quantity' => 'required|integer|min:1',

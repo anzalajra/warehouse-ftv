@@ -37,7 +37,9 @@
 @endpush
 
 @section('content')
+@php($rentalDisabled = \App\Models\Setting::isStorefrontRentalDisabled())
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <x-storefront-rental-disabled-banner />
     <!-- Breadcrumb -->
     <nav class="text-sm mb-6">
         <a href="{{ route('catalog.index') }}" class="text-gray-500 hover:text-primary-600">Catalog</a>
@@ -162,7 +164,15 @@
                     </div>
                 @endif
 
-                @if($availableUnits->count() > 0)
+                @if($rentalDisabled)
+                    <div class="bg-gray-50 rounded-lg p-6 text-center">
+                        <p class="font-semibold text-gray-900">Rental Sedang Dinonaktifkan</p>
+                        <p class="text-sm text-gray-600 mt-2">Pemilihan tanggal dan pemesanan untuk sementara tidak tersedia.</p>
+                        <button type="button" disabled class="mt-4 w-full bg-gray-400 text-white py-3 rounded-lg font-semibold cursor-not-allowed">
+                            Tidak Tersedia
+                        </button>
+                    </div>
+                @elseif($availableUnits->count() > 0)
                     <!-- Booking Form -->
                     <form id="addToCartForm" action="{{ route('cart.add') }}" method="POST" class="bg-gray-50 rounded-lg p-6">
                         @csrf

@@ -7,8 +7,11 @@
 @endpush
 
 @section('content')
+@php($rentalDisabled = \App\Models\Setting::isStorefrontRentalDisabled())
+@php($rentalDisabledMessage = \App\Models\Setting::storefrontRentalDisabledMessage())
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <h1 class="text-2xl font-bold mb-8">Shopping Cart</h1>
+    <x-storefront-rental-disabled-banner />
 
     <!-- Verification Warning -->
     @if(!$canCheckout)
@@ -277,7 +280,13 @@
                         </div>
                     </div>
 
-                    @if($canCheckout)
+                    @if($rentalDisabled)
+                        <button type="button"
+                                onclick="showRentalDisabledPopup()"
+                                class="w-full block text-center bg-amber-500 text-white py-3 rounded-lg font-semibold hover:bg-amber-600 transition">
+                            Proceed to Checkout
+                        </button>
+                    @elseif($canCheckout)
                         <a href="{{ route('checkout.index') }}" class="w-full block text-center bg-primary-600 text-white py-3 rounded-lg font-semibold hover:bg-primary-700 transition">
                             Proceed to Checkout
                         </a>
@@ -307,6 +316,42 @@
         </div>
     @endif
 </div>
+
+@if($rentalDisabled)
+    <div id="rentalDisabledModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div class="flex items-start gap-3">
+                <svg class="w-8 h-8 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path>
+                </svg>
+                <div class="flex-1">
+                    <h3 class="text-lg font-bold text-gray-900">Sistem Rental Sedang Dinonaktifkan</h3>
+                    <p class="text-sm text-gray-700 mt-2 whitespace-pre-line">{{ $rentalDisabledMessage }}</p>
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button type="button" onclick="hideRentalDisabledPopup()"
+                        class="px-4 py-2 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700">
+                    Tutup
+                </button>
+            </div>
+        </div>
+    </div>
+    <script>
+        @if(session('rental_disabled'))
+            document.addEventListener('DOMContentLoaded', function () { showRentalDisabledPopup(); });
+        @endif
+        function showRentalDisabledPopup() {
+            const m = document.getElementById('rentalDisabledModal');
+            if (m) { m.classList.remove('hidden'); m.classList.add('flex'); }
+        }
+        function hideRentalDisabledPopup() {
+            const m = document.getElementById('rentalDisabledModal');
+            if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
+        }
+    </script>
+@endif
 @endsection
 
 @push('scripts')

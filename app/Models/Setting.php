@@ -56,6 +56,44 @@ class Setting extends Model
             ->toArray();
     }
 
+    public static function isStorefrontRentalDisabled(): bool
+    {
+        $enabled = filter_var(self::get('storefront_rental_disabled', false), FILTER_VALIDATE_BOOLEAN);
+        if (! $enabled) {
+            return false;
+        }
+
+        $start = self::get('storefront_rental_disabled_start');
+        $end   = self::get('storefront_rental_disabled_end');
+
+        // No window = indefinite while toggle is on.
+        if (empty($start) && empty($end)) {
+            return true;
+        }
+
+        $now = \Carbon\Carbon::now();
+        try {
+            if (! empty($start) && $now->lt(\Carbon\Carbon::parse($start))) {
+                return false;
+            }
+            if (! empty($end) && $now->gt(\Carbon\Carbon::parse($end))) {
+                return false;
+            }
+        } catch (\Exception $e) {
+            return true;
+        }
+
+        return true;
+    }
+
+    public static function storefrontRentalDisabledMessage(): string
+    {
+        $msg = self::get('storefront_rental_disabled_message');
+        return is_string($msg) && trim($msg) !== ''
+            ? $msg
+            : 'Mohon maaf, layanan rental sedang tidak tersedia untuk sementara waktu.';
+    }
+
     public static function getAllGrouped(): array
     {
         return self::orderBy('group')
