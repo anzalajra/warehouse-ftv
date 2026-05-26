@@ -12,7 +12,9 @@
       "Bash(php -l app/Http/Controllers/HomeController.php)",
       "Bash(php -l app/Filament/Resources/AnnouncementResource.php)",
       "Bash(php -l app/Models/Announcement.php)",
-      "Bash(php -l database/migrations/2026_05_26_120000_add_category_to_announcements_table.php)"
+      "Bash(php -l database/migrations/2026_05_26_120000_add_category_to_announcements_table.php)",
+      "Bash(grep -E '^\\\\s*\\(public|protected\\).*\\\\$fillable|STATUS_|getDailyRate|getStockAttribute' 'd:/6. Kints/Projects/warehouse-ftv/app/Models/Product.php' 'd:/6. Kints/Projects/warehouse-ftv/app/Models/ProductUnit.php' 'd:/6. Kints/Projects/warehouse-ftv/app/Models/Rental.php' 'd:/6. Kints/Projects/warehouse-ftv/app/Models/RentalItem.php')",
+      "Bash(grep -l \"App\\\\\\\\\\\\\\\\Livewire\" \"d:/6. Kints/Projects/warehouse-ftv/composer.json\" \"d:/6. Kints/Projects/warehouse-ftv/app/Providers/\" -r)"
     ]
   }
 }
