@@ -12,7 +12,7 @@ class EditRental extends Page
 {
     protected static string $resource = RentalResource::class;
 
-    public ?Rental $record = null;
+    public ?Rental $rental = null;
 
     public function getView(): string
     {
@@ -21,9 +21,9 @@ class EditRental extends Page
 
     public function mount(int|string $record): void
     {
-        $this->record = Rental::with('items.productUnit')->findOrFail($record);
+        $this->rental = Rental::with('items.productUnit')->findOrFail($record);
 
-        if (! $this->record->canBeEdited()) {
+        if (! $this->rental->canBeEdited()) {
             Notification::make()
                 ->title('Cannot edit this rental')
                 ->body('This rental is currently active and cannot be edited.')
