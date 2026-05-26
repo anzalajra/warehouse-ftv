@@ -69,12 +69,29 @@
 
                 <!-- Terms -->
                 <div class="bg-white rounded-lg shadow p-6">
-                    <label class="flex items-start">
-                        <input type="checkbox" name="agree_terms" required class="mt-1 mr-3">
+                    <label class="flex items-start cursor-pointer">
+                        <input type="checkbox" name="agree_terms" id="agree_terms" required class="mt-1 mr-3">
                         <span class="text-sm text-gray-600">
-                            I agree to the <a href="#" class="text-primary-600 hover:underline">Terms and Conditions</a> and understand that a deposit of 30% is required to confirm my booking.
+                            Saya telah membaca dan menyetujui <a href="{{ url('/blog/syarat-dan-ketentuan') }}" target="_blank" class="text-primary-600 hover:underline">Syarat dan Ketentuan</a> dan bertanggung jawab penuh terhadap alat yang dipinjam.
                         </span>
                     </label>
+                </div>
+
+                <!-- Terms Modal -->
+                <div id="terms_modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-50 p-4">
+                    <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+                        <div class="px-6 py-4 border-b flex items-center justify-between">
+                            <h3 class="text-lg font-semibold">Syarat dan Ketentuan</h3>
+                            <button type="button" id="terms_close" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                        </div>
+                        <div class="flex-1 overflow-hidden">
+                            <iframe id="terms_iframe" src="" class="w-full h-full min-h-[60vh] border-0"></iframe>
+                        </div>
+                        <div class="px-6 py-4 border-t flex justify-end gap-3 bg-gray-50 rounded-b-lg">
+                            <button type="button" id="terms_cancel" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 text-sm">Batal</button>
+                            <button type="button" id="terms_accept" class="px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm">Saya Setuju</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -233,5 +250,63 @@
             msg.classList.add('text-red-600');
         });
     });
+
+    // Terms & Conditions confirmation modal
+    (function () {
+        const checkbox = document.getElementById('agree_terms');
+        const modal = document.getElementById('terms_modal');
+        const iframe = document.getElementById('terms_iframe');
+        const acceptBtn = document.getElementById('terms_accept');
+        const cancelBtn = document.getElementById('terms_cancel');
+        const closeBtn = document.getElementById('terms_close');
+        const termsUrl = @json(url('/blog/syarat-dan-ketentuan'));
+        let accepted = false;
+
+        function openModal() {
+            if (!iframe.src) iframe.src = termsUrl;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.body.style.overflow = '';
+        }
+
+        checkbox.addEventListener('click', function (e) {
+            if (accepted) return; // already accepted, allow normal toggle
+            if (checkbox.checked) {
+                // Prevent the check from sticking until they confirm in modal
+                e.preventDefault();
+                checkbox.checked = false;
+                openModal();
+            }
+        });
+
+        acceptBtn.addEventListener('click', function () {
+            accepted = true;
+            checkbox.checked = true;
+            closeModal();
+        });
+
+        cancelBtn.addEventListener('click', function () {
+            checkbox.checked = false;
+            closeModal();
+        });
+
+        closeBtn.addEventListener('click', function () {
+            checkbox.checked = false;
+            closeModal();
+        });
+
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) {
+                checkbox.checked = false;
+                closeModal();
+            }
+        });
+    })();
 </script>
 @endsection
