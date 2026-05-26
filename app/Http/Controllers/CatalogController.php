@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\ProductTag;
 use App\Models\Rental;
@@ -18,7 +19,7 @@ class CatalogController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Product::with(['category', 'units', 'tags'])
+        $query = Product::with(['category', 'units', 'tags', 'brand', 'variations'])
             ->where('is_active', true)
             ->visibleForCustomer(Auth::guard('customer')->user())
             ->whereHas('category', fn ($q) => $q->where('slug', '!=', 'accessories-kits'));
@@ -61,6 +62,11 @@ class CatalogController extends Controller
             $query->where('category_id', $request->category);
         }
 
+        // Filter by brand
+        if ($request->filled('brand_id')) {
+            $query->where('brand_id', $request->brand_id);
+        }
+
         // Filter by tags (slugs). Product must have ALL selected tags.
         $selectedTagSlugs = array_filter((array) $request->input('tags', []));
         if (! empty($selectedTagSlugs)) {
@@ -96,11 +102,12 @@ class CatalogController extends Controller
         $products = $query->paginate(12)->withQueryString();
         $categories = Category::visibleOnStorefront()->get();
         $tags = ProductTag::orderBy('sort_order')->orderBy('name')->get();
+        $brands = Brand::where('is_active', true)->orderBy('name')->get();
 
         $operationalDays = array_map('strval', json_decode(Setting::get('operational_days'), true) ?? ['1', '2', '3', '4', '5', '6', '0']);
         $holidays = json_decode(Setting::get('holidays'), true) ?? [];
 
-        return view('frontend.catalog.index', compact('products', 'categories', 'tags', 'selectedTagSlugs', 'operationalDays', 'holidays'));
+        return view('frontend.catalog.index', compact('products', 'categories', 'tags', 'brands', 'selectedTagSlugs', 'operationalDays', 'holidays'));
     }
 
     public function show(Product $product)
