@@ -3,6 +3,19 @@
 @section('title', 'Checkout')
 
 @section('content')
+<style>
+    .terms-modal { opacity: 0; transition: opacity 220ms ease-out; }
+    .terms-modal.is-open { opacity: 1; }
+    .terms-modal__panel {
+        transform: translateY(16px) scale(0.96);
+        opacity: 0;
+        transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease-out;
+    }
+    .terms-modal.is-open .terms-modal__panel {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+</style>
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <h1 class="text-2xl font-bold mb-8">Checkout</h1>
 
@@ -78,8 +91,9 @@
                 </div>
 
                 <!-- Terms Modal -->
-                <div id="terms_modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-50 p-4">
-                    <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+                <div id="terms_modal" class="terms-modal fixed inset-0 z-50 hidden items-center justify-center p-4">
+                    <div class="terms-modal__backdrop absolute inset-0 bg-black bg-opacity-50"></div>
+                    <div class="terms-modal__panel relative bg-white rounded-lg shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
                         <div class="px-6 py-4 border-b flex items-center justify-between">
                             <h3 class="text-lg font-semibold">Syarat dan Ketentuan</h3>
                             <button type="button" id="terms_close" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
@@ -259,7 +273,7 @@
         const acceptBtn = document.getElementById('terms_accept');
         const cancelBtn = document.getElementById('terms_cancel');
         const closeBtn = document.getElementById('terms_close');
-        const termsUrl = @json(url('/syarat-ketentuan'));
+        const termsUrl = @json(url('/page-embed/syarat-ketentuan'));
         let accepted = false;
 
         function openModal() {
@@ -267,12 +281,22 @@
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             document.body.style.overflow = 'hidden';
+            // next frame so the transition runs from the initial state
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => modal.classList.add('is-open'));
+            });
         }
 
         function closeModal() {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-            document.body.style.overflow = '';
+            modal.classList.remove('is-open');
+            const panel = modal.querySelector('.terms-modal__panel');
+            const done = () => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                document.body.style.overflow = '';
+                panel.removeEventListener('transitionend', done);
+            };
+            panel.addEventListener('transitionend', done);
         }
 
         checkbox.addEventListener('click', function (e) {
@@ -302,7 +326,7 @@
         });
 
         modal.addEventListener('click', function (e) {
-            if (e.target === modal) {
+            if (e.target === modal || e.target.classList.contains('terms-modal__backdrop')) {
                 checkbox.checked = false;
                 closeModal();
             }

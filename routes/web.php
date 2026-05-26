@@ -205,6 +205,17 @@ if (!$isInstalled) {
         Route::get('/{slug}', \LaraZeus\Sky\Livewire\Post::class)->name('post');
     });
 
+    // Embeddable page content (for iframe modals — no layout chrome)
+    Route::get('/page-embed/{slug}', function (string $slug) {
+        $page = \App\Models\Zeus\Post::query()
+            ->where('post_type', 'page')
+            ->where('slug', $slug)
+            ->firstOrFail();
+        return response()
+            ->view('frontend.page-embed', ['page' => $page])
+            ->header('X-Frame-Options', 'SAMEORIGIN');
+    })->name('page.embed');
+
     // Lara Zeus Sky Pages (Direct Access)
     Route::middleware(['web'])->group(function () {
         Route::get('/{slug}', \LaraZeus\Sky\Livewire\Page::class)->name('page');
