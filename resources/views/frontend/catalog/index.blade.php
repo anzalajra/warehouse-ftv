@@ -27,7 +27,9 @@
 @endpush
 
 @section('content')
-@php($rentalDisabled = \App\Models\Setting::isStorefrontRentalDisabled())
+@php
+    $rentalDisabled = \App\Models\Setting::isStorefrontRentalDisabled();
+@endphp
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <x-storefront-rental-disabled-banner />
     <div class="flex flex-col lg:flex-row gap-8">
