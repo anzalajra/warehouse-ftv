@@ -2,35 +2,29 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Product;
-use App\Models\Category;
-
-use Illuminate\Support\Facades\Auth;
+use App\Models\Announcement;
+use App\Models\Zeus\Post;
 
 class HomeController extends Controller
 {
     public function index()
     {
-        $featuredProducts = Product::with(['category', 'units'])
-            ->where('is_active', true)
-            ->visibleForCustomer(Auth::guard('customer')->user())
-            ->whereHas('units', function ($query) {
-                $query->where('status', 'available')
-                      ->where(function ($q) {
-                          $q->whereNull('warehouse_id')
-                            ->orWhereHas('warehouse', function ($wq) {
-                                $wq->where('is_active', true)
-                                   ->where('is_available_for_rental', true);
-                            });
-                      });
-            })
-            ->take(8)
-            ->get();
+        $announcements = Announcement::activeBanners();
 
-        $categories = Category::withCount(['products' => function ($query) {
-            $query->where('is_active', true);
-        }])->get();
+        $blogPosts = collect();
+        try {
+            $blogPosts = Post::query()
+                ->where('post_type', 'post')
+                ->where('status', 'publish')
+                ->whereNotNull('published_at')
+                ->where('published_at', '<=', now())
+                ->orderByDesc('published_at')
+                ->take(3)
+                ->get();
+        } catch (\Throwable $e) {
+            $blogPosts = collect();
+        }
 
-        return view('frontend.home', compact('featuredProducts', 'categories'));
+        return view('frontend.home', compact('announcements', 'blogPosts'));
     }
 }

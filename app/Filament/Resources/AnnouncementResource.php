@@ -46,7 +46,7 @@ class AnnouncementResource extends Resource
                     TextInput::make('title')
                         ->required()
                         ->maxLength(255)
-                        ->helperText('Internal title, shown to admins.'),
+                        ->helperText('Headline (teks bold di banner publik).'),
 
                     Select::make('type')
                         ->required()
@@ -90,8 +90,25 @@ class AnnouncementResource extends Resource
 
             Section::make('Banner Content')
                 ->schema([
+                    Select::make('category')
+                        ->label('Category')
+                        ->helperText('Label pill di sebelah kiri banner. Pilih salah satu, atau ketik nilai baru lalu klik "Create".')
+                        ->options([
+                            'INFO' => 'INFO',
+                            'MAINTENANCE' => 'MAINTENANCE',
+                            'UPDATE' => 'UPDATE',
+                            'EVENT' => 'EVENT',
+                            'LIBUR' => 'LIBUR',
+                        ])
+                        ->default('INFO')
+                        ->native(false)
+                        ->searchable()
+                        ->createOptionUsing(fn (string $value) => strtoupper(trim($value)))
+                        ->dehydrateStateUsing(fn ($state) => $state ? strtoupper((string) $state) : null),
+
                     Textarea::make('content')
-                        ->label('Banner Text')
+                        ->label('Body Text')
+                        ->helperText('Deskripsi singkat di sebelah headline.')
                         ->required(fn ($get) => $get('type') === 'banner')
                         ->rows(2)
                         ->columnSpanFull(),
@@ -148,6 +165,11 @@ class AnnouncementResource extends Resource
                         'info' => 'banner',
                         'warning' => 'popup',
                     ]),
+
+                TextColumn::make('category')
+                    ->badge()
+                    ->toggleable()
+                    ->placeholder('—'),
 
                 IconColumn::make('is_active')
                     ->label('Active')

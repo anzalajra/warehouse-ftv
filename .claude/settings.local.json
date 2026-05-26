@@ -5,7 +5,14 @@
       "WebFetch(domain:api.anthropic.com)",
       "Bash(mkdir -p /tmp/design_extract)",
       "Bash(cp \"C:\\\\Users\\\\danga\\\\.claude\\\\projects\\\\d--6--Kints-Projects-warehouse-ftv\\\\859b3a12-c532-4c7b-b5f6-9e313b8d942f\\\\tool-results\\\\webfetch-1776762164054-d7wd9d.bin\" /tmp/design_extract/design.gz)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(mkdir -p /tmp/design-pkg)",
+      "Bash(cp \"C:\\\\Users\\\\danga\\\\.claude\\\\projects\\\\d--6--Kints-Projects-warehouse-ftv\\\\e91eb68a-deac-4474-bb5e-68e952648b6f\\\\tool-results\\\\webfetch-1779775191253-ng014m.bin\" /tmp/design-pkg/pkg.tar.gz)",
+      "Bash(tar -xzf pkg.tar.gz)",
+      "Bash(php -l app/Http/Controllers/HomeController.php)",
+      "Bash(php -l app/Filament/Resources/AnnouncementResource.php)",
+      "Bash(php -l app/Models/Announcement.php)",
+      "Bash(php -l database/migrations/2026_05_26_120000_add_category_to_announcements_table.php)"
     ]
   }
 }

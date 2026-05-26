@@ -35,26 +35,11 @@
 <body class="font-sans antialiased bg-gray-50">
     @php
         try {
-            $__activeBanners = \App\Models\Announcement::activeBanners();
             $__activePopup = \App\Models\Announcement::activePopup();
         } catch (\Throwable $e) {
-            $__activeBanners = collect();
             $__activePopup = null;
         }
     @endphp
-
-    @foreach($__activeBanners as $__banner)
-        <div class="text-sm" style="background-color: {{ $__banner->banner_bg_color ?? '#0ea5e9' }}; color: {{ $__banner->banner_text_color ?? '#ffffff' }};">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-center gap-3 text-center">
-                <span>{{ $__banner->content }}</span>
-                @if($__banner->link_url)
-                    <a href="{{ $__banner->link_url }}" class="underline font-semibold whitespace-nowrap hover:opacity-80">
-                        {{ $__banner->link_label ?: 'Selengkapnya' }}
-                    </a>
-                @endif
-            </div>
-        </div>
-    @endforeach
 
     @if($__activePopup)
         <div id="announcement-popup-{{ $__activePopup->id }}"
