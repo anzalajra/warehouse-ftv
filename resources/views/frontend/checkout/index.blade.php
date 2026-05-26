@@ -277,7 +277,7 @@
         let accepted = false;
 
         function openModal() {
-            if (!iframe.src) iframe.src = termsUrl;
+            if (iframe.getAttribute('src') !== termsUrl) iframe.setAttribute('src', termsUrl);
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             document.body.style.overflow = 'hidden';
