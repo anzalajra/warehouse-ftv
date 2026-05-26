@@ -10,7 +10,7 @@ class NotificationController extends Controller
     public function markAsRead($id)
     {
         $notification = Auth::guard('customer')->user()
-            ->notifications()
+            ->customerNotifications()
             ->where('id', $id)
             ->first();
 
@@ -32,7 +32,7 @@ class NotificationController extends Controller
 
     public function markAllAsRead()
     {
-        Auth::guard('customer')->user()->unreadNotifications->markAsRead();
+        Auth::guard('customer')->user()->unreadCustomerNotifications()->update(['read_at' => now()]);
         return back()->with('success', 'All notifications marked as read.');
     }
 }

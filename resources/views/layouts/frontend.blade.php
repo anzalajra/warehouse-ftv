@@ -223,7 +223,9 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                                 </svg>
                                 @php
-                                    $unreadCount = auth('customer')->user()->unreadNotifications->count();
+                                    $customerNotifications = auth('customer')->user()->customerNotifications()->latest()->take(10)->get();
+                                    $customerNotificationsTotal = auth('customer')->user()->customerNotifications()->count();
+                                    $unreadCount = auth('customer')->user()->unreadCustomerNotifications()->count();
                                 @endphp
                                 @if($unreadCount > 0)
                                     <span class="absolute -top-2 -right-2 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{{ $unreadCount }}</span>
@@ -252,7 +254,7 @@
                                 </div>
 
                                 <div class="max-h-96 overflow-y-auto">
-                                    @forelse(auth('customer')->user()->notifications->take(10) as $notification)
+                                    @forelse($customerNotifications as $notification)
                                         <a href="{{ route('customer.notifications.read', $notification->id) }}" class="block px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 {{ $notification->read_at ? 'opacity-75' : 'bg-primary-50' }}">
                                             <div class="flex items-start gap-3">
                                                 <div class="flex-shrink-0 mt-1">
@@ -286,7 +288,7 @@
                                     @endforelse
                                 </div>
                                 
-                                @if(auth('customer')->user()->notifications->count() > 10)
+                                @if($customerNotificationsTotal > 10)
                                     <div class="bg-gray-50 px-4 py-2 text-center border-t border-gray-100">
                                         <a href="#" class="text-xs font-medium text-primary-600 hover:text-primary-500">View all notifications</a>
                                     </div>

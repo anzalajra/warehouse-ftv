@@ -154,6 +154,36 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasMany(Rental::class);
     }
 
+    /**
+     * Notification classes that are intended for customer-facing display
+     * (i.e. shown in the storefront notification dropdown). Anything outside
+     * this list — admin alerts like NewBooking, NewCustomer, DeliveryOut,
+     * VerificationRequest, InvoiceCreated, SystemError — must not leak to
+     * customers, even if the same user holds both roles.
+     */
+    public const CUSTOMER_NOTIFICATION_TYPES = [
+        \App\Notifications\BookingConfirmedNotification::class,
+        \App\Notifications\RentalConfirmation::class,
+        \App\Notifications\PickupReminderNotification::class,
+        \App\Notifications\ReturnReminderNotification::class,
+        \App\Notifications\OverdueAlertNotification::class,
+        \App\Notifications\RentalCompletedNotification::class,
+        \App\Notifications\DocumentVerifiedNotification::class,
+        \App\Notifications\CustomerResetPassword::class,
+    ];
+
+    public function customerNotifications()
+    {
+        return $this->notifications()
+            ->whereIn('type', self::CUSTOMER_NOTIFICATION_TYPES);
+    }
+
+    public function unreadCustomerNotifications()
+    {
+        return $this->unreadNotifications()
+            ->whereIn('type', self::CUSTOMER_NOTIFICATION_TYPES);
+    }
+
     public function computerBookings(): HasMany
     {
         return $this->hasMany(ComputerBooking::class);
