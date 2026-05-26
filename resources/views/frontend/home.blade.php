@@ -60,6 +60,36 @@
     .home-ticker-nav:hover { background: color-mix(in srgb, var(--primary-500, #E37715) 12%, transparent); color: var(--primary-600, #C5640C); }
     .home-ticker-nav svg { width: 14px; height: 14px; }
 
+    /* Mobile: keep ticker on a single row, truncate long content */
+    @media (max-width: 640px) {
+        .home-ticker { margin-top: 12px; border-radius: 12px; }
+        .home-ticker-inner { min-height: 44px; padding: 8px 10px; gap: 8px; }
+        .home-ticker-pill { font-size: 10px; padding: 4px 8px; gap: 6px; }
+        .home-ticker-pill svg { width: 11px; height: 11px; }
+        .home-ticker-pill .pill-label { display: none; }
+        .home-ticker-stage { overflow: hidden; }
+        .home-ticker-item {
+            flex-wrap: nowrap;
+            font-size: 13px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+        }
+        .home-ticker-item strong,
+        .home-ticker-item span,
+        .home-ticker-item a.cta {
+            display: inline;
+            white-space: nowrap;
+        }
+        .home-ticker-item .sep,
+        .home-ticker-item .meta { display: none; }
+        .home-ticker-dots { display: none; }
+        .home-ticker-controls { gap: 0; }
+        .home-ticker-nav { width: 24px; height: 24px; }
+        .home-ticker-nav svg { width: 12px; height: 12px; }
+    }
+
     /* ---- Section ---- */
     .home-section { padding: 64px 0 24px; }
     .home-section.blog { padding: 56px 0 80px; }
@@ -181,7 +211,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15 8a4 4 0 0 1 0 8"/>
                     </svg>
-                    <span x-text="items[i] ? items[i].tag : 'INFO'">PENGUMUMAN</span>
+                    <span class="pill-label" x-text="items[i] ? items[i].tag : 'INFO'">PENGUMUMAN</span>
                 </span>
                 <div class="home-ticker-stage" aria-live="polite">
                     <template x-if="items[i]">
