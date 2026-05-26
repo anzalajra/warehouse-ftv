@@ -72,7 +72,7 @@
                     <label class="flex items-start cursor-pointer">
                         <input type="checkbox" name="agree_terms" id="agree_terms" required class="mt-1 mr-3">
                         <span class="text-sm text-gray-600">
-                            Saya telah membaca dan menyetujui <a href="{{ url('/blog/syarat-dan-ketentuan') }}" target="_blank" class="text-primary-600 hover:underline">Syarat dan Ketentuan</a> dan bertanggung jawab penuh terhadap alat yang dipinjam.
+                            Saya telah membaca dan menyetujui <a href="{{ url('/syarat-ketentuan') }}" target="_blank" class="text-primary-600 hover:underline">Syarat dan Ketentuan</a> dan bertanggung jawab penuh terhadap alat yang dipinjam.
                         </span>
                     </label>
                 </div>
@@ -259,7 +259,7 @@
         const acceptBtn = document.getElementById('terms_accept');
         const cancelBtn = document.getElementById('terms_cancel');
         const closeBtn = document.getElementById('terms_close');
-        const termsUrl = @json(url('/blog/syarat-dan-ketentuan'));
+        const termsUrl = @json(url('/syarat-ketentuan'));
         let accepted = false;
 
         function openModal() {
