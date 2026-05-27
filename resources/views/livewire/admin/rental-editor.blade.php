@@ -83,7 +83,7 @@
         .rent-app .mobile-view  { display: none; }
         @media (max-width: 768px) {
             .rent-app .desktop-view { display: none; }
-            .rent-app .mobile-view  { display: flex; flex-direction: column; min-height: 100vh; background: #f3f1ed; margin: -1.5rem -1rem 0; }
+            .rent-app .mobile-view  { display: flex; flex-direction: column; min-height: 100vh; background: #f3f1ed; margin: 0 -1rem; }
             .dark .rent-app .mobile-view { background: #09090b; }
         }
 
@@ -137,6 +137,50 @@
         .rent-app .crumbs .sep { color: var(--gray-300); }
         .rent-app .topbar h1 { margin:0; font-size:18px; font-weight:700; color: var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric: tabular-nums; }
         .rent-app .topbar-actions { margin-left: auto; display:flex; align-items:center; gap:8px; }
+
+        /* Kebab dropdown (shared desktop + mobile) */
+        .rent-app .kebab-wrap { position: relative; }
+        .rent-app .kebab-btn { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; padding:0; border-radius: var(--radius-lg); border:1px solid var(--border-1); background:#fff; color: var(--fg-2); cursor:pointer; transition: background var(--dur), color var(--dur), border-color var(--dur); }
+        .dark .rent-app .kebab-btn { background: var(--bg-surface); }
+        .rent-app .kebab-btn:hover { background: var(--gray-50); color: var(--fg-1); }
+        .rent-app .kebab-menu { position:absolute; top: calc(100% + 6px); right: 0; min-width: 220px; background:#fff; border:1px solid var(--border-1); border-radius: var(--radius-lg); box-shadow: var(--shadow-dropdown); z-index: 40; padding: 6px; display:flex; flex-direction: column; gap: 2px; }
+        .dark .rent-app .kebab-menu { background: var(--bg-surface); }
+        .rent-app .kebab-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:6px; font-size:13.5px; color: var(--fg-1); background:transparent; border:0; cursor:pointer; text-align:left; width:100%; }
+        .rent-app .kebab-item:hover { background: var(--gray-50); }
+        .rent-app .kebab-item.danger { color: var(--danger-700); }
+        .rent-app .kebab-item.danger:hover { background: var(--danger-50); }
+        .rent-app .kebab-item[disabled] { opacity:.5; cursor: not-allowed; }
+        .rent-app .kebab-divider { height:1px; background: var(--border-1); margin: 4px 0; }
+
+        /* Mobile sub-header (back + title + kebab), pushed below Filament sticky top bar */
+        .rent-app .mobile-subhead {
+            display: none;
+        }
+        @media (max-width: 768px) {
+            .rent-app .mobile-subhead {
+                display: flex; align-items: center; gap: 8px;
+                padding: 10px 12px;
+                background: #fff; border-bottom: 1px solid var(--border-1);
+                position: sticky; top: 0; z-index: 25;
+            }
+            .dark .rent-app .mobile-subhead { background: var(--bg-surface); }
+            .rent-app .mobile-subhead .msh-back,
+            .rent-app .mobile-subhead .msh-kebab {
+                display:inline-flex; align-items:center; justify-content:center;
+                width: 36px; height: 36px; border-radius: 10px;
+                border:1px solid var(--border-1); background:#fff; color: var(--fg-1); cursor:pointer; padding:0;
+            }
+            .dark .rent-app .mobile-subhead .msh-back,
+            .dark .rent-app .mobile-subhead .msh-kebab { background: var(--bg-surface); }
+            .rent-app .mobile-subhead .msh-title {
+                flex: 1; min-width: 0;
+                font-size: 15px; font-weight: 700; color: var(--fg-1);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            }
+            .rent-app .mobile-subhead .msh-title .msh-sub {
+                display: block; font-size: 11px; font-weight: 500; color: var(--fg-3);
+            }
+        }
 
         .rent-app .page { padding:20px 24px 64px; display:flex; flex-direction:column; gap:20px; }
 
@@ -764,6 +808,12 @@
                             <span>{{ $missingUnitsCount }} unit kosong</span>
                         </span>
                     @endif
+                    <div class="kebab-wrap" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
+                        <button type="button" class="kebab-btn" @click="open = !open" aria-label="More actions" aria-haspopup="true" :aria-expanded="open">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+                        </button>
+                        @include('livewire.admin.partials.rental-editor-kebab-menu')
+                    </div>
                     <button type="button" class="btn btn-secondary" wire:click="cancel">
                         <span class="text">Cancel</span>
                     </button>
@@ -1149,6 +1199,23 @@
          MOBILE V1 — dedicated layout (matches design's RentalMobileV1)
          ============================================================ --}}
     <div class="mobile-view" x-data="mobileUi()">
+        <div class="mobile-subhead">
+            <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('index') }}" class="msh-back" aria-label="Kembali">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            </a>
+            <div class="msh-title">
+                {{ $record && $record->exists ? 'Edit '.$rental_code : 'Buat Rental Baru' }}
+                @if($record && $record->exists)
+                    <span class="msh-sub">{{ $currentStatus['label'] }}</span>
+                @endif
+            </div>
+            <div class="kebab-wrap" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
+                <button type="button" class="msh-kebab" @click="open = !open" aria-label="More actions" aria-haspopup="true" :aria-expanded="open">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+                </button>
+                @include('livewire.admin.partials.rental-editor-kebab-menu')
+            </div>
+        </div>
         <div class="mbody">
             {{-- Customer card --}}
             <div class="msec">

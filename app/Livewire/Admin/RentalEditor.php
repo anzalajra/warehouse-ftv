@@ -4,12 +4,15 @@ namespace App\Livewire\Admin;
 
 use App\Filament\Resources\Rentals\RentalResource;
 use App\Filament\Resources\Rentals\Schemas\RentalForm;
+use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\ProductVariation;
+use App\Models\Quotation;
 use App\Models\Rental;
 use App\Models\Setting;
 use App\Models\User;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Str;
@@ -766,6 +769,95 @@ class RentalEditor extends Component
 
     public function cancel()
     {
+        return redirect(RentalResource::getUrl('index'));
+    }
+
+    // ─── Header dropdown actions ───
+    public function duplicateRental()
+    {
+        if (! $this->record || ! $this->record->exists) {
+            Notification::make()->title('Simpan rental dulu sebelum duplikat')->warning()->send();
+            return null;
+        }
+
+        $original = $this->record->load('items');
+
+        $new = $original->replicate(['rental_code', 'quotation_id', 'invoice_id']);
+        $new->status = Rental::STATUS_QUOTATION;
+        $new->rental_code = null;
+        $new->quotation_id = null;
+        $new->invoice_id = null;
+        $new->down_payment_status = null;
+        $new->save();
+
+        foreach ($original->items as $item) {
+            $copy = $item->replicate();
+            $copy->rental_id = $new->id;
+            $copy->save();
+        }
+
+        Notification::make()->title('Rental berhasil diduplikat')->success()->send();
+
+        return redirect(RentalResource::getUrl('edit', ['record' => $new]));
+    }
+
+    public function printQuotation()
+    {
+        if (! $this->record || ! $this->record->exists || ! $this->record->quotation_id) {
+            Notification::make()->title('Quotation tidak ditemukan')->danger()->send();
+            return null;
+        }
+
+        $quotation = Quotation::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])
+            ->find($this->record->quotation_id);
+
+        if (! $quotation) {
+            Notification::make()->title('Quotation tidak ditemukan')->danger()->send();
+            return null;
+        }
+
+        $pdf = Pdf::loadView('pdf.quotation', ['quotation' => $quotation]);
+
+        return response()->streamDownload(
+            fn () => print($pdf->output()),
+            'Quotation-'.$quotation->number.'.pdf'
+        );
+    }
+
+    public function printInvoice()
+    {
+        if (! $this->record || ! $this->record->exists || ! $this->record->invoice_id) {
+            Notification::make()->title('Invoice tidak ditemukan')->danger()->send();
+            return null;
+        }
+
+        $invoice = Invoice::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])
+            ->find($this->record->invoice_id);
+
+        if (! $invoice) {
+            Notification::make()->title('Invoice tidak ditemukan')->danger()->send();
+            return null;
+        }
+
+        $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $invoice]);
+
+        return response()->streamDownload(
+            fn () => print($pdf->output()),
+            'Invoice-'.$invoice->number.'.pdf'
+        );
+    }
+
+    public function cancelRental(string $reason = '')
+    {
+        if (! $this->record || ! $this->record->exists) {
+            return null;
+        }
+
+        $reason = trim($reason) !== '' ? $reason : 'Dibatalkan dari halaman edit';
+        $this->record->cancelRental($reason);
+
+        Notification::make()->title('Rental dibatalkan')->success()->send();
+
         return redirect(RentalResource::getUrl('index'));
     }
 
