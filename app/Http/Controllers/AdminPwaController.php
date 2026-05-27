@@ -14,23 +14,32 @@ class AdminPwaController extends Controller
 {
     public function manifest(): JsonResponse
     {
-        $name = Setting::get('pwa_admin_name', 'Warehouse FTV');
-        $shortName = Setting::get('pwa_admin_short_name', 'Warehouse FTV');
-        $themeColor = Setting::get('pwa_admin_theme_color', '#0ea5e9');
-        $bgColor = Setting::get('pwa_admin_background_color', '#ffffff');
+        $name = (string) (Setting::get('pwa_admin_name') ?: 'Warehouse FTV');
+        $shortName = (string) (Setting::get('pwa_admin_short_name') ?: 'Warehouse FTV');
+        $themeColor = $this->normalizeHexColor(Setting::get('pwa_admin_theme_color'), '#0ea5e9');
+        $bgColor = $this->normalizeHexColor(Setting::get('pwa_admin_background_color'), '#ffffff');
 
         $iconPath = Setting::get('pwa_admin_icon');
         $iconUrl = $iconPath ? asset('storage/' . $iconPath) : asset('favicon.ico');
+        $iconMime = $this->guessMime($iconPath);
 
-        $icons = [];
-        foreach ([72, 96, 128, 144, 152, 192, 384, 512] as $size) {
-            $icons[] = [
+        // One icon with `sizes: any` lets the browser scale a single high-res PNG
+        // for every slot (home screen, splash, badge). Declaring fake fixed sizes
+        // for the same file triggers "size mismatch" warnings in Chrome.
+        $icons = [
+            [
                 'src' => $iconUrl,
-                'sizes' => $size . 'x' . $size,
-                'type' => 'image/png',
-                'purpose' => 'any maskable',
-            ];
-        }
+                'sizes' => 'any',
+                'type' => $iconMime,
+                'purpose' => 'any',
+            ],
+            [
+                'src' => $iconUrl,
+                'sizes' => 'any',
+                'type' => $iconMime,
+                'purpose' => 'maskable',
+            ],
+        ];
 
         return response()->json([
             'name' => $name,
@@ -46,7 +55,38 @@ class AdminPwaController extends Controller
             'icons' => $icons,
         ], 200, [
             'Cache-Control' => 'public, max-age=3600',
+            'Content-Type' => 'application/manifest+json',
         ]);
+    }
+
+    protected function normalizeHexColor($value, string $default): string
+    {
+        if (! is_string($value)) {
+            return $default;
+        }
+        $v = trim($value);
+        if ($v === '') return $default;
+        // Accept "#rgb", "#rrggbb", "#rrggbbaa"
+        if (preg_match('/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $v)) {
+            return $v;
+        }
+        // Bare hex without # — add it
+        if (preg_match('/^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/', $v)) {
+            return '#' . $v;
+        }
+        return $default;
+    }
+
+    protected function guessMime(?string $path): string
+    {
+        if (! $path) return 'image/png';
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        return match ($ext) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            'svg' => 'image/svg+xml',
+            default => 'image/png',
+        };
     }
 
     public function serviceWorker(): Response

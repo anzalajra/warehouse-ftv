@@ -158,6 +158,8 @@ if (!$isInstalled) {
     // Admin PWA (manifest + service worker are public so browsers can fetch them
     // without an auth session; subscription endpoints require admin auth)
     Route::get('/admin/manifest.webmanifest', [App\Http\Controllers\AdminPwaController::class, 'manifest'])->name('admin.pwa.manifest');
+    Route::get('/admin/manifest.json', [App\Http\Controllers\AdminPwaController::class, 'manifest'])->name('admin.pwa.manifest.json');
+    Route::get('/admin/pwa-manifest', [App\Http\Controllers\AdminPwaController::class, 'manifest'])->name('admin.pwa.manifest.alt');
     Route::get('/admin/sw.js', [App\Http\Controllers\AdminPwaController::class, 'serviceWorker'])->name('admin.pwa.sw');
     Route::middleware(['auth'])->group(function () {
         Route::get('/admin/push/public-key', [App\Http\Controllers\AdminPwaController::class, 'publicKey'])->name('admin.pwa.public-key');
