@@ -246,6 +246,7 @@ class RentalEditor extends Component
     {
         $q = Product::query()
             ->with(['variations:id,product_id,name,daily_rate', 'category:id,name'])
+            ->select(['id', 'name', 'category_id', 'daily_rate', 'image', 'is_active'])
             ->where('is_active', true);
 
         if ($needle) {
@@ -262,6 +263,7 @@ class RentalEditor extends Component
         $rows = [];
         foreach ($products as $p) {
             $cat = optional($p->category)->name ?? 'Other';
+            $img = $p->image ? \Illuminate\Support\Facades\Storage::url($p->image) : null;
             if ($p->variations && $p->variations->isNotEmpty()) {
                 foreach ($p->variations as $v) {
                     $rows[] = [
@@ -273,6 +275,7 @@ class RentalEditor extends Component
                         'cat' => $cat,
                         'price' => (float) ($v->daily_rate ?? $p->daily_rate ?? 0),
                         'avail' => $this->availableCount($p->id, $v->id),
+                        'image' => $img,
                     ];
                 }
             } else {
@@ -285,6 +288,7 @@ class RentalEditor extends Component
                     'cat' => $cat,
                     'price' => (float) ($p->daily_rate ?? 0),
                     'avail' => $this->availableCount($p->id, null),
+                    'image' => $img,
                 ];
             }
         }

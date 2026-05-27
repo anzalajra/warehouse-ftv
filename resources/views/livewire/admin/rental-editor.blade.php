@@ -295,7 +295,8 @@
         .rent-app .bulk-card { border:1px solid var(--border-1); border-radius: var(--radius-lg); padding:10px 12px; cursor:pointer; background:#fff; display:flex; align-items:center; gap:10px; transition: border-color var(--dur), background var(--dur); }
         .dark .rent-app .bulk-card { background: var(--bg-surface); }
         .rent-app .bulk-card:hover { border-color: var(--gray-400); }
-        .rent-app .bulk-card .thumb { width:36px; height:36px; border-radius:6px; background: var(--gray-100); display:flex; align-items:center; justify-content:center; font-size:14px; flex:0 0 36px; }
+        .rent-app .bulk-card .thumb { width:44px; height:44px; border-radius:8px; background: var(--gray-100); display:flex; align-items:center; justify-content:center; font-size:15px; flex:0 0 44px; overflow:hidden; }
+        .rent-app .bulk-card .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
         .rent-app .bulk-card .name { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .rent-app .bulk-card .sub { font-size:11px; color: var(--fg-3); font-family: var(--font-mono); }
         .rent-app .bulk-cat-tabs { display:flex; gap:4px; flex-wrap: wrap; margin-bottom:12px; }
@@ -724,7 +725,9 @@
             width: 44px; height: 44px; border-radius: 10px;
             background: var(--gray-100);
             display: flex; align-items: center; justify-content: center; font-size: 18px;
+            overflow: hidden;
         }
+        .rent-app .mobile-view .catalog-row .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
         .rent-app .mobile-view .catalog-row .info { min-width: 0; }
         .rent-app .mobile-view .catalog-row .name {
             font-size: 13.5px; font-weight: 600; color: var(--fg-1);
@@ -1046,7 +1049,8 @@
                                 </div>
                                 <div class="subtotal-cell">Rp {{ number_format($rowSubtotal, 0, ',', '.') }}</div>
                                 <div class="row-actions">
-                                    <button type="button" class="btn-icon" wire:click="removeItem('{{ $it['key'] }}')" title="Hapus" wire:confirm="Hapus item ini?">
+                                    <button type="button" class="btn-icon" title="Hapus"
+                                        @click="$dispatch('confirm-remove-item', { key: '{{ $it['key'] }}', name: @js($displayName) })">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
                                     </button>
                                 </div>
@@ -1359,8 +1363,7 @@
                                             @if($missing > 0)<span class="unit-btn-badge">{{ $missing }}</span>@endif
                                         </button>
                                         <button type="button" class="iconbtn"
-                                            wire:click="removeItem('{{ $it['key'] }}')"
-                                            wire:confirm="Hapus item ini?">
+                                            @click="$dispatch('confirm-remove-item', { key: '{{ $it['key'] }}', name: @js($displayName) })">
                                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
                                         </button>
                                     </div>
@@ -1575,7 +1578,13 @@
                         <div class="catalog-row {{ $r['avail'] === 0 ? 'out' : '' }}"
                              wire:click="addFromSearch('{{ $r['composite_id'] }}')"
                              x-show="(cat === 'All' || cat === '{{ $r['cat'] }}') && (q === '' || '{{ $needle }}'.includes(q.toLowerCase()))">
-                            <div class="thumb">📦</div>
+                            <div class="thumb">
+                                @if(!empty($r['image']))
+                                    <img src="{{ $r['image'] }}" alt="" loading="lazy">
+                                @else
+                                    📦
+                                @endif
+                            </div>
                             <div class="info">
                                 <div class="name">{{ $r['name'] }}</div>
                                 <div class="sub">
@@ -1625,7 +1634,13 @@
                                 <div class="bulk-card"
                                     wire:click="addFromSearch('{{ $r['composite_id'] }}')"
                                     x-show="(cat === 'All' || cat === '{{ $r['cat'] }}') && (q === '' || '{{ $needle }}'.includes(q.toLowerCase()))">
-                                    <div class="thumb">📦</div>
+                                    <div class="thumb">
+                                        @if(!empty($r['image']))
+                                            <img src="{{ $r['image'] }}" alt="" loading="lazy">
+                                        @else
+                                            📦
+                                        @endif
+                                    </div>
                                     <div style="min-width:0; flex:1;">
                                         <div class="name">{{ $r['name'] }}</div>
                                         <div class="sub">{{ $r['sku'] }} · {{ $r['avail'] }} stok</div>
@@ -1770,6 +1785,45 @@
             <p class="qr-hint" x-show="!message" x-cloak>Arahkan kamera ke QR / barcode SKU produk atau serial unit</p>
             <p class="qr-hint" x-show="message" x-text="message" style="color: var(--success-700); font-weight:600;" x-cloak></p>
         </div>
+    </div>
+
+    {{-- ============================================================
+         CUSTOM CONFIRM-REMOVE MODAL (replaces native confirm)
+         ============================================================ --}}
+    <div x-data="{
+            open: false,
+            key: null,
+            name: '',
+        }"
+         @confirm-remove-item.window="key = $event.detail.key; name = $event.detail.name || ''; open = true;"
+         @keydown.escape.window="open = false">
+        <template x-if="open">
+            <div class="modal-backdrop" @click.self="open = false" x-cloak>
+                <div class="modal" style="max-width: 420px;" @keydown.enter="$wire.removeItem(key); open = false;">
+                    <div class="modal-body" style="padding: 24px 24px 8px;">
+                        <div style="display:flex; gap:14px; align-items:flex-start;">
+                            <div style="flex:0 0 44px; width:44px; height:44px; border-radius:50%; background: var(--danger-50, #fee2e2); color: var(--danger-600, #dc2626); display:flex; align-items:center; justify-content:center;">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+                            </div>
+                            <div style="flex:1; min-width:0;">
+                                <h3 style="margin:0 0 6px; font-size:16px; font-weight:600; color: var(--fg-1);">Hapus item dari rental?</h3>
+                                <p style="margin:0; font-size:13.5px; color: var(--fg-3); line-height:1.5;">
+                                    <span x-text="name || 'Item ini'"></span> akan dihapus dari daftar. Tindakan ini tidak bisa dibatalkan setelah rental disimpan.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-foot" style="display:flex; gap:8px; justify-content:flex-end; padding:16px 24px 20px;">
+                        <button type="button" class="btn btn-secondary" @click="open = false">Batal</button>
+                        <button type="button" class="btn"
+                                style="background: var(--danger-600, #dc2626); color:#fff; border-color: var(--danger-600, #dc2626);"
+                                @click="$wire.removeItem(key); open = false;">
+                            Hapus
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
     </div>
 </div>
 
