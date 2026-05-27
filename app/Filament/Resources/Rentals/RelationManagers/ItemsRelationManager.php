@@ -2,9 +2,7 @@
 
 namespace App\Filament\Resources\Rentals\RelationManagers;
 
-use App\Models\Rental;
 use App\Models\RentalItem;
-use App\Services\RentalItemTransferService;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
@@ -17,7 +15,6 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -205,152 +202,6 @@ class ItemsRelationManager extends RelationManager
                         $record->rentalItemKits()->count() === 0 && 
                         $record->productUnit->kits()->count() > 0
                     ),
-
-                Action::make('move_to_rental')
-                    ->label('Move to Another Rental')
-                    ->icon('heroicon-o-arrow-right-circle')
-                    ->color('primary')
-                    ->visible(fn ($livewire) => in_array($livewire->getOwnerRecord()->status, [
-                        Rental::STATUS_QUOTATION,
-                        Rental::STATUS_CONFIRMED,
-                        Rental::STATUS_LATE_PICKUP,
-                    ], true))
-                    ->modalHeading(fn (RentalItem $record) => 'Move Unit ' . ($record->productUnit?->serial_number ?? '') . ' to Another Rental')
-                    ->modalDescription('Unit ini akan dipindahkan ke rental tujuan. Total kedua rental akan dihitung ulang. Hanya rental dengan status quotation/confirmed/late_pickup yang tampil.')
-                    ->form(function (RentalItem $record, $livewire) {
-                        $ownerId = $livewire->getOwnerRecord()->id;
-                        return [
-                            Select::make('target_rental_id')
-                                ->label('Target Rental')
-                                ->options(function () use ($ownerId) {
-                                    return Rental::query()
-                                        ->where('id', '!=', $ownerId)
-                                        ->whereIn('status', [
-                                            Rental::STATUS_QUOTATION,
-                                            Rental::STATUS_CONFIRMED,
-                                            Rental::STATUS_LATE_PICKUP,
-                                        ])
-                                        ->with('customer')
-                                        ->orderBy('start_date')
-                                        ->get()
-                                        ->mapWithKeys(fn ($r) => [
-                                            $r->id => sprintf(
-                                                '%s — %s (%s → %s) [%s]',
-                                                $r->rental_code,
-                                                $r->customer?->name ?? 'Unknown',
-                                                optional($r->start_date)->format('Y-m-d'),
-                                                optional($r->end_date)->format('Y-m-d'),
-                                                $r->status,
-                                            ),
-                                        ]);
-                                })
-                                ->required()
-                                ->searchable()
-                                ->preload(),
-                        ];
-                    })
-                    ->requiresConfirmation()
-                    ->action(function (RentalItem $record, array $data) {
-                        $target = Rental::find($data['target_rental_id']);
-                        if (!$target) {
-                            Notification::make()->title('Rental tujuan tidak ditemukan')->danger()->send();
-                            return;
-                        }
-                        try {
-                            app(RentalItemTransferService::class)->move($record, $target);
-                            Notification::make()
-                                ->title('Unit berhasil dipindahkan')
-                                ->body("Dipindahkan ke {$target->rental_code}")
-                                ->success()
-                                ->send();
-                        } catch (\Throwable $e) {
-                            Notification::make()->title('Gagal memindahkan unit')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
-
-                Action::make('swap_with_rental_item')
-                    ->label('Swap with Another Rental')
-                    ->icon('heroicon-o-arrows-right-left')
-                    ->color('info')
-                    ->visible(fn ($livewire) => in_array($livewire->getOwnerRecord()->status, [
-                        Rental::STATUS_QUOTATION,
-                        Rental::STATUS_CONFIRMED,
-                        Rental::STATUS_LATE_PICKUP,
-                    ], true))
-                    ->modalHeading(fn (RentalItem $record) => 'Swap Unit ' . ($record->productUnit?->serial_number ?? '') . ' with Another Rental')
-                    ->modalDescription('Tukar unit ini dengan unit dari rental lain. Hanya rental dengan status quotation/confirmed/late_pickup yang tampil.')
-                    ->form(function (RentalItem $record, $livewire) {
-                        $ownerId = $livewire->getOwnerRecord()->id;
-                        return [
-                            Select::make('target_rental_id')
-                                ->label('Target Rental')
-                                ->options(function () use ($ownerId) {
-                                    return Rental::query()
-                                        ->where('id', '!=', $ownerId)
-                                        ->whereIn('status', [
-                                            Rental::STATUS_QUOTATION,
-                                            Rental::STATUS_CONFIRMED,
-                                            Rental::STATUS_LATE_PICKUP,
-                                        ])
-                                        ->whereHas('items')
-                                        ->with('customer')
-                                        ->orderBy('start_date')
-                                        ->get()
-                                        ->mapWithKeys(fn ($r) => [
-                                            $r->id => sprintf(
-                                                '%s — %s (%s → %s) [%s]',
-                                                $r->rental_code,
-                                                $r->customer?->name ?? 'Unknown',
-                                                optional($r->start_date)->format('Y-m-d'),
-                                                optional($r->end_date)->format('Y-m-d'),
-                                                $r->status,
-                                            ),
-                                        ]);
-                                })
-                                ->required()
-                                ->searchable()
-                                ->preload()
-                                ->live(),
-
-                            Select::make('target_rental_item_id')
-                                ->label('Target Rental Item')
-                                ->options(function (Get $get) {
-                                    $tid = $get('target_rental_id');
-                                    if (!$tid) {
-                                        return [];
-                                    }
-                                    return RentalItem::query()
-                                        ->where('rental_id', $tid)
-                                        ->with('productUnit.product')
-                                        ->get()
-                                        ->mapWithKeys(fn ($ri) => [
-                                            $ri->id => ($ri->productUnit?->product?->name ?? 'Unknown')
-                                                . ' — ' . ($ri->productUnit?->serial_number ?? '#' . $ri->product_unit_id),
-                                        ]);
-                                })
-                                ->required()
-                                ->searchable()
-                                ->preload(),
-                        ];
-                    })
-                    ->requiresConfirmation()
-                    ->action(function (RentalItem $record, array $data) {
-                        $other = RentalItem::find($data['target_rental_item_id']);
-                        if (!$other) {
-                            Notification::make()->title('Rental item tujuan tidak ditemukan')->danger()->send();
-                            return;
-                        }
-                        try {
-                            app(RentalItemTransferService::class)->swap($record, $other);
-                            Notification::make()
-                                ->title('Unit berhasil di-swap')
-                                ->body("Tukar dengan {$other->rental->rental_code}")
-                                ->success()
-                                ->send();
-                        } catch (\Throwable $e) {
-                            Notification::make()->title('Gagal swap unit')->body($e->getMessage())->danger()->send();
-                        }
-                    }),
 
                 ViewAction::make(),
             ])

@@ -10,8 +10,10 @@ use App\Models\ProductUnit;
 use App\Models\ProductVariation;
 use App\Models\Quotation;
 use App\Models\Rental;
+use App\Models\RentalItem;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\RentalItemTransferService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
@@ -50,6 +52,14 @@ class RentalEditor extends Component
     public bool $unitModalOpen = false;
     public ?string $unitModalKey = null;
     public bool $catalogOpen = false;
+
+    // Transfer (Move/Swap) modal
+    public bool $transferModalOpen = false;
+    public string $transferMode = 'move'; // 'move' | 'swap'
+    public ?int $transferUnitId = null;   // serial unit being transferred (source side)
+    public ?string $transferItemKey = null; // editor items[] key when opened from a row (limits unit picker)
+    public ?int $transferTargetRentalId = null;
+    public ?int $transferTargetItemId = null; // for swap only
 
     protected $listeners = [
         'qr-scanned' => 'handleScanned',
@@ -368,17 +378,17 @@ class RentalEditor extends Component
             $this->allUsedUnitIds()
         );
 
-        if ($available->count() < $qty) {
+        $availCount = $available->count();
+        $newUnitIds = $available->take(min($qty, $availCount))->pluck('id')->all();
+        $missing = max(0, $qty - $availCount);
+
+        if ($missing > 0) {
             Notification::make()
-                ->title('Unit Tidak Cukup')
-                ->body("Hanya tersedia {$available->count()} unit untuk tanggal yang dipilih.")
-                ->danger()
+                ->title('Stok kurang — unit kosong ditambahkan')
+                ->body("Hanya {$availCount} dari {$qty} unit yang ter-assign. {$missing} slot kosong. Gunakan tombol Transfer (Move / Swap) untuk mengambil unit dari rental lain.")
+                ->warning()
                 ->send();
-
-            return;
         }
-
-        $newUnitIds = $available->take($qty)->pluck('id')->all();
 
         // merge with existing line
         foreach ($this->items as &$it) {
@@ -496,19 +506,24 @@ class RentalEditor extends Component
                         $it['variation_id'],
                         $this->allUsedUnitIds()
                     );
-                    if ($available->count() < $needed) {
-                        Notification::make()
-                            ->title('Unit Tidak Cukup')
-                            ->body("Hanya tersedia {$available->count()} unit tambahan.")
-                            ->danger()
-                            ->send();
+                    $availCount = $available->count();
+                    $takeCount = min($needed, $availCount);
+                    $shortBy = $needed - $takeCount;
 
-                        return;
+                    if ($shortBy > 0) {
+                        Notification::make()
+                            ->title('Stok kurang — slot kosong ditambahkan')
+                            ->body("Hanya {$availCount} dari {$needed} unit tambahan yang tersedia. {$shortBy} slot kosong. Gunakan tombol Transfer untuk mengambil unit dari rental lain.")
+                            ->warning()
+                            ->send();
                     }
-                    $this->items[$i]['unit_ids'] = array_values(array_merge(
-                        $it['unit_ids'],
-                        $available->take($needed)->pluck('id')->all()
-                    ));
+
+                    if ($takeCount > 0) {
+                        $this->items[$i]['unit_ids'] = array_values(array_merge(
+                            $it['unit_ids'],
+                            $available->take($takeCount)->pluck('id')->all()
+                        ));
+                    }
                 } else {
                     $this->items[$i]['unit_ids'] = array_slice($it['unit_ids'], 0, $newQty);
                 }
@@ -526,6 +541,27 @@ class RentalEditor extends Component
     public function removeItem(string $key): void
     {
         $this->items = array_values(array_filter($this->items, fn ($it) => $it['key'] !== $key));
+    }
+
+    /**
+     * Decrement quantity by composite id (used by catalog stepper).
+     * Drops the row entirely when quantity reaches zero.
+     */
+    public function decrementByComposite(string $compositeId): void
+    {
+        foreach ($this->items as $i => $it) {
+            if ($it['composite_id'] !== $compositeId) {
+                continue;
+            }
+            $newQty = (int) $it['quantity'] - 1;
+            if ($newQty <= 0) {
+                $this->items = array_values(array_filter($this->items, fn ($x) => $x['key'] !== $it['key']));
+                return;
+            }
+            $this->items[$i]['quantity'] = $newQty;
+            $this->items[$i]['unit_ids'] = array_slice($it['unit_ids'], 0, $newQty);
+            return;
+        }
     }
 
     public function reorder(array $orderedKeys): void
@@ -574,6 +610,293 @@ class RentalEditor extends Component
         }
         $this->dispatch('rent-toast', message: 'Unit diperbarui');
         $this->closeUnitModal();
+    }
+
+    // ─── Transfer (Move / Swap) cross-rental ───
+    private const TRANSFERABLE_STATUSES = [
+        Rental::STATUS_QUOTATION,
+        Rental::STATUS_CONFIRMED,
+        Rental::STATUS_LATE_PICKUP,
+    ];
+
+    #[Computed]
+    public function canTransfer(): bool
+    {
+        return $this->record && $this->record->exists
+            && in_array($this->status, self::TRANSFERABLE_STATUSES, true);
+    }
+
+    /**
+     * Open Transfer modal in MOVE mode for a given serial unit.
+     * Auto-saves the editor first so the source RentalItem exists in DB and matches state.
+     */
+    public function openMoveModal(int $unitId): void
+    {
+        $this->beginTransfer($unitId, 'move', null);
+    }
+
+    public function openSwapModal(int $unitId): void
+    {
+        $this->beginTransfer($unitId, 'swap', null);
+    }
+
+    /**
+     * Open Transfer modal from a row (group). Unit will be picked inside the modal.
+     */
+    public function openTransferForRow(string $itemKey, string $mode): void
+    {
+        $this->beginTransfer(null, $mode, $itemKey);
+    }
+
+    protected function beginTransfer(?int $unitId, string $mode, ?string $itemKey): void
+    {
+        if (!$this->canTransfer) {
+            Notification::make()
+                ->title('Tidak dapat di-transfer')
+                ->body('Rental harus berstatus quotation, confirmed, atau late_pickup.')
+                ->danger()
+                ->send();
+            return;
+        }
+
+        // Auto-save current editor state to ensure source RentalItem exists & matches.
+        try {
+            $this->persistInline();
+        } catch (\Throwable $e) {
+            Notification::make()->title('Gagal menyimpan perubahan')->body($e->getMessage())->danger()->send();
+            return;
+        }
+
+        if ($unitId !== null) {
+            $exists = RentalItem::where('rental_id', $this->record->id)
+                ->where('product_unit_id', $unitId)
+                ->exists();
+            if (!$exists) {
+                Notification::make()->title('Unit tidak ditemukan di rental ini')->danger()->send();
+                return;
+            }
+        }
+
+        $this->transferMode = $mode;
+        $this->transferUnitId = $unitId;
+        $this->transferItemKey = $itemKey;
+        $this->transferTargetRentalId = null;
+        $this->transferTargetItemId = null;
+        $this->transferModalOpen = true;
+
+        // If opened from a row and there's only one unit assigned, auto-pick it.
+        if ($unitId === null && $itemKey !== null) {
+            $row = collect($this->items)->firstWhere('key', $itemKey);
+            if ($row && count($row['unit_ids']) === 1) {
+                $this->transferUnitId = (int) $row['unit_ids'][0];
+            }
+        }
+    }
+
+    public function closeTransferModal(): void
+    {
+        $this->transferModalOpen = false;
+        $this->transferUnitId = null;
+        $this->transferItemKey = null;
+        $this->transferTargetRentalId = null;
+        $this->transferTargetItemId = null;
+    }
+
+    public function updatedTransferTargetRentalId(): void
+    {
+        // Reset chosen item when target rental changes (swap mode).
+        $this->transferTargetItemId = null;
+    }
+
+    #[Computed]
+    public function transferContext(): ?array
+    {
+        if (!$this->transferModalOpen || !$this->record?->exists) {
+            return null;
+        }
+
+        // Build pickable units list when opened from a row (no fixed unit yet).
+        $pickableUnits = [];
+        if ($this->transferItemKey) {
+            $row = collect($this->items)->firstWhere('key', $this->transferItemKey);
+            if ($row && !empty($row['unit_ids'])) {
+                $units = ProductUnit::whereIn('id', $row['unit_ids'])->get(['id', 'serial_number']);
+                $pickableUnits = $units->map(fn ($u) => [
+                    'id' => $u->id,
+                    'serial' => $u->serial_number,
+                ])->values()->all();
+            }
+        }
+
+        $unit = $this->transferUnitId
+            ? ProductUnit::with('product')->find($this->transferUnitId)
+            : null;
+
+        $targets = Rental::query()
+            ->where('id', '!=', $this->record->id)
+            ->whereIn('status', self::TRANSFERABLE_STATUSES)
+            ->with('customer')
+            ->when($this->transferMode === 'swap', fn ($q) => $q->whereHas('items'))
+            ->orderBy('start_date', 'desc')
+            ->limit(200)
+            ->get()
+            ->map(fn ($r) => [
+                'id' => $r->id,
+                'label' => sprintf(
+                    '%s — %s (%s → %s) [%s]',
+                    $r->rental_code ?? '#'.$r->id,
+                    $r->customer?->name ?? 'Unknown',
+                    optional($r->start_date)->format('Y-m-d'),
+                    optional($r->end_date)->format('Y-m-d'),
+                    $r->status,
+                ),
+            ])
+            ->all();
+
+        $targetItems = [];
+        if ($this->transferMode === 'swap' && $this->transferTargetRentalId) {
+            $targetItems = RentalItem::query()
+                ->where('rental_id', $this->transferTargetRentalId)
+                ->with('productUnit.product')
+                ->get()
+                ->map(fn ($ri) => [
+                    'id' => $ri->id,
+                    'label' => ($ri->productUnit?->product?->name ?? 'Unknown')
+                        . ' — ' . ($ri->productUnit?->serial_number ?? '#'.$ri->product_unit_id),
+                ])
+                ->all();
+        }
+
+        return [
+            'mode' => $this->transferMode,
+            'unit_serial' => $unit?->serial_number,
+            'product_name' => $unit?->product?->name,
+            'pickable_units' => $pickableUnits,
+            'needs_unit_pick' => $this->transferUnitId === null,
+            'targets' => $targets,
+            'target_items' => $targetItems,
+        ];
+    }
+
+    public function confirmTransfer(): void
+    {
+        if (!$this->canTransfer) {
+            Notification::make()->title('Rental tidak dapat di-transfer')->danger()->send();
+            return;
+        }
+        if (!$this->transferUnitId) {
+            Notification::make()->title('Pilih unit terlebih dahulu')->danger()->send();
+            return;
+        }
+        if (!$this->transferTargetRentalId) {
+            Notification::make()->title('Pilih rental tujuan')->danger()->send();
+            return;
+        }
+
+        $sourceItem = RentalItem::where('rental_id', $this->record->id)
+            ->where('product_unit_id', $this->transferUnitId)
+            ->first();
+
+        if (!$sourceItem) {
+            Notification::make()->title('Item sumber tidak ditemukan')->danger()->send();
+            return;
+        }
+
+        $service = app(RentalItemTransferService::class);
+
+        try {
+            if ($this->transferMode === 'move') {
+                $target = Rental::find($this->transferTargetRentalId);
+                if (!$target) {
+                    Notification::make()->title('Rental tujuan tidak ditemukan')->danger()->send();
+                    return;
+                }
+                $service->move($sourceItem, $target);
+                $msg = "Unit dipindahkan ke {$target->rental_code}";
+            } else {
+                if (!$this->transferTargetItemId) {
+                    Notification::make()->title('Pilih item untuk di-swap')->danger()->send();
+                    return;
+                }
+                $other = RentalItem::find($this->transferTargetItemId);
+                if (!$other) {
+                    Notification::make()->title('Item tujuan tidak ditemukan')->danger()->send();
+                    return;
+                }
+                $service->swap($sourceItem, $other);
+                $msg = "Unit di-swap dengan {$other->rental->rental_code}";
+            }
+
+            Notification::make()->title('Transfer berhasil')->body($msg)->success()->send();
+            $this->closeTransferModal();
+
+            // Reload editor state from DB (items may have changed).
+            $this->redirect(RentalResource::getUrl('edit', ['record' => $this->record]), navigate: false);
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title($this->transferMode === 'move' ? 'Gagal memindahkan unit' : 'Gagal swap unit')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Persist current editor state to DB without redirect/notification side effects.
+     * Reused by transfer auto-save.
+     */
+    protected function persistInline(): void
+    {
+        $this->validate([
+            'customer_id' => 'required|integer|exists:users,id',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after:start_date',
+            'status' => 'required|string',
+        ]);
+
+        $days = $this->days;
+        $totals = $this->totals;
+
+        $payload = [
+            'user_id' => $this->customer_id,
+            'start_date' => $this->start_date,
+            'end_date' => $this->end_date,
+            'status' => $this->status,
+            'subtotal' => $totals['subtotal'],
+            'discount' => $this->discount,
+            'discount_type' => $this->discount_type,
+            'deposit' => $this->deposit,
+            'deposit_type' => $this->deposit_type,
+            'down_payment_amount' => $this->down_payment_amount,
+            'tax_base' => $totals['tax_base'],
+            'ppn_amount' => $totals['ppn_amount'],
+            'ppn_rate' => $totals['ppn_rate'],
+            'total' => $totals['total'],
+            'notes' => $this->notes,
+        ];
+
+        if (!$this->record || !$this->record->exists) {
+            $this->record = Rental::create($payload);
+        } else {
+            $this->record->fill($payload);
+            $this->record->saveQuietly();
+        }
+
+        $grouped = [];
+        foreach ($this->items as $it) {
+            $grouped[] = [
+                'product_id' => $it['composite_id'],
+                'quantity' => (int) $it['quantity'],
+                'unit_ids' => json_encode($it['unit_ids']),
+                'daily_rate' => (float) $it['daily_rate'],
+                'days' => $days,
+                'discount' => (float) $it['discount'],
+                'subtotal' => max(0, ((float) $it['daily_rate'] * $days) - ((float) $it['daily_rate'] * $days) * ((float) $it['discount'] / 100)),
+            ];
+        }
+
+        RentalForm::syncRentalItems($this->record, $grouped);
+        $this->record->refresh();
     }
 
     #[Computed]
