@@ -1736,18 +1736,17 @@
                 <div class="catalog-list">
                     @foreach($this->catalogRows as $r)
                         @php $needle = strtolower(addslashes($r['name'])); @endphp
-                        <div class="catalog-row {{ $r['avail'] === 0 ? 'out' : '' }}"
+                        <div class="catalog-row"
                              wire:key="cat-mob-{{ $r['composite_id'] }}"
-                             @click.stop="add('{{ $r['composite_id'] }}')"
                              x-show="(cat === 'All' || cat === '{{ $r['cat'] }}') && (q === '' || '{{ $needle }}'.includes(q.toLowerCase()))">
-                            <div class="thumb">
+                            <div class="thumb" @click.stop="add('{{ $r['composite_id'] }}')">
                                 @if(!empty($r['image']))
                                     <img src="{{ $r['image'] }}" alt="" loading="lazy">
                                 @else
                                     📦
                                 @endif
                             </div>
-                            <div class="info">
+                            <div class="info" @click.stop="add('{{ $r['composite_id'] }}')">
                                 <div class="name">{{ $r['name'] }}</div>
                                 <div class="sub">
                                     <span x-text="localQty['{{ $r['composite_id'] }}'] ? localQty['{{ $r['composite_id'] }}'] + ' di cart' : '{{ $r['avail'] }} stok'"></span>
@@ -1755,9 +1754,24 @@
                                     <span>Rp {{ number_format($r['price'], 0, ',', '.') }}/hari</span>
                                 </div>
                             </div>
-                            <button class="add-btn" @click.stop="add('{{ $r['composite_id'] }}')" title="{{ $r['avail'] === 0 ? 'Stok habis — tetap bisa ditambah, lalu pakai Transfer untuk Move/Swap dari rental lain' : '' }}">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                            </button>
+                            <template x-if="(localQty['{{ $r['composite_id'] }}'] || 0) > 0">
+                                <div class="qty-stepper">
+                                    <button type="button" class="qs-btn" title="Kurangi"
+                                        @click.stop="dec('{{ $r['composite_id'] }}')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14"/></svg>
+                                    </button>
+                                    <span class="qs-val" x-text="localQty['{{ $r['composite_id'] }}'] || 0"></span>
+                                    <button type="button" class="qs-btn" title="Tambah"
+                                        @click.stop="add('{{ $r['composite_id'] }}')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                                    </button>
+                                </div>
+                            </template>
+                            <template x-if="!((localQty['{{ $r['composite_id'] }}'] || 0) > 0)">
+                                <button class="add-btn" @click.stop="add('{{ $r['composite_id'] }}')" title="{{ $r['avail'] === 0 ? 'Stok habis — tetap bisa ditambah, lalu pakai Transfer untuk Move/Swap dari rental lain' : '' }}">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                                </button>
+                            </template>
                         </div>
                     @endforeach
                 </div>
