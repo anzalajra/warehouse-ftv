@@ -97,6 +97,10 @@ class AdminPanelProvider extends PanelProvider
         
         $panel
             ->renderHook(
+                'panels::head.end',
+                fn () => view('filament.hooks.admin-pwa')
+            )
+            ->renderHook(
                 $useTopNav
                     ? 'panels::global-search.after'
                     : 'panels::sidebar.footer',

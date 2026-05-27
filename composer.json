@@ -14,6 +14,7 @@
         "lara-zeus/sky": "^4.1",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1",
+        "minishlink/web-push": "^10.0",
         "octopyid/filament-palette": "*",
         "saade/filament-fullcalendar": "4.x-dev",
         "simplesoftwareio/simple-qrcode": "*"

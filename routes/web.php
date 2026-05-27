@@ -155,6 +155,17 @@ if (!$isInstalled) {
         Route::delete('/customer/documents/{document}', [App\Http\Controllers\CustomerDocumentController::class, 'delete'])->name('customer.documents.delete');
     });
 
+    // Admin PWA (manifest + service worker are public so browsers can fetch them
+    // without an auth session; subscription endpoints require admin auth)
+    Route::get('/admin/manifest.webmanifest', [App\Http\Controllers\AdminPwaController::class, 'manifest'])->name('admin.pwa.manifest');
+    Route::get('/admin/sw.js', [App\Http\Controllers\AdminPwaController::class, 'serviceWorker'])->name('admin.pwa.sw');
+    Route::middleware(['auth'])->group(function () {
+        Route::get('/admin/push/public-key', [App\Http\Controllers\AdminPwaController::class, 'publicKey'])->name('admin.pwa.public-key');
+        Route::post('/admin/push/subscribe', [App\Http\Controllers\AdminPwaController::class, 'subscribe'])->name('admin.pwa.subscribe');
+        Route::post('/admin/push/unsubscribe', [App\Http\Controllers\AdminPwaController::class, 'unsubscribe'])->name('admin.pwa.unsubscribe');
+        Route::post('/admin/push/test', [App\Http\Controllers\AdminPwaController::class, 'test'])->name('admin.pwa.test');
+    });
+
     // Redirect admin root to Home page
     Route::redirect('/admin', '/admin/home');
 

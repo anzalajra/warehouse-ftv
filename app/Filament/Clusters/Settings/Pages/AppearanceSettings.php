@@ -7,6 +7,9 @@ use App\Models\Setting;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\ColorPicker;
+use Filament\Forms\Components\FileUpload;
+use Filament\Schemas\Components\Section;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ToggleButtons;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -94,6 +97,27 @@ class AppearanceSettings extends Page implements HasForms
                     ->default('sidebar')
                     ->inline()
                     ->required(),
+
+                Section::make('App Icon')
+                    ->description('Icon untuk tab browser, favicon, dan aplikasi PWA (admin) yang diinstall ke home screen Android/iOS. Direkomendasikan format PNG persegi 512×512 px atau lebih besar dengan latar warna solid.')
+                    ->schema([
+                        FileUpload::make('pwa_admin_icon')
+                            ->label('App Icon')
+                            ->image()
+                            ->imageEditor()
+                            ->imageCropAspectRatio('1:1')
+                            ->maxSize(2048)
+                            ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/webp'])
+                            ->directory('pwa')
+                            ->disk('public')
+                            ->visibility('public')
+                            ->helperText('PNG / JPG / WEBP, persegi (1:1), maks 2 MB. Dipakai sebagai favicon tab browser sekaligus icon aplikasi terinstall.'),
+                        TextInput::make('pwa_admin_theme_color')
+                            ->label('Theme Color (status bar)')
+                            ->placeholder('#0ea5e9')
+                            ->helperText('Warna status bar aplikasi PWA saat dibuka di HP. Format hex.')
+                            ->default('#0ea5e9'),
+                    ])->columns(2),
             ]);
     }
 

@@ -120,6 +120,20 @@ Lifecycle: `confirmed` → (`active` after admin check-in) → `completed` / `ca
 
 Shares with Rental domain: `users` table (customer auth via `customer.auth` middleware), Filament admin panel, `Setting` model, frontend layouts/theme. Does **not** share rental tables or the Finance module.
 
+### Admin PWA + Web Push (installable admin app)
+
+`/admin` adalah PWA yang bisa di-install ke home screen Android & iOS, dengan push notifications ke device user yang sudah login admin. **Storefront frontend tetap pakai PWA lama yang terpisah** (`public/manifest.json`, `public/sw.js`) — jangan disatukan. Setup lengkap & troubleshooting di `ADMIN_PWA_SETUP.md`.
+
+- Manifest dinamis di `GET /admin/manifest.webmanifest` (scope `/admin`, start_url `/admin`, icon dari Setting `pwa_admin_icon`). Service worker di `GET /admin/sw.js` di-serve dengan header `Service-Worker-Allowed: /admin`. Keduanya rute publik karena browser tidak mengirim session cookie saat fetch manifest/SW.
+- `app/Http/Controllers/AdminPwaController.php` — manifest, sw, subscribe/unsubscribe/test push endpoints (subscribe & test pakai `middleware('auth')` standar Filament).
+- `app/Services/WebPushService.php` — wrapper `minishlink/web-push`. `sendToUser(int $userId, array $payload)` mengirim ke semua subscription milik user, auto-prune endpoint 404/410.
+- `app/Listeners/SendWebPushOnNotification.php` — listen `Illuminate\Notifications\Events\NotificationSent`, **hanya** untuk channel `database`, lalu mirror jadi web push. Daftar di `AppServiceProvider::boot()`. Per-kelas opt-out via setting `pwa_admin_push_block_{class_key}`; master switch `pwa_admin_push_enabled`. Karena cuma pasif via event, **tidak perlu ubah class Notification yang sudah ada** — selama `via()` me-return `'database'`, push otomatis ikut.
+- VAPID keys wajib di env (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`). Generate via `php artisan push:generate-vapid` (auto-tulis `.env`) atau `--show` (cetak saja, untuk Dokploy/Docker dengan env terpisah dashboard). **Jangan regenerate setelah production live** — semua subscription jadi invalid.
+- Tabel `push_subscriptions` (`user_id`, `endpoint` text, `p256dh`, `auth`, `user_agent`, `last_used_at`) dengan unique index `(user_id, endpoint)`.
+- Filament render hook `panels::head.end` inject view `resources/views/filament/hooks/admin-pwa.blade.php`: `<link rel="manifest">`, apple-touch-icon, theme-color, SW register, push subscribe, install banner. Banner auto-hide kalau `display-mode: standalone` atau `navigator.standalone` (iOS) — jadi user yang sudah install tidak melihatnya. Banner dismiss disimpan di `localStorage` 7 hari. Android pakai `beforeinstallprompt`; iOS Safari tidak punya API itu — banner hanya menampilkan instruksi "Share → Add to Home Screen".
+- Settings page **Settings → Admin App & Push** (`AdminPwaSettings.php`): VAPID status badge, master switch, app name/short name/bg color, 14 toggle per-jenis notifikasi, tombol header "Kirim Test Push". Icon upload ada di **Settings → Appearance** (key `pwa_admin_icon`, disimpan di `storage/app/public/pwa/`, dipakai sebagai favicon tab + manifest icon + apple-touch-icon).
+- **iOS quirk**: push notification iOS HANYA bekerja setelah PWA terinstall ke home screen (iOS 16.4+). Buka di Safari saja tidak cukup. Ini batasan Apple. iOS PWA juga tidak refresh manifest setelah install — ganti icon/nama wajib uninstall + reinstall di device.
+
 ### Settings-driven runtime config
 
 `App\Models\Setting` is a simple key/value store queried at boot in `AppServiceProvider`. It overrides:

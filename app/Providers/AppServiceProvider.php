@@ -18,6 +18,9 @@ use App\Observers\ProductUnitObserver;
 use App\Observers\RentalObserver;
 use App\Observers\UnitKitObserver;
 use Illuminate\Support\Facades\View;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Notifications\Events\NotificationSent;
+use App\Listeners\SendWebPushOnNotification;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Cart;
 use App\Policies\CartPolicy;
@@ -52,7 +55,9 @@ class AppServiceProvider extends ServiceProvider
         UnitKit::observe(UnitKitObserver::class);
         Computer::observe(ComputerObserver::class);
         ComputerBooking::observe(ComputerBookingObserver::class);
-    
+
+        Event::listen(NotificationSent::class, SendWebPushOnNotification::class);
+
         Gate::policy(Cart::class, CartPolicy::class);
 
         View::composer('pdf.*', function ($view) {
