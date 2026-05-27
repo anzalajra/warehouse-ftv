@@ -11,7 +11,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->trustProxies(at: '*');
+        // Trust proxies via TRUSTED_PROXIES env (comma-separated CIDR/IP list, or '*').
+        // Default '*' kept for backward compat with existing Dokploy/Traefik deployments,
+        // but production should set TRUSTED_PROXIES to the actual reverse-proxy IP(s).
+        $trusted = env('TRUSTED_PROXIES', '*');
+        $middleware->trustProxies(at: $trusted === '*' ? '*' : array_map('trim', explode(',', $trusted)));
 
         $middleware->web(append: [
             \App\Http\Middleware\CheckInstallation::class,

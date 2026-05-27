@@ -8,6 +8,9 @@ use Illuminate\Http\Request;
 
 class KioskBearerAuth
 {
+    /** Length of tokens minted by KioskApiController::pair() (Str::random(64)). */
+    public const KIOSK_TOKEN_LENGTH = 64;
+
     public function handle(Request $request, Closure $next)
     {
         $header = $request->header('Authorization', '');
@@ -16,7 +19,7 @@ class KioskBearerAuth
         }
 
         $token = substr($header, 7);
-        if ($token === '' || strlen($token) > 64) {
+        if (strlen($token) !== self::KIOSK_TOKEN_LENGTH) {
             return response()->json(['error' => 'invalid_token'], 401);
         }
 

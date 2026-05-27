@@ -173,7 +173,7 @@ class CustomerDashboardController extends Controller
     public function markChecklistDownloaded(Rental $rental)
     {
         $customer = Auth::guard('customer')->user();
-        if ($rental->user_id != $customer->id) {
+        if ((int) $rental->user_id !== (int) $customer->id) {
             abort(403);
         }
 
@@ -187,7 +187,7 @@ class CustomerDashboardController extends Controller
     public function markPermitClicked(Rental $rental)
     {
         $customer = Auth::guard('customer')->user();
-        if ($rental->user_id != $customer->id) {
+        if ((int) $rental->user_id !== (int) $customer->id) {
             abort(403);
         }
 

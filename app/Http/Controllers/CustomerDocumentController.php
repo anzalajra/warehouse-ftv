@@ -71,7 +71,7 @@ class CustomerDocumentController extends Controller
     {
         $customer = Auth::guard('customer')->user();
 
-        if ($document->user_id != $customer->id) {
+        if ((int) $document->user_id !== (int) $customer->id) {
             abort(403);
         }
 
@@ -89,7 +89,7 @@ class CustomerDocumentController extends Controller
     public function view(CustomerDocument $document)
     {
         // Check if the current user is the owner of the document
-        if (Auth::guard('customer')->id() != $document->user_id) {
+        if ((int) Auth::guard('customer')->id() !== (int) $document->user_id) {
             abort(403);
         }
 

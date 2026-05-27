@@ -58,7 +58,8 @@ class ComputerCheckinController extends Controller
         $isLate = false;
         if ($activeBooking && ! $activeBooking->checked_in_at) {
             $start = Carbon::parse($activeBooking->booking_date->toDateString().' '.$activeBooking->start_time);
-            $isLate = $now->diffInMinutes($start, false) < -10;
+            // Late = start time was more than 10 minutes ago. Use isAfter for unambiguous past-time check.
+            $isLate = $start->copy()->addMinutes(10)->isPast();
         }
 
         return view('frontend.computers.checkin', [

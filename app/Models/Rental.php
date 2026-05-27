@@ -290,6 +290,44 @@ class Rental extends Model
     }
 
     /**
+     * Single source of truth for hex colors used across calendar/schedule surfaces
+     * (frontend storefront + admin FullCalendar widgets). Keep in sync with
+     * getStatusColor() — same logical states, just expressed as hex.
+     */
+    public static function getStatusHexColor(string $status): string
+    {
+        return match ($status) {
+            self::STATUS_QUOTATION       => '#f97316',
+            self::STATUS_CONFIRMED       => '#3b82f6',
+            self::STATUS_ACTIVE          => '#22c55e',
+            self::STATUS_COMPLETED       => '#a855f7',
+            self::STATUS_CANCELLED       => '#6b7280',
+            self::STATUS_LATE_PICKUP,
+            self::STATUS_LATE_RETURN     => '#ef4444',
+            self::STATUS_PARTIAL_RETURN  => '#eab308',
+            default                      => '#6b7280',
+        };
+    }
+
+    /**
+     * Status → human label map for calendar legends & tooltips.
+     */
+    public static function getStatusLabel(string $status): string
+    {
+        return match ($status) {
+            self::STATUS_QUOTATION       => 'Quotation',
+            self::STATUS_CONFIRMED       => 'Confirmed',
+            self::STATUS_ACTIVE          => 'Active',
+            self::STATUS_COMPLETED       => 'Done',
+            self::STATUS_CANCELLED       => 'Cancel',
+            self::STATUS_LATE_PICKUP,
+            self::STATUS_LATE_RETURN     => 'Late',
+            self::STATUS_PARTIAL_RETURN  => 'Partial',
+            default                      => ucfirst(str_replace('_', ' ', $status)),
+        };
+    }
+
+    /**
      * Check if the rental can be edited
      */
     public function canBeEdited(): bool

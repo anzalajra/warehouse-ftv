@@ -128,17 +128,7 @@ class RentalCalendarWidget extends FullCalendarWidget implements HasActions
         $rentals = $query->limit(500)->get();
 
         return $rentals->map(function (Rental $rental) {
-            $color = match ($rental->status) {
-                'quotation' => '#f97316', // Orange
-                'confirmed' => '#3b82f6', // Blue
-                'active' => '#22c55e', // Green
-                'completed' => '#a855f7', // Purple
-                'cancelled' => '#6b7280', // Gray
-                'late_pickup' => '#ef4444', // Red
-                'late_return' => '#ef4444', // Red
-                'partial_return' => '#eab308', // Yellow
-                default => '#6b7280',
-            };
+            $color = Rental::getStatusHexColor($rental->status);
 
             $items = $rental->items->map(function ($item) {
                 $pu = $item->productUnit;

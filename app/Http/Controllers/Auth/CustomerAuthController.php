@@ -146,17 +146,18 @@ class CustomerAuthController extends Controller
             'email' => 'required|email',
         ]);
 
+        $genericStatus = 'Jika email terdaftar, link reset password telah dikirim.';
+
         $user = User::where('email', $request->email)->first();
 
         if (!$user) {
-            return back()->withErrors([
-                'email' => 'We could not find an account with that email address.',
-            ])->onlyInput('email');
+            // Same response as the success case to prevent email enumeration.
+            return back()->with('status', $genericStatus);
         }
 
         // Generate token
         $token = Str::random(64);
-        
+
         // Store token in password_reset_tokens table
         DB::table('password_reset_tokens')->updateOrInsert(
             ['email' => $request->email],
@@ -170,8 +171,6 @@ class CustomerAuthController extends Controller
         // Send notification
         try {
             $user->notify(new CustomerResetPassword($token));
-            
-            return back()->with('status', 'Password reset link has been sent to your email!');
         } catch (\Exception $e) {
             EmailLog::logFailed(
                 $request->email,
@@ -179,11 +178,9 @@ class CustomerAuthController extends Controller
                 $e->getMessage(),
                 CustomerResetPassword::class
             );
-            
-            return back()->withErrors([
-                'email' => 'Failed to send reset email. Please try again later.',
-            ]);
         }
+
+        return back()->with('status', $genericStatus);
     }
 
     /**
@@ -226,8 +223,9 @@ class CustomerAuthController extends Controller
             ]);
         }
 
-        // Check if token is expired (60 minutes)
-        if (now()->diffInMinutes($record->created_at) > 60) {
+        // Check if token is expired (60 minutes).
+        // Carbon 3 returns a signed value; abs() keeps the comparison robust regardless of clock skew.
+        if (abs(now()->diffInMinutes($record->created_at)) > 60) {
             DB::table('password_reset_tokens')->where('email', $request->email)->delete();
             return back()->withErrors([
                 'email' => 'Reset token has expired. Please request a new one.',

@@ -11,26 +11,51 @@ use Illuminate\Support\Carbon;
 
 class ScheduleController extends Controller
 {
-    protected array $statuses = [
-        'quotation'      => ['#f97316', 'Quotation'],
-        'confirmed'      => ['#3b82f6', 'Confirmed'],
-        'active'         => ['#22c55e', 'Active'],
-        'completed'      => ['#a855f7', 'Done'],
-        'cancelled'      => ['#6b7280', 'Cancel'],
-        'late_pickup'    => ['#ef4444', 'Late'],
-        'late_return'    => ['#ef4444', 'Late'],
-        'partial_return' => ['#eab308', 'Partial'],
-    ];
+    /**
+     * Color/label map for rental statuses. Hex + label are derived from the
+     * Rental model so all calendar surfaces (storefront + admin widgets) stay in sync.
+     */
+    protected function buildStatuses(): array
+    {
+        $keys = [
+            Rental::STATUS_QUOTATION,
+            Rental::STATUS_CONFIRMED,
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_COMPLETED,
+            Rental::STATUS_CANCELLED,
+            Rental::STATUS_LATE_PICKUP,
+            Rental::STATUS_LATE_RETURN,
+            Rental::STATUS_PARTIAL_RETURN,
+        ];
+        $out = [];
+        foreach ($keys as $k) {
+            $out[$k] = [Rental::getStatusHexColor($k), Rental::getStatusLabel($k)];
+        }
+        return $out;
+    }
 
-    protected array $legend = [
-        ['#f97316', 'Quotation'],
-        ['#3b82f6', 'Confirmed'],
-        ['#22c55e', 'Active'],
-        ['#a855f7', 'Done'],
-        ['#6b7280', 'Cancel'],
-        ['#ef4444', 'Late'],
-        ['#eab308', 'Partial'],
-    ];
+    protected function buildLegend(): array
+    {
+        // Dedup by hex+label so late_pickup/late_return collapse into one row.
+        $seen = [];
+        $legend = [];
+        foreach ($this->buildStatuses() as $row) {
+            $key = $row[0] . '|' . $row[1];
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $legend[] = $row;
+        }
+        return $legend;
+    }
+
+    protected array $statuses = [];
+    protected array $legend = [];
+
+    public function __construct()
+    {
+        $this->statuses = $this->buildStatuses();
+        $this->legend = $this->buildLegend();
+    }
 
     public function index(Request $request)
     {

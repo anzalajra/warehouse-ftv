@@ -372,11 +372,12 @@ class MaintenanceResource extends Resource
                                 $updates['condition'] = $data['condition'];
                                 
                                 // Close any active maintenance records
+                                $suffix = "\n[RESOLVED " . now()->format('Y-m-d') . "] " . $data['resolution'] . ": " . $data['notes'];
                                 $record->maintenanceRecords()
                                     ->whereIn('status', ['pending', 'in_progress'])
                                     ->update([
                                         'status' => 'completed',
-                                        'description' => DB::raw("CONCAT(description, '\n[RESOLVED " . now()->format('Y-m-d') . "] " . $data['resolution'] . ": " . $data['notes'] . "')")
+                                        'description' => DB::raw('CONCAT(COALESCE(description, ' . DB::getPdo()->quote('') . '), ' . DB::getPdo()->quote($suffix) . ')'),
                                     ]);
 
                                 // Update Kits

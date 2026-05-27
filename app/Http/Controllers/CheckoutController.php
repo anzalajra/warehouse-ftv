@@ -9,6 +9,7 @@ use App\Models\DailyDiscount;
 use App\Models\DatePromotion;
 use App\Models\Setting;
 use App\Services\PromotionService;
+use App\Services\RentalValidationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -244,6 +245,20 @@ class CheckoutController extends Controller
 
         if ($cartItems->isEmpty()) {
             return redirect()->route('cart.index')->with('error', 'Your cart is empty.');
+        }
+
+        // Re-validate every cart date against operational schedule. Cart could have
+        // been built before admin closed a day, so re-check at checkout.
+        foreach ($cartItems as $item) {
+            $errs = RentalValidationService::validateRentalPeriod(
+                Carbon::parse($item->start_date),
+                Carbon::parse($item->end_date)
+            );
+            if (!empty($errs)) {
+                return redirect()->route('cart.index')
+                    ->withErrors($errs)
+                    ->with('error', 'Beberapa item di cart Anda berada di luar jadwal operasional. Silakan perbarui tanggal.');
+            }
         }
 
         // Calculate global totals and averages for promotions
@@ -531,8 +546,7 @@ class CheckoutController extends Controller
     {
         $customer = Auth::guard('customer')->user();
 
-        // Use loose comparison because user_id from DB might be string while auth user id is int
-        if ($rental->user_id != $customer->id) {
+        if ((int) $rental->user_id !== (int) $customer->id) {
             abort(403);
         }
 

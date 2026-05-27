@@ -340,7 +340,7 @@ class CartController extends Controller
 
         $customer = Auth::guard('customer')->user();
 
-        if ($cart->user_id != $customer->id) {
+        if ((int) $cart->user_id !== (int) $customer->id) {
             abort(403);
         }
 
@@ -375,8 +375,8 @@ class CartController extends Controller
     public function remove(Cart $cart)
     {
         $customer = Auth::guard('customer')->user();
-        
-        if ($cart->user_id != $customer->id) {
+
+        if ((int) $cart->user_id !== (int) $customer->id) {
             abort(403);
         }
 

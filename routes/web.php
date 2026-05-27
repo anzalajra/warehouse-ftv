@@ -182,13 +182,24 @@ if (!$isInstalled) {
     });
     Route::get('/impersonate/stop', [App\Http\Controllers\ImpersonateController::class, 'stop'])->name('impersonate.stop');
 
-    // Backup Download
+    // Backup Download — restrict to whitelisted filename pattern + canonical-path check
+    // to prevent path traversal if the stored filename is ever malformed.
     Route::middleware(['auth'])->group(function () {
         Route::get('/admin/backup/download/{backupHistory}', function (\App\Models\BackupHistory $backupHistory) {
-            $path = storage_path('app/backups/' . $backupHistory->filename);
-            if (!File::exists($path)) {
+            $filename = (string) $backupHistory->filename;
+
+            // Whitelist: only safe chars allowed (alnum, dash, underscore, dot). No path separators.
+            if ($filename === '' || !preg_match('/^[A-Za-z0-9._-]+$/', $filename)) {
+                abort(404, 'Invalid backup filename.');
+            }
+
+            $baseDir = realpath(storage_path('app/backups'));
+            $path    = realpath(storage_path('app/backups/' . $filename));
+
+            if ($baseDir === false || $path === false || strpos($path, $baseDir . DIRECTORY_SEPARATOR) !== 0) {
                 abort(404, 'Backup file not found.');
             }
+
             return response()->download($path);
         })->name('backup.download');
     });

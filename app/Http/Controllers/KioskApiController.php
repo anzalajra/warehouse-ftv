@@ -238,7 +238,17 @@ class KioskApiController extends Controller
             }
             $cmd->status = $ack['status'] === 'failed' ? KioskCommand::STATUS_FAILED : KioskCommand::STATUS_ACKED;
             $cmd->acked_at = now();
-            $cmd->error = $ack['error'] ?? null;
+            // Strip HTML/control chars from kiosk-supplied error so it's safe to render
+            // in the admin panel without escaping concerns; cap to 200 chars.
+            $err = isset($ack['error']) ? trim((string) $ack['error']) : null;
+            if ($err !== null && $err !== '') {
+                $err = strip_tags($err);
+                $err = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $err) ?: '';
+                $err = mb_substr($err, 0, 200);
+            } else {
+                $err = null;
+            }
+            $cmd->error = $err;
             $cmd->save();
         }
     }
@@ -249,30 +259,33 @@ class KioskApiController extends Controller
      */
     public function heartbeatWeb(string $slug, Request $request): JsonResponse
     {
-        $computer = Computer::where('checkin_slug', $slug)->first();
-        if (! $computer) {
-            return response()->json(['error' => 'invalid_slug'], 404);
-        }
-
+        // Validate body shape regardless of slug validity, so the response time/shape
+        // doesn't differentiate valid from invalid slugs (mitigates enumeration).
         $validated = $request->validate([
             'uptime_seconds' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        $now = now();
-        $computer->last_seen_at = $now;
-        $computer->last_heartbeat_at = $now;
-        $computer->last_heartbeat_data = [
-            'app_version' => 'web',
-            'uptime_seconds' => $validated['uptime_seconds'] ?? null,
-            'running_apps' => [],
-            'source' => 'web',
-            'user_agent' => substr((string) $request->userAgent(), 0, 255),
-        ];
-        $computer->save();
+        $interval = (int) (Setting::get('computer_kiosk_heartbeat_interval_seconds') ?? 30);
 
+        $computer = Computer::where('checkin_slug', $slug)->first();
+        if ($computer) {
+            $now = now();
+            $computer->last_seen_at = $now;
+            $computer->last_heartbeat_at = $now;
+            $computer->last_heartbeat_data = [
+                'app_version' => 'web',
+                'uptime_seconds' => $validated['uptime_seconds'] ?? null,
+                'running_apps' => [],
+                'source' => 'web',
+                'user_agent' => substr((string) $request->userAgent(), 0, 255),
+            ];
+            $computer->save();
+        }
+
+        // Identical response for valid + invalid slugs.
         return response()->json([
             'ok' => true,
-            'heartbeat_interval' => (int) (Setting::get('computer_kiosk_heartbeat_interval_seconds') ?? 30),
+            'heartbeat_interval' => $interval,
         ]);
     }
 
