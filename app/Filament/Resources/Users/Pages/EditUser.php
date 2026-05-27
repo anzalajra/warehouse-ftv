@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Users\Pages;
 
 use App\Filament\Resources\Users\UserResource;
+use App\Filament\Support\PreventDeleteIfUsed;
 use App\Models\CustomerCategory;
 use App\Models\CustomerDocument;
 use Filament\Actions\Action;
@@ -196,7 +197,11 @@ class EditUser extends EditRecord
                 ->url(fn () => route('impersonate.start', ['user' => $this->record->id]))
                 ->openUrlInNewTab(),
 
-            DeleteAction::make(),
+            DeleteAction::make()
+                ->before(PreventDeleteIfUsed::guard([
+                    'riwayat sewa' => fn ($record) => $record->rentals()->count(),
+                    'invoice' => fn ($record) => $record->invoices()->count(),
+                ])),
         ];
     }
 }

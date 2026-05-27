@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ProductUnits\Tables;
 
+use App\Filament\Support\PreventDeleteIfUsed;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -137,11 +138,37 @@ class ProductUnitsTable
             ])
             ->recordActions([
                 EditAction::make(),
-                DeleteAction::make(),
+                DeleteAction::make()
+                    ->before(PreventDeleteIfUsed::guard([
+                        'riwayat sewa' => fn ($record) => $record->rentalItems()->count(),
+                        'catatan maintenance' => fn ($record) => $record->maintenanceRecords()->count(),
+                    ])),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->action(function ($records) {
+                            $blocked = $records->filter(fn ($r) => $r->rentalItems()->exists() || $r->maintenanceRecords()->exists());
+                            $deletable = $records->diff($blocked);
+
+                            foreach ($deletable as $r) {
+                                $r->delete();
+                            }
+
+                            if ($blocked->isNotEmpty()) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Sebagian tidak dapat dihapus')
+                                    ->body($blocked->count() . ' unit masih memiliki riwayat sewa/maintenance dan dilewati. ' . $deletable->count() . ' unit terhapus.')
+                                    ->warning()
+                                    ->persistent()
+                                    ->send();
+                            } else {
+                                \Filament\Notifications\Notification::make()
+                                    ->title($deletable->count() . ' unit dihapus')
+                                    ->success()
+                                    ->send();
+                            }
+                        }),
                 ]),
             ]);
     }

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Customers\Pages;
 
 use App\Filament\Resources\Customers\CustomerResource;
+use App\Filament\Support\PreventDeleteIfUsed;
 use App\Models\CustomerDocument;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -102,7 +103,11 @@ class EditCustomer extends EditRecord
 
             $this->getCancelFormAction(),
 
-            DeleteAction::make(),
+            DeleteAction::make()
+                ->before(PreventDeleteIfUsed::guard([
+                    'riwayat sewa' => fn ($record) => $record->rentals()->count(),
+                    'invoice' => fn ($record) => $record->invoices()->count(),
+                ])),
         ];
     }
 

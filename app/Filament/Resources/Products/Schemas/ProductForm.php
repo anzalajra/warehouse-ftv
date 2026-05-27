@@ -67,7 +67,7 @@ class ProductForm
                                 Select::make('brand_id')
                                     ->label('Brand')
                                     ->options(Brand::where('is_active', true)->pluck('name', 'id'))
-                                    ->required()
+                                    ->placeholder('No brand')
                                     ->searchable()
                                     ->createOptionForm([
                                         TextInput::make('name')

@@ -2,7 +2,9 @@
 
 namespace App\Filament\Clusters\Finance\Resources\FinanceAccountResource\Tables;
 
+use App\Filament\Support\PreventDeleteIfUsed;
 use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -52,10 +54,36 @@ class FinanceAccountsTable
                     ->url(fn (FinanceAccount $record) => route('filament.admin.finance.resources.cash-and-bank.ledger', ['record' => $record])),
                 ViewAction::make(),
                 EditAction::make(),
+                DeleteAction::make()
+                    ->before(PreventDeleteIfUsed::guard([
+                        'transaksi' => fn ($record) => $record->transactions()->count(),
+                    ])),
             ])
             ->bulkActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->action(function ($records) {
+                            $blocked = $records->filter(fn ($r) => $r->transactions()->exists());
+                            $deletable = $records->diff($blocked);
+
+                            foreach ($deletable as $r) {
+                                $r->delete();
+                            }
+
+                            if ($blocked->isNotEmpty()) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Sebagian tidak dapat dihapus')
+                                    ->body($blocked->count() . ' akun kas/bank masih memiliki transaksi dan dilewati. ' . $deletable->count() . ' akun terhapus.')
+                                    ->warning()
+                                    ->persistent()
+                                    ->send();
+                            } else {
+                                \Filament\Notifications\Notification::make()
+                                    ->title($deletable->count() . ' akun dihapus')
+                                    ->success()
+                                    ->send();
+                            }
+                        }),
                 ]),
             ]);
     }

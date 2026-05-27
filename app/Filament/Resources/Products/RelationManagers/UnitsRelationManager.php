@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Products\RelationManagers;
 
+use App\Filament\Support\PreventDeleteIfUsed;
 use App\Models\ProductUnit;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -333,11 +334,30 @@ class UnitsRelationManager extends RelationManager
                             ->success()
                             ->send();
                     }),
-                DeleteAction::make(),
+                DeleteAction::make()
+                    ->before(PreventDeleteIfUsed::guard([
+                        'riwayat sewa' => fn ($record) => $record->rentalItems()->count(),
+                        'catatan maintenance' => fn ($record) => $record->maintenanceRecords()->count(),
+                    ])),
             ])
             ->bulkActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->action(function ($records) {
+                            $blocked = $records->filter(fn ($r) => $r->rentalItems()->exists() || $r->maintenanceRecords()->exists());
+                            $deletable = $records->diff($blocked);
+                            foreach ($deletable as $r) {
+                                $r->delete();
+                            }
+                            if ($blocked->isNotEmpty()) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Sebagian tidak dapat dihapus')
+                                    ->body($blocked->count() . ' unit masih punya riwayat sewa/maintenance dan dilewati. ' . $deletable->count() . ' unit terhapus.')
+                                    ->warning()->persistent()->send();
+                            } else {
+                                \Filament\Notifications\Notification::make()->title($deletable->count() . ' unit dihapus')->success()->send();
+                            }
+                        }),
                     BulkAction::make('assign_warehouse')
                         ->label('Assign Warehouse')
                         ->icon('heroicon-o-building-storefront')

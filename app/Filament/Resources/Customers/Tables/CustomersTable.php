@@ -9,6 +9,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -118,7 +119,22 @@ class CustomersTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->action(function ($records) {
+                            $blocked = $records->filter(fn ($r) => $r->rentals()->exists() || $r->invoices()->exists());
+                            $deletable = $records->diff($blocked);
+                            foreach ($deletable as $r) {
+                                $r->delete();
+                            }
+                            if ($blocked->isNotEmpty()) {
+                                Notification::make()
+                                    ->title('Sebagian customer tidak dapat dihapus')
+                                    ->body($blocked->count() . ' customer punya riwayat sewa/invoice (data finansial harus dipertahankan). ' . $deletable->count() . ' customer terhapus.')
+                                    ->warning()->persistent()->send();
+                            } else {
+                                Notification::make()->title($deletable->count() . ' customer dihapus')->success()->send();
+                            }
+                        }),
                 ]),
             ]);
     }

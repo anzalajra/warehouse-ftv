@@ -4,7 +4,9 @@ namespace App\Filament\Clusters\Finance\Resources;
 
 use App\Filament\Clusters\Finance\FinanceCluster;
 use App\Filament\Clusters\Finance\Resources\AccountResource\Pages;
+use App\Filament\Support\PreventDeleteIfUsed;
 use App\Models\Account;
+use App\Models\CategoryMapping;
 use App\Models\Setting;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -126,7 +128,12 @@ class AccountResource extends Resource
             ])
             ->actions([
                 \Filament\Actions\EditAction::make(),
-                \Filament\Actions\DeleteAction::make(),
+                \Filament\Actions\DeleteAction::make()
+                    ->before(PreventDeleteIfUsed::guard([
+                        'transaksi jurnal' => fn ($record) => $record->items()->count(),
+                        'mapping kategori' => fn ($record) => CategoryMapping::where('account_id', $record->id)->count(),
+                        'sub-account' => fn ($record) => $record->children()->count(),
+                    ])),
             ])
             ->bulkActions([
                 \Filament\Actions\BulkActionGroup::make([
