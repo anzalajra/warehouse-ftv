@@ -1060,31 +1060,47 @@
                                 </div>
                                 <div class="subtotal-cell">Rp {{ number_format($rowSubtotal, 0, ',', '.') }}</div>
                                 <div class="row-actions" x-data="{ open: false }" @click.outside="open = false" style="position: relative;">
-                                    @if($this->canTransfer && $assigned > 0)
-                                        <button type="button" class="btn-icon" title="Pindahkan / Tukar unit ke rental lain"
+                                    @if($this->canTransfer && ($assigned > 0 || $missing > 0))
+                                        <button type="button" class="btn-icon" title="Move / Swap / Pull unit antar rental"
                                             @click="open = !open">
                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                                         </button>
                                         <div x-show="open" x-cloak x-transition.opacity
-                                            style="position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-1, #fff); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,.08); z-index: 30; min-width: 180px; padding: 4px;">
-                                            <button type="button"
-                                                style="display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; border-radius:6px; text-align:left;"
-                                                onmouseover="this.style.background='var(--gray-50, #f9fafb)'"
-                                                onmouseout="this.style.background='transparent'"
-                                                wire:click="openTransferForRow('{{ $it['key'] }}', 'move')"
-                                                @click="open = false">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                                                Move ke rental lain
-                                            </button>
-                                            <button type="button"
-                                                style="display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; border-radius:6px; text-align:left;"
-                                                onmouseover="this.style.background='var(--gray-50, #f9fafb)'"
-                                                onmouseout="this.style.background='transparent'"
-                                                wire:click="openTransferForRow('{{ $it['key'] }}', 'swap')"
-                                                @click="open = false">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                                                Swap dengan rental lain
-                                            </button>
+                                            style="position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--bg-1, #fff); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,.08); z-index: 30; min-width: 200px; padding: 4px;">
+                                            @if($missing > 0)
+                                                <button type="button"
+                                                    style="display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; border-radius:6px; text-align:left; color: var(--success-700, #15803d); font-weight:600;"
+                                                    onmouseover="this.style.background='var(--success-50, #f0fdf4)'"
+                                                    onmouseout="this.style.background='transparent'"
+                                                    wire:click="openPullModal('{{ $it['key'] }}')"
+                                                    @click="open = false">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                                                    Tarik dari rental lain ({{ $missing }})
+                                                </button>
+                                                @if($assigned > 0)
+                                                    <div style="height:1px; background: var(--border-1, #e5e7eb); margin: 4px 2px;"></div>
+                                                @endif
+                                            @endif
+                                            @if($assigned > 0)
+                                                <button type="button"
+                                                    style="display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; border-radius:6px; text-align:left;"
+                                                    onmouseover="this.style.background='var(--gray-50, #f9fafb)'"
+                                                    onmouseout="this.style.background='transparent'"
+                                                    wire:click="openTransferForRow('{{ $it['key'] }}', 'move')"
+                                                    @click="open = false">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                                                    Move ke rental lain
+                                                </button>
+                                                <button type="button"
+                                                    style="display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; border-radius:6px; text-align:left;"
+                                                    onmouseover="this.style.background='var(--gray-50, #f9fafb)'"
+                                                    onmouseout="this.style.background='transparent'"
+                                                    wire:click="openTransferForRow('{{ $it['key'] }}', 'swap')"
+                                                    @click="open = false">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                                                    Swap dengan rental lain
+                                                </button>
+                                            @endif
                                         </div>
                                     @endif
                                     <button type="button" class="btn-icon" title="Hapus"
@@ -1400,17 +1416,26 @@
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="20" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>
                                             @if($missing > 0)<span class="unit-btn-badge">{{ $missing }}</span>@endif
                                         </button>
-                                        @if($this->canTransfer && $assigned > 0)
+                                        @if($this->canTransfer && ($assigned > 0 || $missing > 0))
                                             <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; display:inline-block;">
                                                 <button type="button" class="iconbtn" title="Transfer unit" @click="open = !open">
                                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                                                 </button>
                                                 <div x-show="open" x-cloak
-                                                    style="position: absolute; right: 0; top: 100%; margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,.08); z-index: 30; min-width: 170px; padding: 4px;">
-                                                    <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left;"
-                                                        wire:click="openTransferForRow('{{ $it['key'] }}', 'move')" @click="open = false">Move ke rental lain</button>
-                                                    <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left;"
-                                                        wire:click="openTransferForRow('{{ $it['key'] }}', 'swap')" @click="open = false">Swap dengan rental lain</button>
+                                                    style="position: absolute; right: 0; top: 100%; margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,.08); z-index: 30; min-width: 200px; padding: 4px;">
+                                                    @if($missing > 0)
+                                                        <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left; color: var(--success-700, #15803d); font-weight:600;"
+                                                            wire:click="openPullModal('{{ $it['key'] }}')" @click="open = false">Tarik dari rental lain ({{ $missing }})</button>
+                                                        @if($assigned > 0)
+                                                            <div style="height:1px; background: #e5e7eb; margin: 4px 2px;"></div>
+                                                        @endif
+                                                    @endif
+                                                    @if($assigned > 0)
+                                                        <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left;"
+                                                            wire:click="openTransferForRow('{{ $it['key'] }}', 'move')" @click="open = false">Move ke rental lain</button>
+                                                        <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left;"
+                                                            wire:click="openTransferForRow('{{ $it['key'] }}', 'swap')" @click="open = false">Swap dengan rental lain</button>
+                                                    @endif
                                                 </div>
                                             </div>
                                         @endif
@@ -1862,6 +1887,9 @@
                             @if($tx['mode'] === 'move')
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
                                 Pindahkan Unit ke Rental Lain
+                            @elseif($tx['mode'] === 'pull')
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                                Tarik Unit dari Rental Lain
                             @else
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                                 Tukar Unit dengan Rental Lain
@@ -1873,69 +1901,93 @@
                     </div>
 
                     <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
-                        @if(!empty($tx['needs_unit_pick']))
+                        @if($tx['mode'] === 'pull')
+                            {{-- PULL mode: pick a RentalItem from another (conflicting) rental --}}
                             <div>
-                                <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Pilih Unit yang akan {{ $tx['mode'] === 'move' ? 'dipindahkan' : 'di-swap' }}</label>
-                                @if(empty($tx['pickable_units']))
-                                    <div style="font-size: 13px; color: var(--danger-700, #b91c1c);">Tidak ada unit ter-assign di row ini.</div>
-                                @else
-                                    <select class="input" wire:model.live="transferUnitId" style="width:100%;">
-                                        <option value="">— Pilih unit —</option>
-                                        @foreach($tx['pickable_units'] as $u)
-                                            <option value="{{ $u['id'] }}">{{ $u['serial'] }}</option>
-                                        @endforeach
-                                    </select>
-                                @endif
-                            </div>
-                        @else
-                            <div style="font-size: 13px; color: var(--fg-2, #374151);">
-                                Unit: <strong>{{ $tx['product_name'] }} — {{ $tx['unit_serial'] }}</strong>
-                            </div>
-                        @endif
-
-                        <div>
-                            <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Rental Tujuan</label>
-                            <select class="input" wire:model.live="transferTargetRentalId" style="width:100%;">
-                                <option value="">— Pilih rental tujuan —</option>
-                                @foreach($tx['targets'] as $t)
-                                    <option value="{{ $t['id'] }}">{{ $t['label'] }}</option>
-                                @endforeach
-                            </select>
-                            <p style="font-size:11.5px; color: var(--fg-3, #6b7280); margin-top: 4px;">Hanya rental berstatus quotation, confirmed, atau late_pickup yang tampil.</p>
-                        </div>
-
-                        @if($tx['mode'] === 'swap')
-                            <div>
-                                <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Unit Lawan untuk Di-Swap</label>
-                                @if(empty($tx['target_items']))
-                                    <select class="input" disabled style="width:100%;">
-                                        <option>— Pilih rental tujuan dahulu —</option>
-                                    </select>
+                                <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Unit dari Rental Lain</label>
+                                @if(empty($tx['pull_candidates']))
+                                    <div style="font-size: 13px; color: var(--danger-700, #b91c1c); padding: 10px 12px; background: var(--danger-50, #fef2f2); border: 1px solid var(--danger-200, #fecaca); border-radius: 8px;">
+                                        Tidak ada unit produk ini di rental lain yang overlap dengan periode rental ini (status quotation/confirmed/late_pickup).
+                                    </div>
                                 @else
                                     <select class="input" wire:model="transferTargetItemId" style="width:100%;">
-                                        <option value="">— Pilih unit lawan —</option>
-                                        @foreach($tx['target_items'] as $ti)
-                                            <option value="{{ $ti['id'] }}">{{ $ti['label'] }}</option>
+                                        <option value="">— Pilih unit untuk ditarik —</option>
+                                        @foreach($tx['pull_candidates'] as $pc)
+                                            <option value="{{ $pc['item_id'] }}">{{ $pc['label'] }}</option>
                                         @endforeach
                                     </select>
+                                    <p style="font-size:11.5px; color: var(--fg-3, #6b7280); margin-top: 4px;">Daftar unit produk yang sama dari rental lain (status quotation/confirmed/late_pickup) yang overlap periode rental ini.</p>
+                                @endif
+                            </div>
+
+                            <div style="font-size: 12px; color: var(--fg-3, #6b7280); padding: 10px 12px; background: var(--gray-50, #f9fafb); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px;">
+                                Unit akan dihapus dari rental sumber dan dipindahkan ke rental ini. Total kedua rental akan dihitung ulang otomatis.
+                            </div>
+                        @else
+                            @if(!empty($tx['needs_unit_pick']))
+                                <div>
+                                    <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Pilih Unit yang akan {{ $tx['mode'] === 'move' ? 'dipindahkan' : 'di-swap' }}</label>
+                                    @if(empty($tx['pickable_units']))
+                                        <div style="font-size: 13px; color: var(--danger-700, #b91c1c);">Tidak ada unit ter-assign di row ini.</div>
+                                    @else
+                                        <select class="input" wire:model.live="transferUnitId" style="width:100%;">
+                                            <option value="">— Pilih unit —</option>
+                                            @foreach($tx['pickable_units'] as $u)
+                                                <option value="{{ $u['id'] }}">{{ $u['serial'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    @endif
+                                </div>
+                            @else
+                                <div style="font-size: 13px; color: var(--fg-2, #374151);">
+                                    Unit: <strong>{{ $tx['product_name'] }} — {{ $tx['unit_serial'] }}</strong>
+                                </div>
+                            @endif
+
+                            <div>
+                                <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Rental Tujuan</label>
+                                <select class="input" wire:model.live="transferTargetRentalId" style="width:100%;">
+                                    <option value="">— Pilih rental tujuan —</option>
+                                    @foreach($tx['targets'] as $t)
+                                        <option value="{{ $t['id'] }}">{{ $t['label'] }}</option>
+                                    @endforeach
+                                </select>
+                                <p style="font-size:11.5px; color: var(--fg-3, #6b7280); margin-top: 4px;">Hanya rental berstatus quotation, confirmed, atau late_pickup yang tampil.</p>
+                            </div>
+
+                            @if($tx['mode'] === 'swap')
+                                <div>
+                                    <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Unit Lawan untuk Di-Swap</label>
+                                    @if(empty($tx['target_items']))
+                                        <select class="input" disabled style="width:100%;">
+                                            <option>— Pilih rental tujuan dahulu —</option>
+                                        </select>
+                                    @else
+                                        <select class="input" wire:model="transferTargetItemId" style="width:100%;">
+                                            <option value="">— Pilih unit lawan —</option>
+                                            @foreach($tx['target_items'] as $ti)
+                                                <option value="{{ $ti['id'] }}">{{ $ti['label'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    @endif
+                                </div>
+                            @endif
+
+                            <div style="font-size: 12px; color: var(--fg-3, #6b7280); padding: 10px 12px; background: var(--gray-50, #f9fafb); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px;">
+                                @if($tx['mode'] === 'move')
+                                    Unit akan dihapus dari rental ini dan ditambahkan ke rental tujuan. Total kedua rental akan dihitung ulang otomatis.
+                                @else
+                                    Unit di rental ini akan ditukar dengan unit di rental tujuan. Total kedua rental akan dihitung ulang otomatis.
                                 @endif
                             </div>
                         @endif
-
-                        <div style="font-size: 12px; color: var(--fg-3, #6b7280); padding: 10px 12px; background: var(--gray-50, #f9fafb); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px;">
-                            @if($tx['mode'] === 'move')
-                                Unit akan dihapus dari rental ini dan ditambahkan ke rental tujuan. Total kedua rental akan dihitung ulang otomatis.
-                            @else
-                                Unit di rental ini akan ditukar dengan unit di rental tujuan. Total kedua rental akan dihitung ulang otomatis.
-                            @endif
-                        </div>
                     </div>
 
                     <div class="modal-foot" style="display:flex; gap:8px; justify-content:flex-end; padding: 12px 20px; border-top: 1px solid var(--border-1, #e5e7eb);">
                         <button type="button" class="btn btn-secondary" wire:click="closeTransferModal">Batal</button>
                         <button type="button" class="btn btn-primary" wire:click="confirmTransfer" wire:loading.attr="disabled">
                             <span wire:loading.remove wire:target="confirmTransfer">
-                                {{ $tx['mode'] === 'move' ? 'Pindahkan' : 'Tukar' }}
+                                {{ $tx['mode'] === 'move' ? 'Pindahkan' : ($tx['mode'] === 'pull' ? 'Tarik' : 'Tukar') }}
                             </span>
                             <span wire:loading wire:target="confirmTransfer">Memproses…</span>
                         </button>

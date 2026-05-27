@@ -648,6 +648,15 @@ class RentalEditor extends Component
         $this->beginTransfer(null, $mode, $itemKey);
     }
 
+    /**
+     * Open modal in PULL mode: tarik unit dari rental lain ke rental ini.
+     * Dipakai saat row punya slot kosong karena unit lagi dipakai rental lain.
+     */
+    public function openPullModal(string $itemKey): void
+    {
+        $this->beginTransfer(null, 'pull', $itemKey);
+    }
+
     protected function beginTransfer(?int $unitId, string $mode, ?string $itemKey): void
     {
         if (!$this->canTransfer) {
@@ -732,26 +741,78 @@ class RentalEditor extends Component
             ? ProductUnit::with('product')->find($this->transferUnitId)
             : null;
 
-        $targets = Rental::query()
-            ->where('id', '!=', $this->record->id)
-            ->whereIn('status', self::TRANSFERABLE_STATUSES)
-            ->with('customer')
-            ->when($this->transferMode === 'swap', fn ($q) => $q->whereHas('items'))
-            ->orderBy('start_date', 'desc')
-            ->limit(200)
-            ->get()
-            ->map(fn ($r) => [
-                'id' => $r->id,
-                'label' => sprintf(
-                    '%s — %s (%s → %s) [%s]',
-                    $r->rental_code ?? '#'.$r->id,
-                    $r->customer?->name ?? 'Unknown',
-                    optional($r->start_date)->format('Y-m-d'),
-                    optional($r->end_date)->format('Y-m-d'),
-                    $r->status,
-                ),
-            ])
-            ->all();
+        // For MOVE / SWAP: list any other eligible rentals as target.
+        // For PULL: list rentals that actually HAVE units matching this row's product
+        //   and overlap the current rental period.
+        $pullCandidates = [];
+        $pullRowInfo = null;
+
+        if ($this->transferMode === 'pull' && $this->transferItemKey) {
+            $row = collect($this->items)->firstWhere('key', $this->transferItemKey);
+            if ($row) {
+                $pullRowInfo = [
+                    'product_id' => $row['product_id'],
+                    'variation_id' => $row['variation_id'],
+                ];
+
+                $start = $this->record->start_date;
+                $end = $this->record->end_date;
+
+                $pullCandidates = RentalItem::query()
+                    ->where('rental_id', '!=', $this->record->id)
+                    ->whereHas('productUnit', function ($q) use ($row) {
+                        $q->where('product_id', $row['product_id']);
+                        if (!empty($row['variation_id'])) {
+                            $q->where('product_variation_id', $row['variation_id']);
+                        }
+                    })
+                    ->whereHas('rental', function ($q) use ($start, $end) {
+                        $q->whereIn('status', self::TRANSFERABLE_STATUSES)
+                            ->where('start_date', '<', $end)
+                            ->where('end_date', '>', $start);
+                    })
+                    ->with(['rental.customer', 'productUnit.product'])
+                    ->limit(200)
+                    ->get()
+                    ->map(fn ($ri) => [
+                        'item_id' => $ri->id,
+                        'rental_id' => $ri->rental_id,
+                        'label' => sprintf(
+                            '%s — %s · %s · %s → %s',
+                            $ri->rental->rental_code ?? '#'.$ri->rental_id,
+                            $ri->rental->customer?->name ?? 'Unknown',
+                            $ri->productUnit?->serial_number ?? '#'.$ri->product_unit_id,
+                            optional($ri->rental->start_date)->format('Y-m-d'),
+                            optional($ri->rental->end_date)->format('Y-m-d'),
+                        ),
+                    ])
+                    ->all();
+            }
+        }
+
+        $targets = [];
+        if ($this->transferMode !== 'pull') {
+            $targets = Rental::query()
+                ->where('id', '!=', $this->record->id)
+                ->whereIn('status', self::TRANSFERABLE_STATUSES)
+                ->with('customer')
+                ->when($this->transferMode === 'swap', fn ($q) => $q->whereHas('items'))
+                ->orderBy('start_date', 'desc')
+                ->limit(200)
+                ->get()
+                ->map(fn ($r) => [
+                    'id' => $r->id,
+                    'label' => sprintf(
+                        '%s — %s (%s → %s) [%s]',
+                        $r->rental_code ?? '#'.$r->id,
+                        $r->customer?->name ?? 'Unknown',
+                        optional($r->start_date)->format('Y-m-d'),
+                        optional($r->end_date)->format('Y-m-d'),
+                        $r->status,
+                    ),
+                ])
+                ->all();
+        }
 
         $targetItems = [];
         if ($this->transferMode === 'swap' && $this->transferTargetRentalId) {
@@ -772,9 +833,11 @@ class RentalEditor extends Component
             'unit_serial' => $unit?->serial_number,
             'product_name' => $unit?->product?->name,
             'pickable_units' => $pickableUnits,
-            'needs_unit_pick' => $this->transferUnitId === null,
+            'needs_unit_pick' => $this->transferUnitId === null && $this->transferMode !== 'pull',
             'targets' => $targets,
             'target_items' => $targetItems,
+            'pull_candidates' => $pullCandidates,
+            'pull_row_info' => $pullRowInfo,
         ];
     }
 
@@ -784,47 +847,64 @@ class RentalEditor extends Component
             Notification::make()->title('Rental tidak dapat di-transfer')->danger()->send();
             return;
         }
-        if (!$this->transferUnitId) {
-            Notification::make()->title('Pilih unit terlebih dahulu')->danger()->send();
-            return;
-        }
-        if (!$this->transferTargetRentalId) {
-            Notification::make()->title('Pilih rental tujuan')->danger()->send();
-            return;
-        }
-
-        $sourceItem = RentalItem::where('rental_id', $this->record->id)
-            ->where('product_unit_id', $this->transferUnitId)
-            ->first();
-
-        if (!$sourceItem) {
-            Notification::make()->title('Item sumber tidak ditemukan')->danger()->send();
-            return;
-        }
 
         $service = app(RentalItemTransferService::class);
 
         try {
-            if ($this->transferMode === 'move') {
-                $target = Rental::find($this->transferTargetRentalId);
-                if (!$target) {
-                    Notification::make()->title('Rental tujuan tidak ditemukan')->danger()->send();
-                    return;
-                }
-                $service->move($sourceItem, $target);
-                $msg = "Unit dipindahkan ke {$target->rental_code}";
-            } else {
+            if ($this->transferMode === 'pull') {
+                // Pull = MOVE inverted. Source item lives in another rental; target = this rental.
                 if (!$this->transferTargetItemId) {
-                    Notification::make()->title('Pilih item untuk di-swap')->danger()->send();
+                    Notification::make()->title('Pilih unit dari rental lain untuk ditarik')->danger()->send();
                     return;
                 }
                 $other = RentalItem::find($this->transferTargetItemId);
                 if (!$other) {
-                    Notification::make()->title('Item tujuan tidak ditemukan')->danger()->send();
+                    Notification::make()->title('Item sumber tidak ditemukan')->danger()->send();
                     return;
                 }
-                $service->swap($sourceItem, $other);
-                $msg = "Unit di-swap dengan {$other->rental->rental_code}";
+                $sourceCode = $other->rental->rental_code;
+                $service->move($other, $this->record);
+                $msg = "Unit ditarik dari {$sourceCode}";
+            } else {
+                if (!$this->transferUnitId) {
+                    Notification::make()->title('Pilih unit terlebih dahulu')->danger()->send();
+                    return;
+                }
+                if (!$this->transferTargetRentalId) {
+                    Notification::make()->title('Pilih rental tujuan')->danger()->send();
+                    return;
+                }
+
+                $sourceItem = RentalItem::where('rental_id', $this->record->id)
+                    ->where('product_unit_id', $this->transferUnitId)
+                    ->first();
+
+                if (!$sourceItem) {
+                    Notification::make()->title('Item sumber tidak ditemukan')->danger()->send();
+                    return;
+                }
+
+                if ($this->transferMode === 'move') {
+                    $target = Rental::find($this->transferTargetRentalId);
+                    if (!$target) {
+                        Notification::make()->title('Rental tujuan tidak ditemukan')->danger()->send();
+                        return;
+                    }
+                    $service->move($sourceItem, $target);
+                    $msg = "Unit dipindahkan ke {$target->rental_code}";
+                } else {
+                    if (!$this->transferTargetItemId) {
+                        Notification::make()->title('Pilih item untuk di-swap')->danger()->send();
+                        return;
+                    }
+                    $other = RentalItem::find($this->transferTargetItemId);
+                    if (!$other) {
+                        Notification::make()->title('Item tujuan tidak ditemukan')->danger()->send();
+                        return;
+                    }
+                    $service->swap($sourceItem, $other);
+                    $msg = "Unit di-swap dengan {$other->rental->rental_code}";
+                }
             }
 
             Notification::make()->title('Transfer berhasil')->body($msg)->success()->send();
@@ -833,8 +913,9 @@ class RentalEditor extends Component
             // Reload editor state from DB (items may have changed).
             $this->redirect(RentalResource::getUrl('edit', ['record' => $this->record]), navigate: false);
         } catch (\Throwable $e) {
+            $titleMap = ['move' => 'Gagal memindahkan unit', 'swap' => 'Gagal swap unit', 'pull' => 'Gagal menarik unit'];
             Notification::make()
-                ->title($this->transferMode === 'move' ? 'Gagal memindahkan unit' : 'Gagal swap unit')
+                ->title($titleMap[$this->transferMode] ?? 'Gagal transfer')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
