@@ -18,7 +18,7 @@ class ListRentals extends ListRecords
 
     protected string $view = 'filament.resources.rentals.pages.list-rentals';
 
-    public string $currentView = 'kanban';
+    public string $currentView = 'list';
 
     #[On('filter-rentals')]
     public function applyRentalScope(string $scope): void

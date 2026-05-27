@@ -1,8 +1,21 @@
-<x-filament-panels::page>
+<x-filament-panels::page
+    x-data="{
+        init() {
+            const saved = localStorage.getItem('rentals_default_view');
+            if (saved && saved !== @js($currentView) && (saved === 'list' || saved === 'kanban')) {
+                $wire.setView(saved);
+            }
+        },
+        switchView(view) {
+            localStorage.setItem('rentals_default_view', view);
+            $wire.setView(view);
+        }
+    }"
+>
     <div class="flex items-center justify-between mb-4">
         <div class="flex items-center space-x-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit">
-            <button 
-                wire:click="setView('list')" 
+            <button
+                x-on:click="switchView('list')"
                 class="px-4 py-2 text-sm font-medium rounded-md transition-colors {{ $currentView === 'list' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300' }}"
             >
                 <div class="flex items-center gap-2">
@@ -10,8 +23,8 @@
                     <span>List View</span>
                 </div>
             </button>
-            <button 
-                wire:click="setView('kanban')" 
+            <button
+                x-on:click="switchView('kanban')"
                 class="px-4 py-2 text-sm font-medium rounded-md transition-colors {{ $currentView === 'kanban' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-300' }}"
             >
                 <div class="flex items-center gap-2">
