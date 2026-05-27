@@ -28,15 +28,6 @@ class CustomerDocument extends Model
     public const STATUS_APPROVED = 'approved';
     public const STATUS_REJECTED = 'rejected';
 
-    protected static function booted()
-    {
-        static::created(function ($document) {
-            // Notify admins about new document upload for verification
-            $admins = User::role(['super_admin', 'admin', 'staff'])->get();
-            \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\VerificationRequestNotification($document->user));
-        });
-    }
-
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

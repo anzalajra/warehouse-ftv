@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\CustomerDocument;
 use App\Models\DocumentType;
+use App\Models\User;
+use App\Notifications\VerificationRequestNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 
 class CustomerDocumentController extends Controller
@@ -61,6 +64,11 @@ class CustomerDocumentController extends Controller
         }
 
         if ($uploadedCount > 0) {
+            $admins = User::role(['super_admin', 'admin', 'staff'])->get();
+            if ($admins->isNotEmpty()) {
+                Notification::send($admins, new VerificationRequestNotification($customer));
+            }
+
             return back()->with('success', "$uploadedCount dokumen berhasil diunggah. Menunggu verifikasi.");
         }
 

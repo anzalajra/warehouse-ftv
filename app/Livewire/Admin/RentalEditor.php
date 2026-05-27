@@ -1145,8 +1145,13 @@ class RentalEditor extends Component
         if (! $this->record || ! $this->record->exists) {
             $this->record = Rental::create($payload);
         } else {
+            $previousStatus = $this->record->getOriginal('status');
             $this->record->fill($payload);
             $this->record->saveQuietly();
+
+            if ($previousStatus !== Rental::STATUS_CONFIRMED && $this->record->status === Rental::STATUS_CONFIRMED && $this->record->customer) {
+                $this->record->customer->notify(new \App\Notifications\BookingConfirmedNotification($this->record));
+            }
         }
 
         // Build grouped_items in the shape syncRentalItems expects

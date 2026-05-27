@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PushSubscription;
 use App\Models\Setting;
+use App\Models\User;
 use App\Services\WebPushService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -113,6 +114,18 @@ class AdminPwaController extends Controller
             'keys.auth' => 'required|string|max:255',
         ]);
 
+        $userAgent = substr((string) $request->header('User-Agent', ''), 0, 255);
+
+        // Remove stale subscriptions from the same device (browser reinstall /
+        // SW re-register often issues a fresh endpoint without us hearing about
+        // the old one — keeping both would deliver every push twice on iOS).
+        if ($userAgent !== '') {
+            PushSubscription::where('user_id', $user->id)
+                ->where('user_agent', $userAgent)
+                ->where('endpoint', '!=', $data['endpoint'])
+                ->delete();
+        }
+
         PushSubscription::updateOrCreate(
             [
                 'user_id' => $user->id,
@@ -121,7 +134,7 @@ class AdminPwaController extends Controller
             [
                 'p256dh' => $data['keys']['p256dh'],
                 'auth' => $data['keys']['auth'],
-                'user_agent' => substr((string) $request->header('User-Agent', ''), 0, 255),
+                'user_agent' => $userAgent,
                 'last_used_at' => now(),
             ]
         );
@@ -166,13 +179,20 @@ class AdminPwaController extends Controller
             return response()->json(['error' => 'unauthenticated'], 401);
         }
 
-        $push->sendToUser($user->id, [
+        $payload = [
             'title' => Setting::get('pwa_admin_name', 'Warehouse FTV'),
             'body' => 'Test notification dari admin panel. Push berhasil!',
             'url' => '/admin',
             'tag' => 'test-' . time(),
-        ]);
+        ];
 
-        return response()->json(['ok' => true]);
+        $adminIds = User::role(['super_admin', 'admin', 'staff'])->pluck('id');
+        $recipients = 0;
+        foreach ($adminIds as $id) {
+            $push->sendToUser((int) $id, $payload);
+            $recipients++;
+        }
+
+        return response()->json(['ok' => true, 'recipients' => $recipients]);
     }
 }

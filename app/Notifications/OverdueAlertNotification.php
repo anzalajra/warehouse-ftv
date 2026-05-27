@@ -45,7 +45,7 @@ class OverdueAlertNotification extends Notification
                     ->line('Your rental is overdue! Please return the items immediately to avoid additional late fees.')
                     ->line('Rental Code: ' . $this->rental->rental_code)
                     ->line('Due Date: ' . $this->rental->end_date->format('d M Y'))
-                    ->action('View Booking', url('/rentals/' . $this->rental->id))
+                    ->action('View Booking', url('/customer/rentals/' . $this->rental->id))
                     ->line('Thank you for choosing Gearent!');
     }
 
@@ -53,9 +53,9 @@ class OverdueAlertNotification extends Notification
     {
         // Check if user is a customer (no admin roles) or admin/staff
         $isCustomer = $notifiable instanceof User && !$notifiable->hasAnyRole(['super_admin', 'admin', 'staff']);
-        $url = $isCustomer 
-            ? "/rentals/{$this->rental->id}" 
-            : "/admin/rentals/{$this->rental->id}";
+        $url = $isCustomer
+            ? "/customer/rentals/{$this->rental->id}"
+            : "/admin/rentals/{$this->rental->id}/view";
 
         return FilamentNotification::make()
             ->title('Overdue Alert')

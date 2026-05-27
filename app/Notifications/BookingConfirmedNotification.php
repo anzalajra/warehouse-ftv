@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Models\Rental;
 use App\Models\Setting;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -53,7 +54,7 @@ class BookingConfirmedNotification extends Notification
                     ->line('Rental Code: ' . $this->rental->rental_code)
                     ->line('Start Date: ' . $this->rental->start_date->format('d M Y'))
                     ->line('End Date: ' . $this->rental->end_date->format('d M Y'))
-                    ->action('View Booking', url('/rentals/' . $this->rental->id))
+                    ->action('View Booking', url('/customer/rentals/' . $this->rental->id))
                     ->line('Thank you for choosing Gearent!');
     }
 
@@ -64,6 +65,11 @@ class BookingConfirmedNotification extends Notification
      */
     public function toDatabase(object $notifiable): array
     {
+        $isAdmin = $notifiable instanceof User && $notifiable->hasAnyRole(['super_admin', 'admin', 'staff']);
+        $url = $isAdmin
+            ? "/admin/rentals/{$this->rental->id}/view"
+            : "/customer/rentals/{$this->rental->id}";
+
         return FilamentNotification::make()
             ->title('Booking Confirmed')
             ->body("Your booking {$this->rental->rental_code} has been confirmed.")
@@ -71,7 +77,7 @@ class BookingConfirmedNotification extends Notification
             ->actions([
                 \Filament\Actions\Action::make('view')
                     ->button()
-                    ->url("/rentals/{$this->rental->id}")
+                    ->url($url)
                     ->markAsRead(),
             ])
             ->getDatabaseMessage();

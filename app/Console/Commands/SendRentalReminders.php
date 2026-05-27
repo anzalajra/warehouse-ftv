@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\ProductUnit;
 use App\Models\Rental;
+use App\Notifications\DailyReminderSummaryNotification;
 use App\Notifications\MaintenanceReminderNotification;
 use App\Notifications\OverdueAlertNotification;
 use App\Notifications\PickupReminderNotification;
@@ -59,13 +60,24 @@ class SendRentalReminders extends Command
              }
         }
 
+        // 2b. Daily summary ke admin (gabungan pickup + return H-1)
+        $tomorrow = now()->addDay()->toDateString();
+        $admins = \App\Models\User::role(['super_admin', 'admin', 'staff'])->get();
+
+        if ($admins->isNotEmpty() && ($pickupRentals->count() > 0 || $returnRentals->count() > 0)) {
+            Notification::send($admins, new DailyReminderSummaryNotification(
+                $pickupRentals->count(),
+                $returnRentals->count(),
+                $tomorrow,
+            ));
+            $this->info("Sent Daily Reminder Summary ({$pickupRentals->count()} pickup, {$returnRentals->count()} return)");
+        }
+
         // 3. Overdue Alert
         // Check active rentals that are past due date
         $overdueRentals = Rental::whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN])
             ->whereDate('end_date', '<', now()->toDateString())
             ->get();
-
-        $admins = \App\Models\User::role(['super_admin', 'admin'])->get();
 
         foreach ($overdueRentals as $rental) {
             // Notify Customer

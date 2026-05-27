@@ -41,7 +41,7 @@ class PickupReminderNotification extends Notification
                     ->line('This is a reminder to pick up your rental tomorrow.')
                     ->line('Rental Code: ' . $this->rental->rental_code)
                     ->line('Pickup Date: ' . $this->rental->start_date->format('d M Y'))
-                    ->action('View Booking', url('/rentals/' . $this->rental->id))
+                    ->action('View Booking', url('/customer/rentals/' . $this->rental->id))
                     ->line('Thank you for choosing Gearent!');
     }
 
@@ -54,7 +54,7 @@ class PickupReminderNotification extends Notification
             ->actions([
                 \Filament\Actions\Action::make('view')
                     ->button()
-                    ->url("/rentals/{$this->rental->id}")
+                    ->url("/customer/rentals/{$this->rental->id}")
                     ->markAsRead(),
             ])
             ->getDatabaseMessage();

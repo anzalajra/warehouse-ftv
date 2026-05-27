@@ -50,6 +50,7 @@ class AdminPwaSettings extends Page implements HasForms
             \App\Notifications\RentalCompletedNotification::class => 'Rental selesai',
             \App\Notifications\PickupReminderNotification::class => 'Reminder pickup',
             \App\Notifications\ReturnReminderNotification::class => 'Reminder return',
+            \App\Notifications\DailyReminderSummaryNotification::class => 'Reminder harian (gabungan H-1 pickup & return)',
             \App\Notifications\OverdueAlertNotification::class => 'Rental telat / overdue',
             \App\Notifications\BookingConfirmedNotification::class => 'Booking dikonfirmasi',
             \App\Notifications\MaintenanceReminderNotification::class => 'Reminder maintenance',

@@ -45,7 +45,7 @@ class VerificationRequestNotification extends Notification
             ->line('**Customer Details:**')
             ->line('Name: ' . $this->customer->name)
             ->line('Email: ' . $this->customer->email)
-            ->action('Review Documents', url("/admin/users/{$this->customer->id}/edit"))
+            ->action('Review Documents', url("/admin/customers/{$this->customer->id}/edit"))
             ->line('Please review and verify the documents.');
     }
 
@@ -59,7 +59,7 @@ class VerificationRequestNotification extends Notification
             ->actions([
                 \Filament\Actions\Action::make('review')
                     ->button()
-                    ->url("/admin/users/{$this->customer->id}/edit")
+                    ->url("/admin/customers/{$this->customer->id}/edit")
                     ->markAsRead(),
             ])
             ->getDatabaseMessage();

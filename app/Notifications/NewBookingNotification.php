@@ -61,7 +61,7 @@ class NewBookingNotification extends Notification
             ->line('Start Date: ' . $this->rental->start_date?->format('d M Y'))
             ->line('End Date: ' . $this->rental->end_date?->format('d M Y'))
             ->line('Total: Rp ' . number_format($this->rental->total, 0, ',', '.'))
-            ->action('View Rental', url("/admin/rentals/{$this->rental->id}"))
+            ->action('View Rental', url("/admin/rentals/{$this->rental->id}/view"))
             ->line('Please review and process this order.');
     }
 
@@ -81,7 +81,7 @@ class NewBookingNotification extends Notification
             ->actions([
                 \Filament\Actions\Action::make('view')
                     ->button()
-                    ->url("/admin/rentals/{$this->rental->id}")
+                    ->url("/admin/rentals/{$this->rental->id}/view")
                     ->markAsRead(),
             ])
             ->getDatabaseMessage();

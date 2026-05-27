@@ -13,6 +13,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Grid;
 use Filament\Pages\Page;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\View;
 use UnitEnum;
 use Livewire\WithPagination;
 use Illuminate\Contracts\Pagination\Paginator;
@@ -42,6 +43,9 @@ class Schedule extends Page implements HasActions
     public ?string $search = '';
     public int $perPage = 15;
 
+    /** Date (Y-m-d) yang sedang ditampilkan di modal reminder, atau null. */
+    public ?string $reminderDate = null;
+
     protected $queryString = [
         'filter' => ['except' => 'order'],
         'view_mode' => ['except' => 'month'],
@@ -55,6 +59,59 @@ class Schedule extends Page implements HasActions
         if (empty($this->anchor)) {
             $this->anchor = now()->toDateString();
         }
+
+        $reminderParam = request()->query('reminder');
+        if (is_string($reminderParam) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $reminderParam)) {
+            $this->reminderDate = $reminderParam;
+            $this->anchor = $reminderParam;
+            $this->mountAction('reminder_summary');
+        }
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('reminder_summary')
+                ->label('Reminder besok')
+                ->icon('heroicon-o-bell-alert')
+                ->color('warning')
+                ->modalHeading(fn () => 'Pickup & Return — ' . Carbon::parse($this->reminderDate ?? now()->addDay()->toDateString())->translatedFormat('l, d F Y'))
+                ->modalDescription('Daftar rental yang harus pickup atau return pada tanggal tersebut.')
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Tutup')
+                ->modalContent(fn () => view('filament.pages.schedule.reminder-summary', [
+                    'pickups' => $this->getReminderPickups(),
+                    'returns' => $this->getReminderReturns(),
+                ])),
+        ];
+    }
+
+    public function getReminderPickups()
+    {
+        $date = $this->reminderDate ?: now()->addDay()->toDateString();
+        return Rental::with('customer:id,name')
+            ->whereIn('status', [
+                Rental::STATUS_QUOTATION,
+                Rental::STATUS_CONFIRMED,
+                Rental::STATUS_LATE_PICKUP,
+            ])
+            ->whereDate('start_date', $date)
+            ->orderBy('start_date')
+            ->get();
+    }
+
+    public function getReminderReturns()
+    {
+        $date = $this->reminderDate ?: now()->addDay()->toDateString();
+        return Rental::with('customer:id,name')
+            ->whereIn('status', [
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_PARTIAL_RETURN,
+                Rental::STATUS_LATE_RETURN,
+            ])
+            ->whereDate('end_date', $date)
+            ->orderBy('end_date')
+            ->get();
     }
 
     public function setFilter(string $filter): void

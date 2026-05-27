@@ -46,7 +46,7 @@ class NewCustomerNotification extends Notification
             ->line('Name: ' . $this->customer->name)
             ->line('Email: ' . $this->customer->email)
             ->line('Phone: ' . ($this->customer->phone ?? '-'))
-            ->action('View Customer', url("/admin/users/{$this->customer->id}"))
+            ->action('View Customer', url("/admin/customers/{$this->customer->id}/edit"))
             ->line('Please verify their documents if required.');
     }
 
@@ -60,7 +60,7 @@ class NewCustomerNotification extends Notification
             ->actions([
                 \Filament\Actions\Action::make('view')
                     ->button()
-                    ->url("/admin/users/{$this->customer->id}")
+                    ->url("/admin/customers/{$this->customer->id}/edit")
                     ->markAsRead(),
             ])
             ->getDatabaseMessage();

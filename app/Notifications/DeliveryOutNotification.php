@@ -50,7 +50,7 @@ class DeliveryOutNotification extends Notification
             ->line('Rental Code: ' . ($rental?->rental_code ?? '-'))
             ->line('Customer: ' . $customerName)
             ->line('Date: ' . $this->delivery->date?->format('d M Y'))
-            ->action('View Delivery', url("/admin/deliveries/{$this->delivery->id}"));
+            ->action('View Delivery', url("/admin/deliveries/{$this->delivery->id}/edit"));
     }
 
     public function toDatabase(object $notifiable): array
@@ -65,7 +65,7 @@ class DeliveryOutNotification extends Notification
             ->actions([
                 \Filament\Actions\Action::make('view')
                     ->button()
-                    ->url("/admin/deliveries/{$this->delivery->id}")
+                    ->url("/admin/deliveries/{$this->delivery->id}/edit")
                     ->markAsRead(),
             ])
             ->getDatabaseMessage();

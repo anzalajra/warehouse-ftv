@@ -58,7 +58,7 @@ class RentalCompletedNotification extends Notification
                 ->line('Rental Code: ' . $this->rental->rental_code)
                 ->line('Customer: ' . ($this->rental->user?->name ?? 'Unknown'))
                 ->line('Total: Rp ' . number_format($this->rental->total, 0, ',', '.'))
-                ->action('View Rental', url("/admin/rentals/{$this->rental->id}"));
+                ->action('View Rental', url("/admin/rentals/{$this->rental->id}/view"));
         }
         
         return (new MailMessage)
@@ -75,7 +75,7 @@ class RentalCompletedNotification extends Notification
     public function toDatabase(object $notifiable): array
     {
         $isAdmin = $notifiable instanceof User && $notifiable->hasAnyRole(['super_admin', 'admin', 'staff']);
-        $url = $isAdmin ? "/admin/rentals/{$this->rental->id}" : "/customer/rentals/{$this->rental->id}";
+        $url = $isAdmin ? "/admin/rentals/{$this->rental->id}/view" : "/customer/rentals/{$this->rental->id}";
         
         return FilamentNotification::make()
             ->title('Rental Completed')

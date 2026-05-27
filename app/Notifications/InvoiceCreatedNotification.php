@@ -49,7 +49,7 @@ class InvoiceCreatedNotification extends Notification
             ->line('Customer: ' . $customerName)
             ->line('Total: Rp ' . number_format($this->invoice->total, 0, ',', '.'))
             ->line('Due Date: ' . $this->invoice->due_date?->format('d M Y'))
-            ->action('View Invoice', url("/admin/invoices/{$this->invoice->id}"));
+            ->action('View Invoice', url("/admin/invoices/{$this->invoice->id}/edit"));
     }
 
     public function toDatabase(object $notifiable): array
@@ -64,7 +64,7 @@ class InvoiceCreatedNotification extends Notification
             ->actions([
                 \Filament\Actions\Action::make('view')
                     ->button()
-                    ->url("/admin/invoices/{$this->invoice->id}")
+                    ->url("/admin/invoices/{$this->invoice->id}/edit")
                     ->markAsRead(),
             ])
             ->getDatabaseMessage();
