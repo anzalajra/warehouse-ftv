@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\TaxService;
 use App\Notifications\BookingConfirmedNotification;
 use App\Notifications\NewBookingNotification;
+use App\Notifications\RentalCompletedNotification;
 use Illuminate\Support\Facades\Notification;
 
 class RentalObserver
@@ -17,7 +18,7 @@ class RentalObserver
         $this->recalculateTotals($rental);
 
         // Notify Admins
-        $admins = User::role(['super_admin', 'admin'])->get();
+        $admins = User::role(['super_admin', 'admin', 'staff'])->get();
         Notification::send($admins, new NewBookingNotification($rental));
     }
 
@@ -25,12 +26,38 @@ class RentalObserver
     {
         $this->recalculateTotals($rental);
 
-        // Notify Customer if status changed to confirmed
-        if ($rental->isDirty('status') && $rental->status === 'confirmed') {
-            if ($rental->customer) {
+        if ($rental->isDirty('status')) {
+            // Notify Customer if status changed to confirmed
+            if ($rental->status === Rental::STATUS_CONFIRMED && $rental->customer) {
                 $rental->customer->notify(new BookingConfirmedNotification($rental));
             }
+
+            // Notify admins + customer when rental is completed
+            if ($rental->status === Rental::STATUS_COMPLETED) {
+                $admins = User::role(['super_admin', 'admin', 'staff'])->get();
+                Notification::send($admins, new RentalCompletedNotification($rental));
+
+                if ($rental->user) {
+                    $rental->user->notify(new RentalCompletedNotification($rental));
+                }
+            }
         }
+    }
+
+    public function saved(Rental $rental): void
+    {
+        $rental->refreshUnitStatuses();
+    }
+
+    public function deleting(Rental $rental): void
+    {
+        $units = $rental->items->map(fn ($item) => $item->productUnit)->filter();
+
+        Rental::deleted(function () use ($units) {
+            foreach ($units as $unit) {
+                $unit->refreshStatus();
+            }
+        });
     }
 
     protected function recalculateTotals(Rental $rental): void

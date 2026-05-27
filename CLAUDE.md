@@ -63,6 +63,31 @@ Everything revolves around the `Rental` model and its lifecycle: `quotation` →
 - `app/Http/Controllers/CheckoutController.php` (customer flow) and `app/Filament/Resources/Rentals/**` (admin flow) are the two entry points that create rentals; both must stay in sync on validation rules.
 - `CatalogController::checkAvailability` powers live unit availability on the storefront — changes to availability logic must be mirrored in both the frontend calendar and this endpoint.
 
+### Rental editor (Create / Edit) — custom Livewire, NOT Filament default
+
+`/admin/rentals/create` dan `/admin/rentals/{id}/edit` **tidak memakai Filament form builder** seperti resource lain. Keduanya merender view `filament.rentals.editor` (Blade `resources/views/filament/rentals/editor.blade.php`) yang membungkus satu komponen Livewire: [`App\Livewire\Admin\RentalEditor`](app/Livewire/Admin/RentalEditor.php) dengan view [`resources/views/livewire/admin/rental-editor.blade.php`](resources/views/livewire/admin/rental-editor.blade.php) (~2000 baris, custom UI desktop + mobile).
+
+- `CreateRental` page passes `record = null`; `EditRental` page passes existing `Rental` model. Komponen Livewire pakai `!$record || !$record->exists` untuk membedakan mode (tombol "Create Rental" / "Buat Rental" vs "Save Changes" / "Simpan"). Logika save: `Rental::create()` saat baru, `fill() + saveQuietly()` saat update.
+- Items disimpan di array `$items` Livewire (state in-memory), **grouped per product-variation** (bukan 1 RentalItem = 1 baris UI). Setiap row punya `composite_id` (`{product_id}` atau `{product_id}:{variation_id}`), `quantity`, dan `unit_ids[]` (array serial unit IDs). DB-level `RentalItem` tetap satu-per-unit; mapping antara state Livewire ↔ DB ada di `RentalForm::syncRentalItems()` dan `RentalForm::groupItemsForForm()`.
+- **`ItemsRelationManager` masih ada di codebase tapi TIDAK dirender** di halaman edit baru ini. Pengelolaan item sepenuhnya lewat Livewire editor. Jangan tambah action di RelationManager untuk fitur baru — tambahkan di `RentalEditor` + blade view.
+- **Stock-aware tapi tidak menghalangi**: catalog popup (modal desktop + sheet mobile) tetap mengizinkan add saat stok 0 atau kurang dari qty diminta — row dibuat dengan slot `unit_ids` parsial / kosong, badge kuning "+N kosong" muncul di UI, dan user diarahkan ke fitur Transfer (lihat di bawah). Tombol `+` di catalog tidak pernah disabled.
+- **Catalog desktop modal sinkron 2-arah**: tiap card produk menampilkan stepper `[− N +]` bila produk sudah ada di tabel, atau tombol `+` saja jika belum. Map qty dibangun dari `$items` tiap render sehingga catalog selalu cerminkan tabel rental. `decrementByComposite()` menghapus row saat qty turun ke 0.
+
+### Cross-rental unit Move / Swap
+
+Fitur untuk memindahkan / menukar `RentalItem` antar rental yang berbeda — solusi untuk kasus konflik booking: unit X sudah ter-booking di Rental A, lalu Rental B juga butuh unit X di periode overlap. Daripada "menolak karena stok 0", admin bisa MOVE unit dari A ke B, atau SWAP (X di A ↔ Y di B).
+
+- [`app/Services/RentalItemTransferService.php`](app/Services/RentalItemTransferService.php) — service inti dengan dua method publik: `move(RentalItem $sourceItem, Rental $targetRental)` dan `swap(RentalItem $itemA, RentalItem $itemB)`. Semua operasi dalam DB transaction.
+- **Guard status**: kedua sisi rental harus berstatus `QUOTATION`, `CONFIRMED`, atau `LATE_PICKUP`. Status `ACTIVE`/`LATE_RETURN`/`PARTIAL_RETURN`/`COMPLETED`/`CANCELLED` ditolak (lawan rental "belum dipickup" only). Konstanta `RentalItemTransferService::TRANSFERABLE_STATUSES`.
+- **Recalc total**: tidak dilakukan manual di service. `RentalItem::$touches = ['rental']` otomatis trigger `RentalObserver::updated` saat item disimpan — observer yang handle subtotal/discount/tax/total lengkap. Untuk rental SUMBER setelah MOVE (yang sudah tidak lagi ter-touch karena item pindah), service explicitly memanggil `$sourceRental->touch()`.
+- **Hooks otomatis**: `RentalItem::saved` hook auto-relink parent/child kit di rental tujuan saat MOVE; `RentalItem::updated` hook auto-delete old kits & attach new kits saat SWAP (karena `product_unit_id` berubah).
+- **Audit**: tidak ada activity log package. Service append catatan ke kolom `notes` kedua rental via `updateQuietly()` (agar tidak re-trigger observer), format `[YYYY-MM-DD HH:mm] MOVE/SWAP ... oleh {email}`. Plus `Log::info('RentalItem MOVE/SWAP', [...])`.
+- **UI** di `RentalEditor`:
+  - Method publik: `openMoveModal($unitId)`, `openSwapModal($unitId)` (per-serial), `openTransferForRow($itemKey, $mode)` (per row group — auto-pick unit jika row hanya punya 1 serial).
+  - Sebelum modal dibuka, `beginTransfer()` **auto-save** editor state via `persistInline()` agar source RentalItem benar-benar ada di DB. Setelah `confirmTransfer()` sukses, `redirect()` ke URL edit yang sama untuk reload state.
+  - Tombol akses: (a) icon "transfer" (dua panah berputar) di row item desktop & mobile → dropdown "Move ke rental lain" / "Swap dengan rental lain"; (b) link kecil **Move · Swap** di tiap slot unit yang sudah ter-assign di Unit Modal. Hanya muncul kalau `canTransfer` true (rental berstatus eligible + record sudah exist).
+  - Modal transfer (di blade view) menampilkan: picker unit (kalau dibuka dari row dengan >1 unit), select rental tujuan (filtered ke status eligible), dan select unit lawan (mode swap saja).
+
 ### Calendar / schedule views
 
 There are **multiple** calendar surfaces — do not confuse them:
@@ -171,6 +196,8 @@ Posts, pages, navigation, tags are provided by the `lara-zeus/sky` plugin, regis
 
 - **`composer update` / `composer install` triggers `filament:upgrade`** (post-autoload-dump). If Filament ships a breaking change this will run during any dep install.
 - **Observers registered in `AppServiceProvider`** — easy to miss when tracing rental/finance side-effects.
+- **Rental editor is NOT a Filament form** — Create/Edit rental render Livewire `App\Livewire\Admin\RentalEditor` via custom Blade view. `ItemsRelationManager` exists but is unrendered. New rental UI features go in the Livewire component + its Blade, not in Filament forms/relation managers.
+- **Don't manually recalc rental totals after touching `RentalItem`** — `RentalItem::$touches = ['rental']` already triggers `RentalObserver::updated` which does full subtotal/discount/tax/total recalc (with `updateQuietly`). Manual `$rental->save()` after item changes will double-process and may overwrite the correct numbers. For the source rental in a cross-rental MOVE (where the item is no longer touching it), use `$rental->touch()` explicitly.
 - **The `$isInstalled` gate wraps the entire routes file** in one big `if/else` — adding routes means putting them inside the `else` branch.
 - **Duplicate stubs for debugging** live in the repo root (`check_classes_v2.php`, `check_finance_data.php`, `check_schema.php`, `debug_serial.php`, `test_decode.php`). These are throwaway scripts, not part of the app — don't import from them.
 - **`layouts/guest.blade.php` is dual-mode**: it renders both `{{ $slot ?? '' }}` (component-style, e.g. `<x-guest-layout>` from `auth/*.blade.php`) AND `@yield('content')` (extends-style, used by `frontend/computers/mobile-kiosk-register*.blade.php`). Don't "clean it up" to one or the other without checking both consumer styles.

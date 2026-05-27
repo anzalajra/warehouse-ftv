@@ -36,7 +36,7 @@ class SendRentalReminders extends Command
 
         // 1. Pickup Reminder (H-1)
         // Check rentals starting tomorrow
-        $pickupRentals = Rental::where('status', Rental::STATUS_QUOTATION)
+        $pickupRentals = Rental::whereIn('status', [Rental::STATUS_QUOTATION, Rental::STATUS_CONFIRMED])
             ->whereDate('start_date', now()->addDay()->toDateString())
             ->get();
 
@@ -47,9 +47,9 @@ class SendRentalReminders extends Command
             }
         }
 
-        // 2. Return Reminder (H-1)
-        $returnRentals = Rental::whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_PICKUP])
-            ->whereDate('end_date', now()->addDay()->toDateString())
+        // 2. Return Reminder (H-1 atau sudah terlewat)
+        $returnRentals = Rental::whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN])
+            ->whereDate('end_date', '<=', now()->addDay()->toDateString())
             ->get();
 
         foreach ($returnRentals as $rental) {

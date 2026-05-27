@@ -80,48 +80,6 @@ class Rental extends Model
     public const STATUS_LATE_RETURN = 'late_return';
     public const STATUS_PARTIAL_RETURN = 'partial_return';
 
-    protected static function booted()
-    {
-        static::created(function ($rental) {
-            // Admin Notification - only send to users with admin/super_admin roles
-            $admins = \App\Models\User::role(['super_admin', 'admin', 'staff'])->get();
-            \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\NewBookingNotification($rental));
-
-            // Customer Notification
-            if ($rental->customer) {
-                $rental->customer->notify(new \App\Notifications\BookingConfirmedNotification($rental));
-            }
-        });
-
-        static::updated(function ($rental) {
-            // Notify when rental is completed
-            if ($rental->isDirty('status') && $rental->status === self::STATUS_COMPLETED) {
-                // Notify admins
-                $admins = \App\Models\User::role(['super_admin', 'admin', 'staff'])->get();
-                \Illuminate\Support\Facades\Notification::send($admins, new \App\Notifications\RentalCompletedNotification($rental));
-
-                // Notify customer
-                if ($rental->user) {
-                    $rental->user->notify(new \App\Notifications\RentalCompletedNotification($rental));
-                }
-            }
-        });
-
-        static::saved(function ($rental) {
-            $rental->refreshUnitStatuses();
-        });
-
-        static::deleting(function ($rental) {
-            $units = $rental->items->map(fn($item) => $item->productUnit)->filter();
-            
-            static::deleted(function () use ($units) {
-                foreach ($units as $unit) {
-                    $unit->refreshStatus();
-                }
-            });
-        });
-    }
-
     protected static function boot()
     {
         parent::boot();
