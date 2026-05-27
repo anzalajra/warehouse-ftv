@@ -336,9 +336,10 @@ class RentalEditor extends Component
     protected function productOptions(?string $needle = null, ?int $limit = null): array
     {
         $q = Product::query()
-            ->with(['variations:id,product_id,name,daily_rate', 'category:id,name'])
+            ->with(['variations:id,product_id,name,daily_rate', 'category:id,name,slug'])
             ->select(['id', 'name', 'category_id', 'daily_rate', 'image', 'is_active'])
             ->where('is_active', true)
+            ->whereDoesntHave('category', fn ($c) => $c->where('slug', 'accessories-kits'))
             ->orderBy('name');
 
         if ($needle) {
