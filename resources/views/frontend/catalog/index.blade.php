@@ -255,7 +255,7 @@
                         </div>
                         <div class="p-4 border-t border-gray-100 flex-1 flex flex-col"
                              :class="view === 'list' ? 'sm:border-t-0 sm:border-l' : ''">
-                            <p class="text-xs text-primary-600 mb-1">{{ $product->category->name }}@if($product->brand) · {{ $product->brand->name }}@endif</p>
+                            <p class="text-xs text-primary-600 mb-1">{{ $product->category?->name ?? 'Uncategorized' }}@if($product->brand) · {{ $product->brand->name }}@endif</p>
                             <h3 class="font-semibold mb-2">{{ $product->name }}</h3>
                             @if($product->tags->isNotEmpty())
                                 <div class="flex flex-wrap gap-1 mb-2">

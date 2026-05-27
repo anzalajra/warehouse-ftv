@@ -84,7 +84,7 @@ class ProductForm
                                 Select::make('category_id')
                                     ->label('Category')
                                     ->options(Category::where('is_active', true)->pluck('name', 'id'))
-                                    ->required()
+                                    ->placeholder('Uncategorized')
                                     ->searchable()
                                     ->createOptionForm([
                                         TextInput::make('name')

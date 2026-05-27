@@ -22,7 +22,10 @@ class CatalogController extends Controller
         $query = Product::with(['category', 'units', 'tags', 'brand', 'variations'])
             ->where('is_active', true)
             ->visibleForCustomer(Auth::guard('customer')->user())
-            ->whereHas('category', fn ($q) => $q->where('slug', '!=', 'accessories-kits'));
+            ->where(function ($q) {
+                $q->whereNull('category_id')
+                  ->orWhereHas('category', fn ($cq) => $cq->where('slug', '!=', 'accessories-kits'));
+            });
 
         // Filter by date range availability
         if ($request->filled('start_date') && $request->filled('end_date')) {

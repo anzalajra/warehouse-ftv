@@ -63,7 +63,7 @@
 
         <!-- Product Info -->
         <div>
-            <span class="text-sm text-primary-600">{{ $product->category->name }}</span>
+            <span class="text-sm text-primary-600">{{ $product->category?->name ?? 'Uncategorized' }}</span>
             <h1 class="text-3xl font-bold mt-2 mb-4">{{ $product->name }}</h1>
 
             @if($product->tags->isNotEmpty())
