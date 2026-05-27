@@ -1233,7 +1233,7 @@
                     </div>
                 </div>
                 <div class="duration-row">
-                    <span>Durasi billing</span>
+                    <span>Total durasi rental</span>
                     <strong>{{ $days }} hari</strong>
                 </div>
             </div>
