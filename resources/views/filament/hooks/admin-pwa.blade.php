@@ -75,6 +75,20 @@
     </div>
 </div>
 
+<div id="wftv-enable-push-banner" role="dialog" aria-label="Enable notifications" style="position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:9999;max-width:92vw;width:380px;background:#fff;color:#0f172a;border-radius:16px;box-shadow:0 12px 32px rgba(0,0,0,0.18);padding:14px 16px;display:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;border:1px solid #e2e8f0;">
+    <div style="display:flex;align-items:center;gap:12px;">
+        <img src="{{ $iconUrl }}" alt="" style="width:44px;height:44px;border-radius:10px;flex-shrink:0;">
+        <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:14px;margin-bottom:2px;">Aktifkan Notifikasi</div>
+            <div style="font-size:12px;opacity:0.75;line-height:1.4;">Dapatkan notifikasi rental, booking, & alert langsung di HP.</div>
+        </div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+        <button type="button" id="wftv-push-skip" style="border:none;cursor:pointer;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:500;background:transparent;color:inherit;opacity:0.7;">Nanti</button>
+        <button type="button" id="wftv-push-enable" style="border:none;cursor:pointer;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:500;background:{{ $themeColor }};color:white;">Aktifkan</button>
+    </div>
+</div>
+
 <script>
 (function () {
     const PUBLIC_KEY = @json($publicKey);
@@ -92,15 +106,26 @@
         window.addEventListener('load', function () {
             navigator.serviceWorker.register('{{ url('/admin/sw.js') }}', { scope: '/admin' })
                 .then(function (reg) {
+                    if (window.wftvDebug) console.log('[WFTV] SW registered', reg.scope);
                     if (PUSH_ENABLED && PUBLIC_KEY) {
                         maybeSubscribePush(reg);
+                    } else if (window.wftvDebug) {
+                        console.warn('[WFTV] push skipped: enabled=' + PUSH_ENABLED + ' key=' + (!!PUBLIC_KEY));
                     }
                 })
                 .catch(function (err) {
                     console.warn('[Admin PWA] SW registration failed', err);
+                    if (window.wftvDebug) alert('SW gagal: ' + err.message);
                 });
         });
     }
+
+    // Enable verbose debug by appending ?wftvdebug=1 to URL once.
+    if (location.search.indexOf('wftvdebug=1') >= 0) {
+        window.wftvDebug = true;
+        try { localStorage.setItem('wftvDebug', '1'); } catch (e) {}
+    }
+    try { if (localStorage.getItem('wftvDebug') === '1') window.wftvDebug = true; } catch (e) {}
 
     function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -111,13 +136,13 @@
         return output;
     }
 
+    // Auto-resubscribe an existing permission. Does NOT call requestPermission()
+    // because Safari/iOS rejects that call when it's not in a user-gesture handler.
     async function maybeSubscribePush(registration) {
         try {
             if (!('PushManager' in window)) return;
             if (Notification.permission === 'denied') return;
 
-            // Only auto-prompt when running as installed PWA, OR explicitly requested.
-            // First-time visitors in browser don't get a popup spam.
             const existing = await registration.pushManager.getSubscription();
             if (existing) {
                 await postSubscription(existing);
@@ -125,11 +150,15 @@
             }
 
             if (Notification.permission !== 'granted') {
-                if (!isStandalone()) return; // wait until they install
-                const perm = await Notification.requestPermission();
-                if (perm !== 'granted') return;
+                // Need user gesture -> show the "Enable Notifications" banner
+                // when running as installed PWA. In a regular browser tab we
+                // wait until install instead of spamming the prompt.
+                if (isStandalone()) showEnablePushBanner();
+                return;
             }
 
+            // Permission already granted (e.g. previous session) but no
+            // subscription yet -> subscribe silently.
             const sub = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(PUBLIC_KEY),
@@ -138,6 +167,68 @@
         } catch (e) {
             console.warn('[Admin PWA] Push subscribe failed', e);
         }
+    }
+
+    // MUST be called from a user-gesture handler (click/tap) for iOS Safari.
+    async function requestPushPermissionFromGesture() {
+        try {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+                alert('Browser ini tidak mendukung notifikasi push.');
+                return false;
+            }
+            const reg = await navigator.serviceWorker.ready;
+
+            const perm = await Notification.requestPermission();
+            if (perm !== 'granted') {
+                if (perm === 'denied') {
+                    alert('Izin notifikasi ditolak. Aktifkan manual di Settings > Notifications.');
+                }
+                return false;
+            }
+
+            const sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(PUBLIC_KEY),
+            });
+            await postSubscription(sub);
+            return true;
+        } catch (e) {
+            console.error('[Admin PWA] Enable push failed', e);
+            alert('Gagal mengaktifkan notifikasi: ' + (e && e.message ? e.message : e));
+            return false;
+        }
+    }
+
+    const PUSH_SKIP_KEY = 'wftv_push_skipped_at';
+    function pushRecentlySkipped() {
+        const ts = parseInt(localStorage.getItem(PUSH_SKIP_KEY) || '0', 10);
+        if (!ts) return false;
+        return (Date.now() - ts) / (1000 * 60 * 60 * 24) < 3; // 3 days
+    }
+
+    function showEnablePushBanner() {
+        if (pushRecentlySkipped()) return;
+        const el = document.getElementById('wftv-enable-push-banner');
+        if (!el) return;
+        el.style.display = 'block';
+
+        const enableBtn = document.getElementById('wftv-push-enable');
+        const skipBtn = document.getElementById('wftv-push-skip');
+        enableBtn.onclick = async () => {
+            enableBtn.disabled = true;
+            enableBtn.textContent = 'Memproses...';
+            const ok = await requestPushPermissionFromGesture();
+            el.style.display = 'none';
+            if (ok) {
+                alert('Notifikasi aktif! Test kirim dari admin desktop.');
+            } else {
+                localStorage.setItem(PUSH_SKIP_KEY, Date.now().toString());
+            }
+        };
+        skipBtn.onclick = () => {
+            localStorage.setItem(PUSH_SKIP_KEY, Date.now().toString());
+            el.style.display = 'none';
+        };
     }
 
     async function postSubscription(sub) {
@@ -156,20 +247,8 @@
         });
     }
 
-    window.wftvRequestPushPermission = async function () {
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            alert('Browser ini tidak mendukung notifikasi push.');
-            return;
-        }
-        const reg = await navigator.serviceWorker.ready;
-        const perm = await Notification.requestPermission();
-        if (perm !== 'granted') {
-            alert('Izin notifikasi ditolak. Aktifkan di pengaturan browser/aplikasi.');
-            return;
-        }
-        await maybeSubscribePush(reg);
-        alert('Notifikasi diaktifkan!');
-    };
+    // Public hook so other UI (e.g. a button in settings) can trigger the prompt.
+    window.wftvRequestPushPermission = requestPushPermissionFromGesture;
 
     // ---- Install banner ----
     const DISMISS_KEY = 'wftv_install_dismissed_at';
