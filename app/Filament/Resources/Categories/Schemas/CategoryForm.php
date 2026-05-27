@@ -6,6 +6,7 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use App\Models\Category;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Str;
 
@@ -19,14 +20,20 @@ class CategoryForm
                     ->required()
                     ->maxLength(255)
                     ->live(onBlur: true)
-                    ->afterStateUpdated(function (?string $state, callable $set) {
-                        $set('slug', Str::slug($state ?? ''));
+                    ->afterStateUpdated(function (?string $state, callable $set, $get, ?Category $record) {
+                        if (! empty($get('slug')) && $record?->slug === $get('slug')) {
+                            return;
+                        }
+                        $set('slug', self::generateUniqueSlug($state ?? '', $record?->getKey()));
                     }),
 
                 TextInput::make('slug')
                     ->required()
                     ->maxLength(255)
-                    ->unique(ignoreRecord: true),
+                    ->unique(ignoreRecord: true)
+                    ->dehydrateStateUsing(fn (?string $state, $record) => $state
+                        ? self::generateUniqueSlug($state, $record?->getKey())
+                        : $state),
 
                 Textarea::make('description')
                     ->rows(3)
@@ -46,5 +53,24 @@ class CategoryForm
                     ->default(true)
                     ->helperText('Hide this category from the public catalog sidebar.'),
             ]);
+    }
+
+    protected static function generateUniqueSlug(string $name, ?int $ignoreId = null): string
+    {
+        $base = Str::slug($name);
+        if ($base === '') {
+            return $base;
+        }
+
+        $slug = $base;
+        $i = 2;
+        while (Category::where('slug', $slug)
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->exists()
+        ) {
+            $slug = $base.'-'.$i++;
+        }
+
+        return $slug;
     }
 }
