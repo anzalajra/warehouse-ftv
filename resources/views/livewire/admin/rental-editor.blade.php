@@ -783,6 +783,7 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             white-space: nowrap; max-width: 90%;
         }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 
     {{-- Toast (Livewire-driven, applies to desktop only; mobile uses its own .mtoast) --}}
@@ -1698,6 +1699,14 @@
          CATALOG MODAL (shared) — desktop modal-style; mobile uses bottom sheet
          ============================================================ --}}
     @if($catalogOpen)
+        @php
+            $cartQtyMap = [];
+            foreach ($items as $__it) {
+                $cartQtyMap[$__it['composite_id']] = ($cartQtyMap[$__it['composite_id']] ?? 0) + (int) $__it['quantity'];
+            }
+        @endphp
+        <div x-data="catalogShared(@js($cartQtyMap))"
+             wire:key="catalog-shared-wrap">
         {{-- Mobile bottom sheet --}}
         <div class="mobile-view">
             <div class="sheet-backdrop" wire:click="$set('catalogOpen', false)"></div>
@@ -1728,7 +1737,8 @@
                     @foreach($this->catalogRows as $r)
                         @php $needle = strtolower(addslashes($r['name'])); @endphp
                         <div class="catalog-row {{ $r['avail'] === 0 ? 'out' : '' }}"
-                             wire:click="addFromSearch('{{ $r['composite_id'] }}')"
+                             wire:key="cat-mob-{{ $r['composite_id'] }}"
+                             @click.stop="add('{{ $r['composite_id'] }}')"
                              x-show="(cat === 'All' || cat === '{{ $r['cat'] }}') && (q === '' || '{{ $needle }}'.includes(q.toLowerCase()))">
                             <div class="thumb">
                                 @if(!empty($r['image']))
@@ -1740,19 +1750,23 @@
                             <div class="info">
                                 <div class="name">{{ $r['name'] }}</div>
                                 <div class="sub">
-                                    <span>{{ $r['avail'] }} stok</span>
+                                    <span x-text="localQty['{{ $r['composite_id'] }}'] ? localQty['{{ $r['composite_id'] }}'] + ' di cart' : '{{ $r['avail'] }} stok'"></span>
                                     <span style="color: var(--gray-300)">·</span>
                                     <span>Rp {{ number_format($r['price'], 0, ',', '.') }}/hari</span>
                                 </div>
                             </div>
-                            <button class="add-btn" @click.stop="$wire.addFromSearch('{{ $r['composite_id'] }}')" title="{{ $r['avail'] === 0 ? 'Stok habis — tetap bisa ditambah, lalu pakai Transfer untuk Move/Swap dari rental lain' : '' }}">
+                            <button class="add-btn" @click.stop="add('{{ $r['composite_id'] }}')" title="{{ $r['avail'] === 0 ? 'Stok habis — tetap bisa ditambah, lalu pakai Transfer untuk Move/Swap dari rental lain' : '' }}">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                             </button>
                         </div>
                     @endforeach
                 </div>
-                <div class="sheet-foot">
-                    <button class="sheet-done" wire:click="$set('catalogOpen', false)">Selesai</button>
+                <div class="sheet-foot" style="display:flex; align-items:center; gap:8px;">
+                    <span wire:loading wire:target="addProductsBatch,decrementByComposite" style="display:inline-flex; align-items:center; gap:6px; color: var(--fg-3); font-size:12px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        Sinkron…
+                    </span>
+                    <button class="sheet-done" wire:click="$set('catalogOpen', false)" style="margin-left:auto;">Selesai</button>
                 </div>
             </div>
         </div>
@@ -1778,19 +1792,12 @@
                                 <button type="button" :class="cat === '{{ $c }}' ? 'active' : ''" @click="cat = '{{ $c }}'">{{ $c }}</button>
                             @endforeach
                         </div>
-                        @php
-                            $cartQtyMap = [];
-                            foreach ($items as $__it) {
-                                $cartQtyMap[$__it['composite_id']] = ($cartQtyMap[$__it['composite_id']] ?? 0) + (int) $__it['quantity'];
-                            }
-                        @endphp
                         <div class="bulk-grid">
                             @foreach($this->catalogRows as $r)
-                                @php
-                                    $needle = strtolower(addslashes($r['name']));
-                                    $cartQty = (int) ($cartQtyMap[$r['composite_id']] ?? 0);
-                                @endphp
-                                <div class="bulk-card {{ $cartQty > 0 ? 'in-cart' : '' }}"
+                                @php $needle = strtolower(addslashes($r['name'])); @endphp
+                                <div class="bulk-card"
+                                    wire:key="bulk-card-{{ $r['composite_id'] }}"
+                                    :class="(localQty['{{ $r['composite_id'] }}'] || 0) > 0 ? 'in-cart' : ''"
                                     x-show="(cat === 'All' || cat === '{{ $r['cat'] }}') && (q === '' || '{{ $needle }}'.includes(q.toLowerCase()))">
                                     <div class="thumb">
                                         @if(!empty($r['image']))
@@ -1803,35 +1810,43 @@
                                         <div class="name">{{ $r['name'] }}</div>
                                         <div class="sub">{{ $r['avail'] }} stok</div>
                                     </div>
-                                    @if($cartQty > 0)
-                                        <div class="bulk-stepper" wire:key="bulk-step-{{ $r['composite_id'] }}">
+                                    <template x-if="(localQty['{{ $r['composite_id'] }}'] || 0) > 0">
+                                        <div class="bulk-stepper">
                                             <button type="button" class="bulk-step-btn" title="Kurangi"
-                                                wire:click.stop="decrementByComposite('{{ $r['composite_id'] }}')">
+                                                @click.stop="dec('{{ $r['composite_id'] }}')">
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14"/></svg>
                                             </button>
-                                            <span class="bulk-step-qty">{{ $cartQty }}</span>
+                                            <span class="bulk-step-qty" x-text="localQty['{{ $r['composite_id'] }}'] || 0"></span>
                                             <button type="button" class="bulk-step-btn" title="Tambah"
-                                                wire:click.stop="addFromSearch('{{ $r['composite_id'] }}')">
+                                                @click.stop="add('{{ $r['composite_id'] }}')">
                                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                                             </button>
                                         </div>
-                                    @else
+                                    </template>
+                                    <template x-if="!((localQty['{{ $r['composite_id'] }}'] || 0) > 0)">
                                         <button type="button" class="bulk-add-btn" title="Tambahkan"
-                                            wire:click.stop="addFromSearch('{{ $r['composite_id'] }}')">
+                                            @click.stop="add('{{ $r['composite_id'] }}')">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                                         </button>
-                                    @endif
+                                    </template>
                                 </div>
                             @endforeach
                         </div>
                     </div>
                     <div class="modal-foot">
-                        <span style="color: var(--fg-3); font-size:13px;">Klik produk untuk menambahkan ke rental</span>
+                        <span style="color: var(--fg-3); font-size:13px;">
+                            <span wire:loading.remove wire:target="addProductsBatch,decrementByComposite">Klik produk untuk menambahkan ke rental</span>
+                            <span wire:loading wire:target="addProductsBatch,decrementByComposite" style="display:inline-flex; align-items:center; gap:6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                                Menyinkronkan…
+                            </span>
+                        </span>
                         <button class="btn btn-secondary" wire:click="$set('catalogOpen', false)">Tutup</button>
                     </div>
                 </div>
             </div>
         </div>
+        </div>{{-- /catalogShared wrapper --}}
     @endif
 
     {{-- ============================================================
@@ -2230,6 +2245,48 @@
                     @this.call('reorder', order);
                 });
                 root.addEventListener('drop', (e) => { e.preventDefault(); });
+            },
+        };
+    }
+
+    // Optimistic-UI store for the catalog popup. localQty mirrors the server-side
+    // cart map but updates immediately on click so the user sees feedback while the
+    // Livewire round-trip is in flight. The server response (which re-renders the
+    // blade with a fresh seed) takes over on the next sync — see Alpine.morph rules.
+    function catalogShared(seed) {
+        return {
+            localQty: Object.assign({}, seed || {}),
+            // Coalesce rapid clicks into a single Livewire call per composite_id to
+            // avoid the editor recomputing avail map N times in a row.
+            _pendingAdd: {},
+            _flushTimer: null,
+            add(compositeId) {
+                this.localQty[compositeId] = (this.localQty[compositeId] || 0) + 1;
+                this._pendingAdd[compositeId] = (this._pendingAdd[compositeId] || 0) + 1;
+                this._scheduleFlush();
+            },
+            dec(compositeId) {
+                const cur = this.localQty[compositeId] || 0;
+                if (cur <= 0) return;
+                this.localQty[compositeId] = cur - 1;
+                // Decrement is server-authoritative (no batching) so unit_ids stays consistent.
+                this._flushPending();
+                @this.call('decrementByComposite', compositeId);
+            },
+            _scheduleFlush() {
+                if (this._flushTimer) clearTimeout(this._flushTimer);
+                this._flushTimer = setTimeout(() => this._flushPending(), 120);
+            },
+            _flushPending() {
+                if (this._flushTimer) { clearTimeout(this._flushTimer); this._flushTimer = null; }
+                const pending = this._pendingAdd;
+                this._pendingAdd = {};
+                const batch = [];
+                for (const cid in pending) {
+                    batch.push({ id: cid, qty: pending[cid] });
+                }
+                if (batch.length === 0) return;
+                @this.call('addProductsBatch', batch);
             },
         };
     }

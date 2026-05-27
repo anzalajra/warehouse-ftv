@@ -72,6 +72,29 @@ class RentalEditor extends Component
         'qr-scanned' => 'handleScanned',
     ];
 
+    // Per-request caches — cleared in updated() when dates/items change
+    protected ?array $availMapCache = null;
+    protected ?array $catalogRowsCache = null;
+    protected ?array $bookedUnitIdsCache = null;
+
+    public function updatedStartDate(): void
+    {
+        $this->invalidateAvailabilityCaches();
+    }
+
+    public function updatedEndDate(): void
+    {
+        $this->invalidateAvailabilityCaches();
+    }
+
+    protected function invalidateAvailabilityCaches(): void
+    {
+        $this->availMapCache = null;
+        $this->catalogRowsCache = null;
+        $this->bookedUnitIdsCache = null;
+        unset($this->catalogRows, $this->catalogCategories, $this->searchResults);
+    }
+
     public function mount(?Rental $record = null): void
     {
         if ($record && $record->exists) {
@@ -335,27 +358,7 @@ class RentalEditor extends Component
      */
     protected function productOptions(?string $needle = null, ?int $limit = null): array
     {
-        $q = Product::query()
-            ->with(['variations:id,product_id,name,daily_rate', 'category:id,name,slug'])
-            ->select(['id', 'name', 'category_id', 'daily_rate', 'image', 'is_active'])
-            ->where('is_active', true)
-            ->whereDoesntHave('category', fn ($c) => $c->where('slug', 'accessories-kits'))
-            ->orderBy('name');
-
-        if ($needle) {
-            $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $needle).'%';
-            $q->where(function ($qq) use ($like) {
-                $qq->where('name', 'like', $like)
-                    ->orWhereHas('variations', fn ($v) => $v->where('name', 'like', $like))
-                    ->orWhereHas('category', fn ($c) => $c->where('name', 'like', $like));
-            });
-        }
-
-        if ($limit !== null) {
-            $q->limit($limit);
-        }
-
-        $products = $q->get();
+        $products = $this->loadProductsForCatalog($needle, $limit);
         $availMap = $this->availableCountMap();
 
         $rows = [];
@@ -396,42 +399,177 @@ class RentalEditor extends Component
 
     /**
      * Batch-compute available unit counts keyed by "{product_id}:{variation_id|0}".
-     * One query for all products instead of N queries (one per row).
+     * Cached per-request; invalidated when dates/items change.
+     * SQL-side aggregation (GROUP BY) avoids hydrating every ProductUnit row.
      */
     protected function availableCountMap(): array
     {
-        $excludeId = $this->record?->id;
-        $units = RentalForm::getAvailableUnitsOptimized(
-            $this->start_date,
-            $this->end_date,
-            $excludeId,
-            null,
-            null,
-            $this->allUsedUnitIds()
-        );
+        $cacheKey = md5(implode('|', [
+            $this->start_date ?? '',
+            $this->end_date ?? '',
+            implode(',', $this->allUsedUnitIds()),
+        ]));
 
-        $map = [];
-        foreach ($units as $u) {
-            $key = $u->product_id.':'.($u->product_variation_id ?? 0);
-            $map[$key] = ($map[$key] ?? 0) + 1;
+        if ($this->availMapCache !== null && ($this->availMapCache['_key'] ?? null) === $cacheKey) {
+            return $this->availMapCache['data'];
         }
 
+        $excludeId = $this->record?->id;
+        $bookedIds = $this->getBookedUnitIdsCached();
+        $allExcluded = array_values(array_unique(array_merge($bookedIds, $this->allUsedUnitIds())));
+
+        $rows = ProductUnit::query()
+            ->selectRaw('product_id, COALESCE(product_variation_id, 0) as vid, COUNT(*) as c')
+            ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
+            ->whereNotIn('condition', ['broken', 'lost'])
+            ->when(!empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
+            ->groupBy('product_id', 'vid')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $r) {
+            $map["{$r->product_id}:{$r->vid}"] = (int) $r->c;
+        }
+
+        $this->availMapCache = ['_key' => $cacheKey, 'data' => $map];
         return $map;
+    }
+
+    /**
+     * Cache booked unit IDs for the current date range — reused by availableCountMap
+     * and addProduct() within the same request.
+     */
+    protected function getBookedUnitIdsCached(): array
+    {
+        $cacheKey = ($this->start_date ?? '') . '|' . ($this->end_date ?? '') . '|' . ($this->record?->id ?? '');
+        if ($this->bookedUnitIdsCache !== null && ($this->bookedUnitIdsCache['_key'] ?? null) === $cacheKey) {
+            return $this->bookedUnitIdsCache['data'];
+        }
+        $ids = \Illuminate\Support\Facades\Cache::remember(
+            'booked_units:' . $cacheKey,
+            5, // 5 seconds — short TTL since this changes when any rental is saved
+            fn () => $this->callPrivateGetBookedUnitIds()
+        );
+        $this->bookedUnitIdsCache = ['_key' => $cacheKey, 'data' => $ids];
+        return $ids;
+    }
+
+    protected function callPrivateGetBookedUnitIds(): array
+    {
+        // RentalForm::getBookedUnitIds is private — replicate the logic here so
+        // we can cache. Kept in sync with that method.
+        if (!$this->start_date || !$this->end_date) return [];
+
+        $activeStatuses = [
+            Rental::STATUS_QUOTATION,
+            Rental::STATUS_CONFIRMED,
+            Rental::STATUS_ACTIVE,
+            Rental::STATUS_LATE_PICKUP,
+            Rental::STATUS_LATE_RETURN,
+        ];
+
+        $excludeRentalId = $this->record?->id;
+
+        $directlyBooked = RentalItem::query()
+            ->when($excludeRentalId, fn ($q) => $q->where('rental_id', '!=', $excludeRentalId))
+            ->whereHas('rental', function ($query) use ($activeStatuses) {
+                $query->whereIn('status', $activeStatuses)
+                    ->where('start_date', '<', $this->end_date)
+                    ->where('end_date', '>', $this->start_date);
+            })
+            ->pluck('product_unit_id')
+            ->filter()
+            ->toArray();
+
+        if (empty($directlyBooked)) {
+            return [];
+        }
+
+        $componentBooked = \App\Models\UnitKit::whereNotNull('linked_unit_id')
+            ->whereIn('unit_id', function ($query) use ($directlyBooked) {
+                $query->select('unit_id')
+                    ->from('unit_kits')
+                    ->whereIn('unit_id', $directlyBooked);
+            })
+            ->pluck('linked_unit_id')
+            ->toArray();
+
+        $bundleBooked = \App\Models\UnitKit::whereNotNull('linked_unit_id')
+            ->whereIn('linked_unit_id', $directlyBooked)
+            ->pluck('unit_id')
+            ->toArray();
+
+        return array_values(array_unique(array_merge($directlyBooked, $componentBooked, $bundleBooked)));
+    }
+
+    /**
+     * Heavy product list query — cached per-request so re-renders don't repeat it.
+     * For unfiltered/unlimited catalog, also cached in laravel cache for 60s (shared across users).
+     */
+    protected ?array $productsLoadCache = null;
+    protected function loadProductsForCatalog(?string $needle, ?int $limit)
+    {
+        $isUnfilteredFull = ($needle === null && $limit === null);
+        $cacheKey = 'cat_products|' . ($needle ?? '') . '|' . ($limit ?? 'all');
+
+        if ($this->productsLoadCache !== null && isset($this->productsLoadCache[$cacheKey])) {
+            return $this->productsLoadCache[$cacheKey];
+        }
+
+        $loader = function () use ($needle, $limit) {
+            $q = Product::query()
+                ->with(['variations:id,product_id,name,daily_rate', 'category:id,name,slug'])
+                ->select(['id', 'name', 'category_id', 'daily_rate', 'image', 'is_active'])
+                ->where('is_active', true)
+                ->whereDoesntHave('category', fn ($c) => $c->where('slug', 'accessories-kits'))
+                ->orderBy('name');
+
+            if ($needle) {
+                $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $needle).'%';
+                $q->where(function ($qq) use ($like) {
+                    $qq->where('name', 'like', $like)
+                        ->orWhereHas('variations', fn ($v) => $v->where('name', 'like', $like))
+                        ->orWhereHas('category', fn ($c) => $c->where('name', 'like', $like));
+                });
+            }
+            if ($limit !== null) {
+                $q->limit($limit);
+            }
+            return $q->get();
+        };
+
+        // Only cache the unfiltered full list across requests; search results vary too much.
+        $products = $isUnfilteredFull
+            ? \Illuminate\Support\Facades\Cache::remember('catalog_products_full_v1', 60, $loader)
+            : $loader();
+
+        $this->productsLoadCache[$cacheKey] = $products;
+        return $products;
     }
 
     protected function availableCount(int $productId, ?int $variationId): int
     {
-        $excludeId = $this->record?->id;
-        $units = RentalForm::getAvailableUnitsOptimized(
-            $this->start_date,
-            $this->end_date,
-            $excludeId,
-            $productId,
-            $variationId,
-            $this->allUsedUnitIds()
-        );
+        return $this->fetchAvailableUnitsCached($productId, $variationId)->count();
+    }
 
-        return $units->count();
+    /**
+     * Returns Collection of available units for a product+variation, using the cached
+     * booked-units list. Much cheaper than calling RentalForm::getAvailableUnitsOptimized
+     * repeatedly (which always re-runs the 3 booked-id sub-queries).
+     */
+    protected function fetchAvailableUnitsCached(int $productId, ?int $variationId)
+    {
+        $bookedIds = $this->getBookedUnitIdsCached();
+        $allExcluded = array_values(array_unique(array_merge($bookedIds, $this->allUsedUnitIds())));
+
+        return ProductUnit::query()
+            ->select('id', 'serial_number', 'product_id', 'product_variation_id', 'status')
+            ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
+            ->whereNotIn('condition', ['broken', 'lost'])
+            ->where('product_id', $productId)
+            ->when($variationId, fn ($q) => $q->where('product_variation_id', $variationId))
+            ->when(!empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
+            ->get();
     }
 
     protected function allUsedUnitIds(?string $exceptKey = null): array
@@ -451,7 +589,14 @@ class RentalEditor extends Component
     #[Computed]
     public function catalogRows(): array
     {
-        return $this->productOptions(null, null);
+        // Cache key includes used unit ids so avail counts refresh after add/remove.
+        $cacheKey = md5(($this->start_date ?? '') . '|' . ($this->end_date ?? '') . '|' . ($this->record?->id ?? '') . '|' . implode(',', $this->allUsedUnitIds()));
+        if ($this->catalogRowsCache !== null && ($this->catalogRowsCache['_key'] ?? null) === $cacheKey) {
+            return $this->catalogRowsCache['data'];
+        }
+        $rows = $this->productOptions(null, null);
+        $this->catalogRowsCache = ['_key' => $cacheKey, 'data' => $rows];
+        return $rows;
     }
 
     #[Computed]
@@ -481,15 +626,7 @@ class RentalEditor extends Component
             : $product->name;
         $dailyRate = (float) ($product->daily_rate ?? 0);
 
-        $excludeId = $this->record?->id;
-        $available = RentalForm::getAvailableUnitsOptimized(
-            $this->start_date,
-            $this->end_date,
-            $excludeId,
-            $productId,
-            $variationId,
-            $this->allUsedUnitIds()
-        );
+        $available = $this->fetchAvailableUnitsCached($productId, $variationId);
 
         $availCount = $available->count();
         $newUnitIds = $available->take(min($qty, $availCount))->pluck('id')->all();
@@ -542,6 +679,22 @@ class RentalEditor extends Component
     public function addFromSearch(string $compositeId): void
     {
         $this->addProduct($compositeId, 1);
+        $this->searchTerm = '';
+    }
+
+    /**
+     * Add multiple products in one Livewire round-trip. Payload shape:
+     *   [{ "id": "<composite_id>", "qty": <int> }, ...]
+     * Used by the catalog popup's optimistic-UI batching layer (Alpine).
+     */
+    public function addProductsBatch(array $batch): void
+    {
+        foreach ($batch as $entry) {
+            $cid = (string) ($entry['id'] ?? '');
+            $qty = max(1, (int) ($entry['qty'] ?? 1));
+            if ($cid === '') continue;
+            $this->addProduct($cid, $qty);
+        }
         $this->searchTerm = '';
     }
 
@@ -610,15 +763,7 @@ class RentalEditor extends Component
                 }
                 if ($newQty > $oldQty) {
                     $needed = $newQty - $oldQty;
-                    $excludeId = $this->record?->id;
-                    $available = RentalForm::getAvailableUnitsOptimized(
-                        $this->start_date,
-                        $this->end_date,
-                        $excludeId,
-                        $it['product_id'],
-                        $it['variation_id'],
-                        $this->allUsedUnitIds()
-                    );
+                    $available = $this->fetchAvailableUnitsCached($it['product_id'], $it['variation_id']);
                     $availCount = $available->count();
                     $takeCount = min($needed, $availCount);
                     $shortBy = $needed - $takeCount;
@@ -1131,17 +1276,18 @@ class RentalEditor extends Component
         $name = $variation ? ($product?->name.' ('.$variation->name.')') : ($product?->name ?? 'Produk');
         $sku = $variation ? "P{$row['product_id']}V{$row['variation_id']}" : "P{$row['product_id']}";
 
-        $excludeId = $this->record?->id;
         $allUsed = $this->allUsedUnitIds($this->unitModalKey);
+        $bookedIds = $this->getBookedUnitIdsCached();
+        $excluded = array_values(array_unique(array_merge($bookedIds, $allUsed)));
 
-        $available = RentalForm::getAvailableUnitsOptimized(
-            $this->start_date,
-            $this->end_date,
-            $excludeId,
-            $row['product_id'],
-            $row['variation_id'],
-            $allUsed
-        );
+        $available = ProductUnit::query()
+            ->select('id', 'serial_number', 'product_id', 'product_variation_id', 'status')
+            ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
+            ->whereNotIn('condition', ['broken', 'lost'])
+            ->where('product_id', $row['product_id'])
+            ->when($row['variation_id'], fn ($q) => $q->where('product_variation_id', $row['variation_id']))
+            ->when(!empty($excluded), fn ($q) => $q->whereNotIn('id', $excluded))
+            ->get();
 
         $currentUnits = ProductUnit::whereIn('id', $row['unit_ids'])->get();
         $byId = $currentUnits->keyBy('id');
