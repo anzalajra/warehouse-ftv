@@ -60,32 +60,29 @@
     .home-ticker-nav:hover { background: color-mix(in srgb, var(--primary-500, #E37715) 12%, transparent); color: var(--primary-600, #C5640C); }
     .home-ticker-nav svg { width: 14px; height: 14px; }
 
-    /* Mobile: keep ticker on a single row, truncate long content */
+    /* Mobile: allow text to wrap, but cap height with line-clamp so it can't fill the screen */
     @media (max-width: 640px) {
         .home-ticker { margin-top: 12px; border-radius: 12px; }
-        .home-ticker-inner { min-height: 44px; padding: 8px 10px; gap: 8px; }
-        .home-ticker-pill { font-size: 10px; padding: 4px 8px; gap: 6px; }
+        .home-ticker-inner { padding: 10px 10px; gap: 8px; align-items: flex-start; }
+        .home-ticker-pill { font-size: 10px; padding: 4px 8px; gap: 6px; margin-top: 2px; }
         .home-ticker-pill svg { width: 11px; height: 11px; }
         .home-ticker-pill .pill-label { display: none; }
-        .home-ticker-stage { overflow: hidden; }
+        .home-ticker-stage { min-width: 0; }
         .home-ticker-item {
-            flex-wrap: nowrap;
-            font-size: 13px;
-            white-space: nowrap;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 3;
+            line-clamp: 3;
             overflow: hidden;
-            text-overflow: ellipsis;
-            display: block;
-        }
-        .home-ticker-item strong,
-        .home-ticker-item span,
-        .home-ticker-item a.cta {
-            display: inline;
-            white-space: nowrap;
+            font-size: 13px;
+            line-height: 1.4;
+            gap: 0 6px;
         }
         .home-ticker-item .sep,
         .home-ticker-item .meta { display: none; }
+        .home-ticker-item a.cta { margin-left: 4px; }
         .home-ticker-dots { display: none; }
-        .home-ticker-controls { gap: 0; }
+        .home-ticker-controls { gap: 0; align-self: center; }
         .home-ticker-nav { width: 24px; height: 24px; }
         .home-ticker-nav svg { width: 12px; height: 12px; }
     }
