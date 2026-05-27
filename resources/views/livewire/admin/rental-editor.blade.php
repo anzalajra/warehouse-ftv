@@ -2,6 +2,18 @@
     $days = $this->days;
     $totals = $this->totals;
     $custInfo = $this->customerInfo;
+    $waLink = null;
+    if ($custInfo && !empty($custInfo['phone'])) {
+        $digits = preg_replace('/\D+/', '', (string) $custInfo['phone']);
+        if ($digits !== '') {
+            if (str_starts_with($digits, '0')) {
+                $digits = '62'.substr($digits, 1);
+            } elseif (!str_starts_with($digits, '62')) {
+                $digits = '62'.$digits;
+            }
+            $waLink = 'https://wa.me/'.$digits;
+        }
+    }
     $currentStatus = $this->currentStatus;
     $missingUnitsCount = 0;
     foreach ($items as $__it) {
@@ -154,6 +166,7 @@
         .rent-app .items-head, .rent-app .item-row { display:grid; grid-template-columns: 24px 28px minmax(0, 2.2fr) 90px 130px 110px 64px 110px 36px; align-items:center; gap:12px; padding:8px 16px; }
         .rent-app .items-head { background: var(--gray-50); border-bottom: 1px solid var(--border-1); font-size:11.5px; font-weight:600; color: var(--fg-3); text-transform: uppercase; letter-spacing:.04em; }
         .rent-app .items-head .num-col, .rent-app .items-head .right { text-align: right; }
+        .rent-app .items-head .qty-head { text-align: center; padding-right: 36px; }
         .rent-app .item-row { border-bottom: 1px solid var(--gray-100); background: var(--bg-surface); transition: background var(--dur-fast); }
         .rent-app .item-row:hover { background: var(--gray-50); }
         .rent-app .grip { cursor: grab; color: var(--fg-4); display:flex; align-items:center; justify-content:center; opacity:0; transition: opacity var(--dur); width:24px; height:24px; border-radius:4px; }
@@ -162,7 +175,7 @@
         .rent-app .item-row.dragging { opacity:.4; }
         .rent-app .row-num { color: var(--fg-3); font-size:12px; font-variant-numeric: tabular-nums; text-align:right; }
         .rent-app .prod-cell { display:flex; align-items:center; gap:10px; min-width:0; }
-        .rent-app .prod-thumb { width:32px; height:32px; border-radius:6px; flex:0 0 32px; background: var(--gray-100); display:flex; align-items:center; justify-content:center; font-size:14px; }
+        .rent-app .prod-thumb { width:32px; height:32px; border-radius:6px; flex:0 0 32px; background: var(--gray-100); display:flex; align-items:center; justify-content:center; font-size:14px; overflow:hidden; }
         .rent-app .prod-info { min-width:0; }
         .rent-app .prod-name { font-size:13.5px; font-weight:500; color: var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .rent-app .prod-meta { font-size:11.5px; color: var(--fg-3); display:flex; gap:8px; align-items:center; }
@@ -414,10 +427,10 @@
             padding: 12px 14px 12px 8px;
             border-top: 1px solid var(--gray-100);
             display: grid;
-            grid-template-columns: 22px 44px 1fr auto;
+            grid-template-columns: 22px 1fr auto auto;
             grid-template-areas:
-                'grip thumb prod  trail'
-                'grip thumb meta  meta'
+                'grip prod  prod  trail'
+                'grip meta  meta  meta'
                 'grip qty   price sub';
             gap: 4px 10px;
             background: #fff;
@@ -431,12 +444,7 @@
             grid-area: grip; display: flex; align-items: center; justify-content: center;
             color: var(--fg-4); cursor: grab; touch-action: none; align-self: center;
         }
-        .rent-app .mobile-view .mitem-thumb {
-            grid-area: thumb; width: 44px; height: 44px; border-radius: 10px;
-            background: var(--gray-100);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 20px; align-self: start;
-        }
+        .rent-app .mobile-view .mitem-thumb { display: none; }
         .rent-app .mobile-view .mitem-prod {
             grid-area: prod; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
         }
@@ -787,9 +795,20 @@
                             @if($custInfo)
                                 <div class="help" style="display:flex; align-items:center; gap:8px;">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                                    {{ $custInfo['phone'] ?? '—' }}
-                                    @if($custInfo['verified'])
-                                        <span class="pill pill-green" style="font-size:10px; padding:1px 7px;">Verified</span>
+                                    @if($waLink)
+                                        <a href="{{ $waLink }}" target="_blank" rel="noopener" title="Hubungi via WhatsApp"
+                                           style="display:inline-flex; align-items:center; gap:5px; color: var(--success-700, #15803d); text-decoration:none; font-weight:600;">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.52 3.48A11.94 11.94 0 0 0 12.05 0C5.46 0 .12 5.34.12 11.93c0 2.1.55 4.16 1.6 5.97L0 24l6.27-1.64a11.93 11.93 0 0 0 5.78 1.47h.01c6.59 0 11.93-5.34 11.93-11.93 0-3.19-1.24-6.18-3.47-8.42ZM12.06 21.8h-.01a9.86 9.86 0 0 1-5.03-1.38l-.36-.21-3.72.98 1-3.63-.24-.37a9.86 9.86 0 0 1-1.5-5.25c0-5.45 4.43-9.88 9.88-9.88 2.64 0 5.12 1.03 6.99 2.9a9.81 9.81 0 0 1 2.89 6.98c0 5.45-4.43 9.88-9.9 9.88Zm5.42-7.41c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.65-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51l-.57-.01c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.49 0 1.47 1.07 2.89 1.22 3.09.15.2 2.1 3.21 5.08 4.5.71.3 1.26.49 1.69.63.71.22 1.35.19 1.86.12.57-.08 1.76-.72 2-1.42.24-.7.24-1.29.17-1.42-.07-.13-.27-.2-.57-.35Z"/></svg>
+                                            {{ $custInfo['phone'] }}
+                                        </a>
+                                    @else
+                                        <span>{{ $custInfo['phone'] ?? '—' }}</span>
+                                    @endif
+                                    @php $vs = $custInfo['verification_status'] ?? 'not_verified'; @endphp
+                                    @if($vs === 'verified')
+                                        <span class="pill pill-green" style="font-size:10px; padding:1px 7px;">Terverifikasi</span>
+                                    @elseif($vs === 'pending')
+                                        <span class="pill pill-amber" style="font-size:10px; padding:1px 7px;">Sedang Diverifikasi</span>
                                     @else
                                         <span class="pill pill-amber" style="font-size:10px; padding:1px 7px;">Belum Verifikasi</span>
                                     @endif
@@ -887,7 +906,7 @@
                             <div class="num-col">#</div>
                             <div>Produk</div>
                             <div>Stok</div>
-                            <div class="right">Qty</div>
+                            <div class="qty-head">Qty</div>
                             <div class="right">Harga / hari</div>
                             <div class="right">Disc</div>
                             <div class="right">Subtotal</div>
@@ -913,7 +932,13 @@
                                 </div>
                                 <div class="row-num">{{ $i + 1 }}</div>
                                 <div class="prod-cell">
-                                    <div class="prod-thumb">📦</div>
+                                    <div class="prod-thumb">
+                                        @if($product && $product->image)
+                                            <img src="{{ \Illuminate\Support\Facades\Storage::url($product->image) }}" alt="" loading="lazy" style="width:100%; height:100%; object-fit:cover; border-radius:inherit; display:block;">
+                                        @else
+                                            📦
+                                        @endif
+                                    </div>
                                     <div class="prod-info">
                                         <div class="prod-name">{{ $displayName }}</div>
                                         <div class="prod-meta">
@@ -1134,11 +1159,27 @@
                     <div class="cust-info">
                         <div class="cust-name">
                             {{ $custInfo['name'] ?? 'Pilih customer' }}
-                            @if($custInfo && $custInfo['verified'])
-                                <span class="pill pill-green" style="font-size:9px; padding:1px 6px;">Verified</span>
+                            @if($custInfo)
+                                @php $vsM = $custInfo['verification_status'] ?? 'not_verified'; @endphp
+                                @if($vsM === 'verified')
+                                    <span class="pill pill-green" style="font-size:9px; padding:1px 6px;">Terverifikasi</span>
+                                @elseif($vsM === 'pending')
+                                    <span class="pill pill-amber" style="font-size:9px; padding:1px 6px;">Diverifikasi</span>
+                                @else
+                                    <span class="pill pill-amber" style="font-size:9px; padding:1px 6px;">Belum Verif.</span>
+                                @endif
                             @endif
                         </div>
-                        <div class="cust-meta">{{ $custInfo['phone'] ?? '—' }}</div>
+                        <div class="cust-meta">
+                            @if($waLink)
+                                <a href="{{ $waLink }}" target="_blank" rel="noopener" style="color: var(--success-700, #15803d); text-decoration:none; font-weight:600; display:inline-flex; align-items:center; gap:4px;">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.52 3.48A11.94 11.94 0 0 0 12.05 0C5.46 0 .12 5.34.12 11.93c0 2.1.55 4.16 1.6 5.97L0 24l6.27-1.64a11.93 11.93 0 0 0 5.78 1.47h.01c6.59 0 11.93-5.34 11.93-11.93 0-3.19-1.24-6.18-3.47-8.42ZM12.06 21.8h-.01a9.86 9.86 0 0 1-5.03-1.38l-.36-.21-3.72.98 1-3.63-.24-.37a9.86 9.86 0 0 1-1.5-5.25c0-5.45 4.43-9.88 9.88-9.88 2.64 0 5.12 1.03 6.99 2.9a9.81 9.81 0 0 1 2.89 6.98c0 5.45-4.43 9.88-9.9 9.88Zm5.42-7.41c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.65-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51l-.57-.01c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.49 0 1.47 1.07 2.89 1.22 3.09.15.2 2.1 3.21 5.08 4.5.71.3 1.26.49 1.69.63.71.22 1.35.19 1.86.12.57-.08 1.76-.72 2-1.42.24-.7.24-1.29.17-1.42-.07-.13-.27-.2-.57-.35Z"/></svg>
+                                    {{ $custInfo['phone'] }}
+                                </a>
+                            @else
+                                {{ $custInfo['phone'] ?? '—' }}
+                            @endif
+                        </div>
                         <div class="cust-caps">
                             <span class="cap cap-code">{{ $rental_code === 'AUTO' ? 'BARU' : $rental_code }}</span>
                             @if($record && $record->exists)
@@ -1615,10 +1656,12 @@
                                 <label class="unit-slot-label">
                                     Unit #<span x-text="i + 1"></span><span class="req">*</span>
                                 </label>
-                                <select class="unit-slot-select" x-model="draft[i]">
-                                    <option :value="null">— Pilih unit —</option>
+                                <select class="unit-slot-select"
+                                        @change="draft[i] = $event.target.value === '' ? null : Number($event.target.value)">
+                                    <option value="" :selected="draft[i] === null || draft[i] === '' || draft[i] === undefined">— Pilih unit —</option>
                                     <template x-for="p in pool" :key="p.id">
                                         <option :value="p.id"
+                                            :selected="String(draft[i]) === String(p.id)"
                                             :disabled="!p.available || (draft.filter((d,j) => j !== i).map(String).includes(String(p.id)))"
                                             x-text="p.serial + (!p.available ? ' (dipinjam)' : (draft.filter((d,j) => j !== i).map(String).includes(String(p.id)) ? ' (sudah dipakai)' : ''))"></option>
                                     </template>

@@ -155,14 +155,13 @@ class RentalEditor extends Component
     public function customers(): array
     {
         return User::query()
-            ->select('id', 'name', 'phone', 'email_verified_at')
+            ->select('id', 'name', 'phone')
             ->orderBy('name')
             ->get()
             ->map(fn ($u) => [
                 'id' => $u->id,
                 'name' => $u->name,
                 'phone' => $u->phone,
-                'verified' => (bool) $u->email_verified_at,
             ])
             ->all();
     }
@@ -210,13 +209,20 @@ class RentalEditor extends Component
         if (! $this->customer_id) {
             return null;
         }
-        foreach ($this->customers as $c) {
-            if ($c['id'] === (int) $this->customer_id) {
-                return $c;
-            }
+        $user = User::find($this->customer_id);
+        if (! $user) {
+            return null;
         }
+        $status = $user->getVerificationStatus();
 
-        return null;
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'phone' => $user->phone,
+            'verified' => $status === 'verified',
+            'verification_status' => $status,
+            'verification_label' => $user->getVerificationStatusLabel(),
+        ];
     }
 
     // ─── Product search ───
