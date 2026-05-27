@@ -14,6 +14,8 @@ class RentalItem extends Model
         'rental_id',
         'parent_item_id',
         'product_unit_id',
+        'product_id',
+        'product_variation_id',
         'daily_rate',
         'days',
         'subtotal',
@@ -113,6 +115,16 @@ class RentalItem extends Model
     public function productUnit(): BelongsTo
     {
         return $this->belongsTo(ProductUnit::class);
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Product::class);
+    }
+
+    public function productVariation(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\ProductVariation::class);
     }
 
     public function rentalItemKits(): HasMany

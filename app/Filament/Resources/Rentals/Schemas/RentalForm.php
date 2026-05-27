@@ -753,20 +753,56 @@ class RentalForm
         // refreshStatus/linking queries on every single create/update.
         // We'll do a single batch refresh at the end.
         \App\Models\RentalItem::withoutEvents(function () use ($rental, $groupedItems, $existingItems, &$processedIds, &$newlyCreatedItems) {
+            // Reset ghost-slot tracker per row (don't reuse ghosts across different products).
+            $existingGhosts = $existingItems->whereNull('product_unit_id')->groupBy(function ($it) {
+                $key = $it->product_id;
+                if ($it->product_variation_id) {
+                    $key .= ':' . $it->product_variation_id;
+                }
+                return (string) $key;
+            });
+            // Convert to a mutable structure keyed by composite_id => array of items.
+            $ghostPool = [];
+            foreach ($existingGhosts as $compositeKey => $items) {
+                $ghostPool[$compositeKey] = $items->all();
+            }
+
             foreach ($groupedItems as $group) {
-                $unitIds = json_decode($group['unit_ids'] ?? '[]', true);
+                $unitIds = json_decode($group['unit_ids'] ?? '[]', true) ?: [];
                 $days = (int) ($group['days'] ?? 1);
                 $dailyRate = (float) ($group['daily_rate'] ?? 0);
                 $discount = (float) ($group['discount'] ?? 0);
+                $quantity = (int) ($group['quantity'] ?? count($unitIds));
 
                 $gross = $dailyRate * $days;
                 $perUnitSubtotal = max(0, $gross - ($gross * $discount / 100));
 
+                // Derive product_id / variation_id from composite or from any of the unit_ids.
+                $compositeId = (string) ($group['product_id'] ?? '');
+                $rowProductId = null;
+                $rowVariationId = null;
+                if (str_contains($compositeId, ':')) {
+                    [$rowProductId, $rowVariationId] = array_map('intval', explode(':', $compositeId, 2));
+                } elseif ($compositeId !== '') {
+                    $rowProductId = (int) $compositeId;
+                }
+                // Fallback: look up via first unit_id when composite isn't usable.
+                if (!$rowProductId && !empty($unitIds)) {
+                    $u = \App\Models\ProductUnit::find($unitIds[0]);
+                    if ($u) {
+                        $rowProductId = $u->product_id;
+                        $rowVariationId = $u->product_variation_id;
+                    }
+                }
+
+                // 1) Persist real (unit-bound) slots.
                 foreach ($unitIds as $unitId) {
                     $existing = $existingItems->where('product_unit_id', $unitId)->first();
 
                     if ($existing) {
                         $existing->update([
+                            'product_id' => $rowProductId,
+                            'product_variation_id' => $rowVariationId,
                             'daily_rate' => $dailyRate,
                             'days' => $days,
                             'discount' => $discount,
@@ -776,6 +812,8 @@ class RentalForm
                     } else {
                         $newItem = $rental->items()->create([
                             'product_unit_id' => $unitId,
+                            'product_id' => $rowProductId,
+                            'product_variation_id' => $rowVariationId,
                             'daily_rate' => $dailyRate,
                             'days' => $days,
                             'discount' => $discount,
@@ -785,9 +823,41 @@ class RentalForm
                         $newlyCreatedItems[] = $newItem;
                     }
                 }
+
+                // 2) Persist ghost slots (intent-to-rent without an assigned serial yet).
+                $ghostCount = max(0, $quantity - count($unitIds));
+                if ($ghostCount > 0 && $rowProductId) {
+                    $compositeKey = $rowVariationId ? "{$rowProductId}:{$rowVariationId}" : (string) $rowProductId;
+                    $availableGhosts = $ghostPool[$compositeKey] ?? [];
+
+                    for ($i = 0; $i < $ghostCount; $i++) {
+                        if (!empty($availableGhosts)) {
+                            $reused = array_shift($availableGhosts);
+                            $reused->update([
+                                'daily_rate' => $dailyRate,
+                                'days' => $days,
+                                'discount' => $discount,
+                                'subtotal' => $perUnitSubtotal,
+                            ]);
+                            $processedIds[] = $reused->id;
+                        } else {
+                            $newGhost = $rental->items()->create([
+                                'product_unit_id' => null,
+                                'product_id' => $rowProductId,
+                                'product_variation_id' => $rowVariationId,
+                                'daily_rate' => $dailyRate,
+                                'days' => $days,
+                                'discount' => $discount,
+                                'subtotal' => $perUnitSubtotal,
+                            ]);
+                            $processedIds[] = $newGhost->id;
+                        }
+                    }
+                    $ghostPool[$compositeKey] = $availableGhosts;
+                }
             }
 
-            // Delete items no longer present
+            // Delete items no longer present (real + leftover ghosts).
             $toDelete = $existingItems->pluck('id')->diff($processedIds)->toArray();
             if (!empty($toDelete)) {
                 $rental->items()->whereIn('parent_item_id', $toDelete)->delete();
@@ -795,9 +865,12 @@ class RentalForm
             }
         });
 
-        // Attach kits for newly created items (was in RentalItem::created event)
+        // Attach kits for newly created items (was in RentalItem::created event).
+        // Skip ghosts (no product_unit_id → no kits to attach).
         foreach ($newlyCreatedItems as $newItem) {
-            $newItem->attachKitsFromUnit();
+            if ($newItem->product_unit_id) {
+                $newItem->attachKitsFromUnit();
+            }
         }
 
         // Single batch refresh of all unit statuses instead of per-item
@@ -816,11 +889,22 @@ class RentalForm
             if ($item->parent_item_id) continue;
 
             $unit = $item->productUnit;
-            if (!$unit) continue;
 
-            $compositeId = $unit->product_variation_id
-                ? "{$unit->product_id}:{$unit->product_variation_id}"
-                : (string) $unit->product_id;
+            // Determine product / variation IDs:
+            //   - real items (unit-bound) use the unit's product info
+            //   - ghost items (product_unit_id IS NULL) use their own product_id / product_variation_id columns
+            if ($unit) {
+                $productId = $unit->product_id;
+                $variationId = $unit->product_variation_id;
+            } else {
+                $productId = $item->product_id;
+                $variationId = $item->product_variation_id;
+                if (!$productId) continue; // truly orphaned row — skip
+            }
+
+            $compositeId = $variationId
+                ? "{$productId}:{$variationId}"
+                : (string) $productId;
 
             if (!isset($grouped[$compositeId])) {
                 $grouped[$compositeId] = [
@@ -835,7 +919,9 @@ class RentalForm
             }
 
             $grouped[$compositeId]['quantity']++;
-            $grouped[$compositeId]['unit_ids'][] = $unit->id;
+            if ($unit) {
+                $grouped[$compositeId]['unit_ids'][] = $unit->id;
+            }
             $grouped[$compositeId]['subtotal'] += (float) $item->subtotal;
         }
 

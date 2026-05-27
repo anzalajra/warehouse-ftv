@@ -850,12 +850,54 @@
                         </div>
                         <div class="field" style="grid-column: span 2;">
                             <label class="label">Customer<span class="req">*</span></label>
-                            <select class="select" wire:model.live="customer_id">
-                                <option value="">— Pilih customer —</option>
-                                @foreach($this->customers as $c)
-                                    <option value="{{ $c['id'] }}">{{ $c['name'] }}</option>
-                                @endforeach
-                            </select>
+                            <div class="cust-typeahead" x-data="{ open: false }" @click.outside="open = false" style="position: relative;">
+                                @if($custInfo)
+                                    <div style="display:flex; gap:8px; align-items:center;">
+                                        <input class="input" readonly value="{{ $custInfo['name'] }}{{ $custInfo['phone'] ? ' · '.$custInfo['phone'] : '' }}" style="flex:1; background: var(--gray-50);">
+                                        <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:12px;"
+                                            wire:click="$set('customer_id', null)" title="Ganti customer">Ganti</button>
+                                    </div>
+                                @else
+                                    <input
+                                        class="input"
+                                        type="text"
+                                        placeholder="Cari nama, email, atau telepon…"
+                                        wire:model.live.debounce.250ms="customerSearch"
+                                        @focus="open = true"
+                                        @input="open = true">
+                                    <div x-show="open" x-cloak class="cust-dropdown"
+                                        style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #fff; border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.08); z-index: 40; max-height: 320px; overflow-y: auto;">
+                                        @forelse($this->customers as $c)
+                                            <button type="button"
+                                                style="display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; padding:10px 12px; border:0; background:transparent; cursor:pointer; text-align:left; border-bottom: 1px solid var(--gray-100, #f3f4f6);"
+                                                onmouseover="this.style.background='var(--gray-50, #f9fafb)'"
+                                                onmouseout="this.style.background='transparent'"
+                                                wire:click="selectCustomer({{ $c['id'] }})"
+                                                @click="open = false">
+                                                <span style="font-size:13px; font-weight:600; color: var(--fg-1, #111827);">{{ $c['name'] }}</span>
+                                                <span style="font-size:11.5px; color: var(--fg-3, #6b7280); font-family: var(--font-mono);">
+                                                    {{ $c['phone'] ?? '—' }}{{ $c['email'] ? ' · '.$c['email'] : '' }}
+                                                </span>
+                                            </button>
+                                        @empty
+                                            <div style="padding:14px 12px; text-align:center; color: var(--fg-3, #6b7280); font-size:12.5px;">
+                                                @if(trim($customerSearch) === '')
+                                                    Mulai ketik untuk mencari customer
+                                                @else
+                                                    Tidak ada customer cocok dengan "{{ $customerSearch }}"
+                                                @endif
+                                            </div>
+                                        @endforelse
+                                        <button type="button"
+                                            style="display:flex; align-items:center; gap:8px; width:100%; padding:10px 12px; border:0; background: var(--primary-50, #eff6ff); cursor:pointer; text-align:left; color: var(--primary-700, #1d4ed8); font-weight:600; font-size:13px; border-top: 1px solid var(--primary-200, #bfdbfe);"
+                                            wire:click="openNewCustomerModal"
+                                            @click="open = false">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                                            Buat customer baru
+                                        </button>
+                                    </div>
+                                @endif
+                            </div>
                             @if($custInfo)
                                 <div class="help" style="display:flex; align-items:center; gap:8px;">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -1319,12 +1361,45 @@
                 <div x-show="editCustomer" x-cloak style="padding: 0 14px 14px; border-top: 1px solid var(--gray-100);">
                     <div class="field" style="margin-top:12px;">
                         <label class="label">Customer<span class="req">*</span></label>
-                        <select class="select" wire:model.live="customer_id">
-                            <option value="">— Pilih customer —</option>
-                            @foreach($this->customers as $c)
-                                <option value="{{ $c['id'] }}">{{ $c['name'] }}</option>
-                            @endforeach
-                        </select>
+                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative;">
+                            @if($custInfo)
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <input class="input" readonly value="{{ $custInfo['name'] }}{{ $custInfo['phone'] ? ' · '.$custInfo['phone'] : '' }}" style="flex:1; background: var(--gray-50);">
+                                    <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:12px;"
+                                        wire:click="$set('customer_id', null)" title="Ganti customer">Ganti</button>
+                                </div>
+                            @else
+                                <input class="input" type="text" placeholder="Cari nama, email, atau telepon…"
+                                    wire:model.live.debounce.250ms="customerSearch"
+                                    @focus="open = true" @input="open = true">
+                                <div x-show="open" x-cloak
+                                    style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.08); z-index: 40; max-height: 280px; overflow-y: auto;">
+                                    @forelse($this->customers as $c)
+                                        <button type="button"
+                                            style="display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; padding:10px 12px; border:0; background:transparent; cursor:pointer; text-align:left; border-bottom: 1px solid #f3f4f6;"
+                                            wire:click="selectCustomer({{ $c['id'] }})"
+                                            @click="open = false">
+                                            <span style="font-size:13px; font-weight:600;">{{ $c['name'] }}</span>
+                                            <span style="font-size:11.5px; color: var(--fg-3, #6b7280); font-family: var(--font-mono);">{{ $c['phone'] ?? '—' }}{{ $c['email'] ? ' · '.$c['email'] : '' }}</span>
+                                        </button>
+                                    @empty
+                                        <div style="padding:14px 12px; text-align:center; color: var(--fg-3, #6b7280); font-size:12.5px;">
+                                            @if(trim($customerSearch) === '')
+                                                Mulai ketik untuk mencari customer
+                                            @else
+                                                Tidak ada customer cocok dengan "{{ $customerSearch }}"
+                                            @endif
+                                        </div>
+                                    @endforelse
+                                    <button type="button"
+                                        style="display:flex; align-items:center; gap:8px; width:100%; padding:10px 12px; border:0; background: var(--primary-50, #eff6ff); cursor:pointer; text-align:left; color: var(--primary-700, #1d4ed8); font-weight:600; font-size:13px; border-top: 1px solid var(--primary-200, #bfdbfe);"
+                                        wire:click="openNewCustomerModal" @click="open = false">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                                        Buat customer baru
+                                    </button>
+                                </div>
+                            @endif
+                        </div>
                     </div>
                     <div class="field" style="margin-top:10px;">
                         <label class="label">Status</label>
@@ -2022,6 +2097,52 @@
             <p class="qr-hint" x-show="message" x-text="message" style="color: var(--success-700); font-weight:600;" x-cloak></p>
         </div>
     </div>
+
+    {{-- ============================================================
+         CREATE CUSTOMER MODAL
+         ============================================================ --}}
+    @if($newCustomerModalOpen)
+        <div class="modal-backdrop" wire:click.self="closeNewCustomerModal" style="z-index: 70;">
+            <div class="modal" style="max-width: 480px;">
+                <div class="modal-head">
+                    <h3 style="display:flex; align-items:center; gap:8px;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+                        Buat Customer Baru
+                    </h3>
+                    <button class="btn btn-ghost btn-icon" wire:click="closeNewCustomerModal" type="button">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 16px 20px; display:flex; flex-direction:column; gap: 14px;">
+                    <div class="field">
+                        <label class="label">Nama<span class="req">*</span></label>
+                        <input class="input" type="text" wire:model="newCustomerName" placeholder="Nama lengkap" autofocus>
+                        @error('newCustomerName') <div class="help" style="color: var(--danger-700, #b91c1c);">{{ $message }}</div> @enderror
+                    </div>
+                    <div class="field">
+                        <label class="label">Email</label>
+                        <input class="input" type="email" wire:model="newCustomerEmail" placeholder="customer@example.com (opsional)">
+                        @error('newCustomerEmail') <div class="help" style="color: var(--danger-700, #b91c1c);">{{ $message }}</div> @enderror
+                    </div>
+                    <div class="field">
+                        <label class="label">Telepon</label>
+                        <input class="input" type="tel" wire:model="newCustomerPhone" placeholder="08xxxxxxxxxx (opsional)">
+                        @error('newCustomerPhone') <div class="help" style="color: var(--danger-700, #b91c1c);">{{ $message }}</div> @enderror
+                    </div>
+                    <div style="font-size: 11.5px; color: var(--fg-3, #6b7280); padding: 8px 10px; background: var(--gray-50, #f9fafb); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px;">
+                        Customer dibuat tanpa password. Mereka dapat di-set password kemudian dari halaman User. Customer akan otomatis dipilih untuk rental ini setelah dibuat.
+                    </div>
+                </div>
+                <div class="modal-foot" style="display:flex; gap:8px; justify-content:flex-end; padding: 12px 20px; border-top: 1px solid var(--border-1, #e5e7eb);">
+                    <button type="button" class="btn btn-secondary" wire:click="closeNewCustomerModal">Batal</button>
+                    <button type="button" class="btn btn-primary" wire:click="createCustomer" wire:loading.attr="disabled">
+                        <span wire:loading.remove wire:target="createCustomer">Buat Customer</span>
+                        <span wire:loading wire:target="createCustomer">Memproses…</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 
     {{-- ============================================================
          CUSTOM CONFIRM-REMOVE MODAL (replaces native confirm)

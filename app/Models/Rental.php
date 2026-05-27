@@ -657,13 +657,21 @@ class Rental extends Model
             }
         }
 
+        // Reject ghost slots (product placeholder without assigned serial yet) — pickup not possible.
+        $ghosts = $this->items->filter(fn ($it) => !$it->parent_item_id && !$it->product_unit_id);
+        if ($ghosts->isNotEmpty()) {
+            $sample = $ghosts->first();
+            $productName = $sample->product?->name ?? 'Unknown product';
+            throw new \Exception("Cannot pickup: there are {$ghosts->count()} placeholder slot(s) without an assigned unit serial (e.g. {$productName}). Assign units or remove the slots first.");
+        }
+
         // Check if all items with kits have their kits checked
         foreach ($this->items as $item) {
-            if ($item->productUnit->kits->count() > 0) {
+            if ($item->productUnit && $item->productUnit->kits->count() > 0) {
                 $checkedKits = $item->rentalItemKits->count();
                 // Filter out broken/lost kits to match attachKitsFromUnit logic
                 $totalKits = $item->productUnit->kits->whereNotIn('condition', ['broken', 'lost'])->count();
-                
+
                 if ($checkedKits < $totalKits) {
                     throw new \Exception('All kit items must be checked before validating pickup.');
                 }

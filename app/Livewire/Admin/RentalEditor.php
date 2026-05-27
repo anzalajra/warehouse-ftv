@@ -48,6 +48,13 @@ class RentalEditor extends Component
     // Search
     public string $searchTerm = '';
 
+    // Customer typeahead search
+    public string $customerSearch = '';
+    public bool $newCustomerModalOpen = false;
+    public string $newCustomerName = '';
+    public string $newCustomerEmail = '';
+    public string $newCustomerPhone = '';
+
     // Modals
     public bool $unitModalOpen = false;
     public ?string $unitModalKey = null;
@@ -164,19 +171,93 @@ class RentalEditor extends Component
         }
     }
 
+    /**
+     * Server-side searchable customer list. Returns up to 20 matches based on
+     * $customerSearch (name / email / phone). Empty term returns top 20 by name.
+     */
     #[Computed]
     public function customers(): array
     {
-        return User::query()
-            ->select('id', 'name', 'phone')
-            ->orderBy('name')
+        $q = User::query()->select('id', 'name', 'phone', 'email');
+        $needle = trim($this->customerSearch);
+
+        if ($needle !== '') {
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $needle) . '%';
+            $q->where(function ($w) use ($like) {
+                $w->where('name', 'like', $like)
+                    ->orWhere('email', 'like', $like)
+                    ->orWhere('phone', 'like', $like);
+            });
+        }
+
+        return $q->orderBy('name')
+            ->limit(20)
             ->get()
             ->map(fn ($u) => [
                 'id' => $u->id,
                 'name' => $u->name,
                 'phone' => $u->phone,
+                'email' => $u->email,
             ])
             ->all();
+    }
+
+    public function selectCustomer(int $id): void
+    {
+        $this->customer_id = $id;
+        $this->customerSearch = '';
+    }
+
+    public function openNewCustomerModal(): void
+    {
+        // Pre-fill name from current search term if it looks like a name (no @, no digits-only).
+        $needle = trim($this->customerSearch);
+        $this->newCustomerName = $needle && !str_contains($needle, '@') && !ctype_digit($needle) ? $needle : '';
+        $this->newCustomerEmail = $needle && str_contains($needle, '@') ? $needle : '';
+        $this->newCustomerPhone = $needle && ctype_digit(str_replace(['+', ' ', '-'], '', $needle)) ? $needle : '';
+        $this->newCustomerModalOpen = true;
+    }
+
+    public function closeNewCustomerModal(): void
+    {
+        $this->newCustomerModalOpen = false;
+        $this->newCustomerName = '';
+        $this->newCustomerEmail = '';
+        $this->newCustomerPhone = '';
+    }
+
+    public function createCustomer(): void
+    {
+        $this->validate([
+            'newCustomerName' => 'required|string|max:255',
+            'newCustomerEmail' => 'nullable|email|max:255|unique:users,email',
+            'newCustomerPhone' => 'nullable|string|max:30',
+        ], [], [
+            'newCustomerName' => 'Nama',
+            'newCustomerEmail' => 'Email',
+            'newCustomerPhone' => 'Telepon',
+        ]);
+
+        try {
+            $user = User::create([
+                'name' => $this->newCustomerName,
+                'email' => $this->newCustomerEmail ?: null,
+                'phone' => $this->newCustomerPhone ?: null,
+                'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(24)),
+            ]);
+
+            $this->customer_id = $user->id;
+            $this->customerSearch = '';
+            $this->closeNewCustomerModal();
+
+            Notification::make()
+                ->title('Customer dibuat')
+                ->body("{$user->name} berhasil ditambahkan & dipilih.")
+                ->success()
+                ->send();
+        } catch (\Throwable $e) {
+            Notification::make()->title('Gagal membuat customer')->body($e->getMessage())->danger()->send();
+        }
     }
 
     #[Computed]
@@ -252,12 +333,13 @@ class RentalEditor extends Component
     /**
      * Return array of catalog rows: [composite_id, product_id, variation_id, sku_label, name, cat, brand, price, avail]
      */
-    protected function productOptions(?string $needle = null, int $limit = 50): array
+    protected function productOptions(?string $needle = null, ?int $limit = null): array
     {
         $q = Product::query()
             ->with(['variations:id,product_id,name,daily_rate', 'category:id,name'])
             ->select(['id', 'name', 'category_id', 'daily_rate', 'image', 'is_active'])
-            ->where('is_active', true);
+            ->where('is_active', true)
+            ->orderBy('name');
 
         if ($needle) {
             $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $needle).'%';
@@ -268,7 +350,12 @@ class RentalEditor extends Component
             });
         }
 
-        $products = $q->limit(40)->get();
+        if ($limit !== null) {
+            $q->limit($limit);
+        }
+
+        $products = $q->get();
+        $availMap = $this->availableCountMap();
 
         $rows = [];
         foreach ($products as $p) {
@@ -284,7 +371,7 @@ class RentalEditor extends Component
                         'name' => $p->name.' ('.$v->name.')',
                         'cat' => $cat,
                         'price' => (float) ($v->daily_rate ?? $p->daily_rate ?? 0),
-                        'avail' => $this->availableCount($p->id, $v->id),
+                        'avail' => $availMap["{$p->id}:{$v->id}"] ?? 0,
                         'image' => $img,
                     ];
                 }
@@ -297,13 +384,38 @@ class RentalEditor extends Component
                     'name' => $p->name,
                     'cat' => $cat,
                     'price' => (float) ($p->daily_rate ?? 0),
-                    'avail' => $this->availableCount($p->id, null),
+                    'avail' => $availMap["{$p->id}:0"] ?? 0,
                     'image' => $img,
                 ];
             }
         }
 
-        return array_slice($rows, 0, $limit);
+        return $limit !== null ? array_slice($rows, 0, $limit) : $rows;
+    }
+
+    /**
+     * Batch-compute available unit counts keyed by "{product_id}:{variation_id|0}".
+     * One query for all products instead of N queries (one per row).
+     */
+    protected function availableCountMap(): array
+    {
+        $excludeId = $this->record?->id;
+        $units = RentalForm::getAvailableUnitsOptimized(
+            $this->start_date,
+            $this->end_date,
+            $excludeId,
+            null,
+            null,
+            $this->allUsedUnitIds()
+        );
+
+        $map = [];
+        foreach ($units as $u) {
+            $key = $u->product_id.':'.($u->product_variation_id ?? 0);
+            $map[$key] = ($map[$key] ?? 0) + 1;
+        }
+
+        return $map;
     }
 
     protected function availableCount(int $productId, ?int $variationId): int
@@ -338,7 +450,7 @@ class RentalEditor extends Component
     #[Computed]
     public function catalogRows(): array
     {
-        return $this->productOptions(null, 200);
+        return $this->productOptions(null, null);
     }
 
     #[Computed]
@@ -622,8 +734,10 @@ class RentalEditor extends Component
     #[Computed]
     public function canTransfer(): bool
     {
-        return $this->record && $this->record->exists
-            && in_array($this->status, self::TRANSFERABLE_STATUSES, true);
+        // Allowed in both Create (record not yet persisted) and Edit, as long as
+        // the editor status is eligible. beginTransfer() will auto-save (creating
+        // the rental if needed) before opening the modal.
+        return in_array($this->status, self::TRANSFERABLE_STATUSES, true);
     }
 
     /**
@@ -750,30 +864,41 @@ class RentalEditor extends Component
         if ($this->transferMode === 'pull' && $this->transferItemKey) {
             $row = collect($this->items)->firstWhere('key', $this->transferItemKey);
             if ($row) {
+                $productId = (int) $row['product_id'];
+                $variationId = $row['variation_id'] ? (int) $row['variation_id'] : null;
                 $pullRowInfo = [
-                    'product_id' => $row['product_id'],
-                    'variation_id' => $row['variation_id'],
+                    'product_id' => $productId,
+                    'variation_id' => $variationId,
                 ];
 
-                $start = $this->record->start_date;
-                $end = $this->record->end_date;
+                // Use editor state dates (may differ from saved record if user changed them).
+                // Fall back to record dates if state somehow empty.
+                $start = $this->start_date ?: $this->record->start_date;
+                $end = $this->end_date ?: $this->record->end_date;
+                $startCarbon = $start ? \Carbon\Carbon::parse($start) : null;
+                $endCarbon = $end ? \Carbon\Carbon::parse($end) : null;
 
-                $pullCandidates = RentalItem::query()
+                $query = RentalItem::query()
                     ->where('rental_id', '!=', $this->record->id)
-                    ->whereHas('productUnit', function ($q) use ($row) {
-                        $q->where('product_id', $row['product_id']);
-                        if (!empty($row['variation_id'])) {
-                            $q->where('product_variation_id', $row['variation_id']);
+                    ->whereNotNull('product_unit_id') // ghost rows (no serial) can't be pulled from
+                    ->whereHas('productUnit', function ($q) use ($productId, $variationId) {
+                        $q->where('product_id', $productId);
+                        if ($variationId) {
+                            $q->where('product_variation_id', $variationId);
+                        } else {
+                            $q->whereNull('product_variation_id');
                         }
                     })
-                    ->whereHas('rental', function ($q) use ($start, $end) {
-                        $q->whereIn('status', self::TRANSFERABLE_STATUSES)
-                            ->where('start_date', '<', $end)
-                            ->where('end_date', '>', $start);
+                    ->whereHas('rental', function ($q) use ($startCarbon, $endCarbon) {
+                        $q->whereIn('status', self::TRANSFERABLE_STATUSES);
+                        if ($startCarbon && $endCarbon) {
+                            $q->where('start_date', '<', $endCarbon)
+                                ->where('end_date', '>', $startCarbon);
+                        }
                     })
-                    ->with(['rental.customer', 'productUnit.product'])
-                    ->limit(200)
-                    ->get()
+                    ->with(['rental.customer', 'productUnit.product']);
+
+                $pullCandidates = $query->limit(200)->get()
                     ->map(fn ($ri) => [
                         'item_id' => $ri->id,
                         'rental_id' => $ri->rental_id,
@@ -787,6 +912,15 @@ class RentalEditor extends Component
                         ),
                     ])
                     ->all();
+
+                \Illuminate\Support\Facades\Log::info('RentalEditor PULL candidate query', [
+                    'rental_id' => $this->record->id,
+                    'product_id' => $productId,
+                    'variation_id' => $variationId,
+                    'start' => $startCarbon?->toIso8601String(),
+                    'end' => $endCarbon?->toIso8601String(),
+                    'matches_count' => count($pullCandidates),
+                ]);
             }
         }
 
