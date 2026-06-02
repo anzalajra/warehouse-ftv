@@ -38,6 +38,21 @@ class AppServiceProvider extends ServiceProvider
 
          \Illuminate\Support\Facades\URL::forceScheme('https');
 
+         // Auto-create the public/storage symlink if missing (self-heals on every
+         // deploy where public/ is rebuilt fresh while storage/ persists in a volume,
+         // so we never have to run `php artisan storage:link` manually again).
+         try {
+             $link = public_path('storage');
+             $target = storage_path('app/public');
+
+             if (! is_link($link) && ! is_dir($link) && is_dir($target)) {
+                 // Prefer a relative symlink so the link stays valid across containers.
+                 @symlink($target, $link);
+             }
+         } catch (\Throwable $e) {
+             // Filesystem may be read-only or symlink() disabled — ignore silently.
+         }
+
          // Apply timezone from Setting (fallback Asia/Jakarta)
          try {
              $tz = Setting::get('app_timezone') ?: 'Asia/Jakarta';
