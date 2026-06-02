@@ -76,8 +76,8 @@
                 <tbody>
                     @foreach($rental->items as $item)
                     <tr class="border-b border-gray-100">
-                        <td class="py-3 pr-4">{{ $item->productUnit->product->name }}</td>
-                        <td class="py-3 pr-4">{{ $item->productUnit->serial_number }}</td>
+                        <td class="py-3 pr-4">{{ $item->productUnit?->product?->name ?? $item->product?->name ?? '—' }}</td>
+                        <td class="py-3 pr-4">{{ $item->productUnit?->serial_number ?? '(belum di-assign)' }}</td>
                         <td class="py-3 pr-4">{{ $item->rentalItemKits->count() }} kits</td>
                         <td class="py-3 pr-4">{{ $item->days }}</td>
                         <td class="py-3 text-right">Rp {{ number_format($item->subtotal, 0, ',', '.') }}</td>
