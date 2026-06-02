@@ -53,9 +53,19 @@ Default DB is **SQLite** (`.env.example`). Session/queue/cache all use `database
 
 ## Architecture
 
+### Product / inventory hierarchy
+
+`Product` → `ProductVariation` (optional) → `ProductUnit` (serial-tracked physical unit) → `UnitKit` (accessory components attached to a unit).
+
+- A product has *either* no variations (bare `product_id` composite key) *or* one-or-more variations (composite key `{product_id}:{variation_id}`). This distinction drives the `composite_id` format throughout the rental editor and all availability queries.
+- `ProductUnit` is the schedulable atom — availability checks, `RentalItem`, and calendar events all operate at this level.
+- `UnitKit` records accessory components (e.g. "battery pack A1") hanging off a `ProductUnit`. When `track_by_serial = true`, `UnitKitObserver::saving` calls `KitUnitLinker` to auto-resolve (or create) a shadow `ProductUnit` for the kit slot, stored as `linked_unit_id`. This keeps component serials independently trackable.
+- `RentalValidationService` also enforces operational schedule (JSON setting `operational_schedule`) and holidays (JSON setting `holidays`). It is used for both rental and computer-booking date validation.
+- `Product.buffer_time` (days) pads the post-return unavailability window to prevent back-to-back bookings without maintenance time.
+
 ### The Rental domain is the center of gravity
 
-Everything revolves around the `Rental` model and its lifecycle: `quotation` → `confirmed` → (active) → `returned` / `partial_return` / `cancelled`. Critical pieces:
+Everything revolves around the `Rental` model and its lifecycle: `quotation` → `confirmed` → `active` → `completed` / `partial_return` / `cancelled`. Additional statuses: `late_pickup` (confirmed, past start, not picked up) and `late_return` (active, past end date). Full constant list on `Rental`: `STATUS_QUOTATION`, `STATUS_CONFIRMED`, `STATUS_ACTIVE`, `STATUS_COMPLETED`, `STATUS_CANCELLED`, `STATUS_LATE_PICKUP`, `STATUS_LATE_RETURN`, `STATUS_PARTIAL_RETURN`. Critical pieces:
 
 - `app/Models/Rental.php` + `RentalItem` + `RentalItemKit` — rental with per-unit breakdown, including kit-level serial tracking.
 - `app/Services/RentalValidationService.php` — double-booking prevention, product unit conflict resolution, date overlap checks. Any code that creates/edits rentals or checks availability should go through this service.
@@ -75,15 +85,20 @@ Everything revolves around the `Rental` model and its lifecycle: `quotation` →
 
 ### Cross-rental unit Move / Swap
 
-Fitur untuk memindahkan / menukar `RentalItem` antar rental yang berbeda — solusi untuk kasus konflik booking: unit X sudah ter-booking di Rental A, lalu Rental B juga butuh unit X di periode overlap. Daripada "menolak karena stok 0", admin bisa MOVE unit dari A ke B, atau SWAP (X di A ↔ Y di B).
+Fitur untuk memindahkan / menukar / menarik `RentalItem` antar rental yang berbeda — solusi untuk kasus konflik booking: unit X sudah ter-booking di Rental A, lalu Rental B juga butuh unit X di periode overlap. Daripada "menolak karena stok 0", admin bisa **MOVE** unit dari A ke B, **SWAP** (X di A ↔ Y di B), atau **PULL** (tarik unit dari A untuk mengisi slot kosong di B yang sedang diedit).
 
-- [`app/Services/RentalItemTransferService.php`](app/Services/RentalItemTransferService.php) — service inti dengan dua method publik: `move(RentalItem $sourceItem, Rental $targetRental)` dan `swap(RentalItem $itemA, RentalItem $itemB)`. Semua operasi dalam DB transaction.
+- [`app/Services/RentalItemTransferService.php`](app/Services/RentalItemTransferService.php) — service inti dengan dua method publik: `move(RentalItem $sourceItem, Rental $targetRental)` dan `swap(RentalItem $itemA, RentalItem $itemB)`. Semua operasi dalam DB transaction. (Mode **PULL** di UI = `move()` terbalik: `move($itemDariRentalLain, $this->record)`.)
+- **MOVE = transfer assignment unit, BUKAN pindah baris.** Yang dipindah adalah `product_unit_id`-nya, bukan `rental_id`:
+  - **Rental sumber TETAP punya line produknya.** Source `RentalItem` di-null-kan `product_unit_id`-nya → jadi **ghost slot** (slot kosong). Quantity di sumber tidak berubah, hanya jumlah unit ter-assign yang turun. Produk **tidak pernah dihapus** dari tabel items. `product_id`/`product_variation_id` dipertahankan agar baris tetap merender produk yang sama.
+  - **Rental tujuan**: kalau sudah ada ghost slot yang cocok (`product_unit_id` null, `product_id`/`variation` sama) → slot itu **diisi** (quantity TIDAK bertambah — ini kasus PULL: slot kosong "+N kosong" yang sudah dibuat user). Kalau tidak ada ghost slot cocok → buat baris baru = penambahan stok asli (quantity +1). Logika di `RentalItemTransferService::findGhostSlot()`.
+  - Ini menjadikan MOVE simetris dengan SWAP (yang juga tukar `product_unit_id`, kedua baris tetap di rentalnya).
 - **Guard status**: kedua sisi rental harus berstatus `QUOTATION`, `CONFIRMED`, atau `LATE_PICKUP`. Status `ACTIVE`/`LATE_RETURN`/`PARTIAL_RETURN`/`COMPLETED`/`CANCELLED` ditolak (lawan rental "belum dipickup" only). Konstanta `RentalItemTransferService::TRANSFERABLE_STATUSES`.
-- **Recalc total**: tidak dilakukan manual di service. `RentalItem::$touches = ['rental']` otomatis trigger `RentalObserver::updated` saat item disimpan — observer yang handle subtotal/discount/tax/total lengkap. Untuk rental SUMBER setelah MOVE (yang sudah tidak lagi ter-touch karena item pindah), service explicitly memanggil `$sourceRental->touch()`.
-- **Hooks otomatis**: `RentalItem::saved` hook auto-relink parent/child kit di rental tujuan saat MOVE; `RentalItem::updated` hook auto-delete old kits & attach new kits saat SWAP (karena `product_unit_id` berubah).
+- **Recalc total**: tidak dilakukan manual di service. `RentalItem::$touches = ['rental']` otomatis trigger `RentalObserver::updated` saat item disimpan — observer yang handle subtotal/discount/tax/total lengkap. Karena MOVE sekarang menyimpan satu `RentalItem` di **masing-masing** rental (source jadi ghost, target dapat unit), kedua rental ter-touch otomatis — **tidak perlu** `$sourceRental->touch()` manual lagi (catatan: ghost slot sumber tetap punya subtotal `daily_rate × days`, jadi nilai sumber tidak berubah; sumber "masih memesan" produk, hanya butuh assign unit baru).
+- **Konflik**: setelah operasi, service cek `checkAvailability()` di rental tujuan; jika muncul konflik baru, **seluruh DB transaction di-rollback** (`RuntimeException`).
+- **Hooks otomatis**: saat `product_unit_id` berubah, `RentalItem::updated` hook auto-delete kit lama & attach kit baru; `RentalItem::saved` hook auto-relink parent/child kit. **Penting**: `attachKitsFromUnit()` sekarang early-return bila `productUnit` null (ghost slot tidak punya unit untuk diambil kitnya), dan reverse-check di `saved` hook di-skip saat `product_unit_id` null (kalau tidak, `where('unit_id', null)` jadi `whereNull` dan salah match).
 - **Audit**: tidak ada activity log package. Service append catatan ke kolom `notes` kedua rental via `updateQuietly()` (agar tidak re-trigger observer), format `[YYYY-MM-DD HH:mm] MOVE/SWAP ... oleh {email}`. Plus `Log::info('RentalItem MOVE/SWAP', [...])`.
 - **UI** di `RentalEditor`:
-  - Method publik: `openMoveModal($unitId)`, `openSwapModal($unitId)` (per-serial), `openTransferForRow($itemKey, $mode)` (per row group — auto-pick unit jika row hanya punya 1 serial).
+  - Method publik: `openMoveModal($unitId)`, `openSwapModal($unitId)` (per-serial), `openTransferForRow($itemKey, $mode)` (per row group — auto-pick unit jika row hanya punya 1 serial), `openPullModal($itemKey)` (tarik unit dari rental lain untuk isi slot kosong row ini).
   - Sebelum modal dibuka, `beginTransfer()` **auto-save** editor state via `persistInline()` agar source RentalItem benar-benar ada di DB. Setelah `confirmTransfer()` sukses, `redirect()` ke URL edit yang sama untuk reload state.
   - Tombol akses: (a) icon "transfer" (dua panah berputar) di row item desktop & mobile → dropdown "Move ke rental lain" / "Swap dengan rental lain"; (b) link kecil **Move · Swap** di tiap slot unit yang sudah ter-assign di Unit Modal. Hanya muncul kalau `canTransfer` true (rental berstatus eligible + record sudah exist).
   - Modal transfer (di blade view) menampilkan: picker unit (kalau dibuka dari row dengan >1 unit), select rental tujuan (filtered ke status eligible), dan select unit lawan (mode swap saja).
@@ -98,6 +113,23 @@ There are **multiple** calendar surfaces — do not confuse them:
 - Per-product availability calendar on the catalog detail page.
 
 The `$colorMap` for rental statuses must stay consistent across these surfaces. `calendarfront.md` has design notes for the frontend calendar.
+
+### Rental operations: Pickup and Return
+
+Two custom Filament pages handle the physical handoff:
+
+- `app/Filament/Resources/Rentals/Pages/PickupOperation.php` — marks rental `active`, records which items and kit accessories were handed out, optionally creates a `Delivery` record for outgoing items.
+- `app/Filament/Resources/Rentals/Pages/ProcessReturn.php` — marks rental `completed` or `partial_return`, checks each item/kit back in, creates a return `Delivery`.
+
+Both pages render custom Blade views (not Filament form pages) and implement `HasTable` for the items checklist. `Delivery` + `DeliveryItem` models track the logistics record for both directions.
+
+### Promotions and discounts
+
+`PromotionService::calculatePromotions()` stacks three independent discount layers in order: (1) `DailyDiscount` — "rent N days pay M" type; (2) `DatePromotion` — special-date percentage discount applied to subtotal after daily discount; (3) manual `Discount` code. The admin UI for creating these lives at `app/Filament/Pages/Promotions.php`. All three discount amounts are stored separately on the `Rental` row (`daily_discount_amount`, `date_promotion_amount`, `discount`/`discount_type`) so each layer is independently auditable.
+
+### RBAC (Filament Shield)
+
+`bezhansalleh/filament-shield` provides Filament RBAC. Admin role names referenced in code: `super_admin`, `admin`, `staff`. Customer users (storefront) don't use roles — they're gated by `customer.auth` middleware only. Policies are auto-discovered by Shield; the sole hand-written policy is `CartPolicy` (registered in `AppServiceProvider`).
 
 ### Finance module (optional / advanced mode)
 
@@ -170,6 +202,8 @@ Shares with Rental domain: `users` table (customer auth via `customer.auth` midd
 
 `AdminPanelProvider` also reads settings to choose `top` vs `sidebar` navigation and forces top-nav on detected mobile user agents. Test panel layout changes on both.
 
+- **Timezone** — `AppServiceProvider::boot()` reads `app_timezone` from `Setting` and calls `date_default_timezone_set()`. Default is `Asia/Jakarta`. All Carbon/datetime operations are affected. Changed at **Settings → General**.
+
 ### Installation gate
 
 `routes/web.php` reads `storage/installed`. `SetupController` (`/setup/step1` … `/setup/step6`) creates that marker. When cloning fresh or after `storage:link`, ensure this file exists or the app will think it's uninstalled.
@@ -202,4 +236,7 @@ Posts, pages, navigation, tags are provided by the `lara-zeus/sky` plugin, regis
 - **Duplicate stubs for debugging** live in the repo root (`check_classes_v2.php`, `check_finance_data.php`, `check_schema.php`, `debug_serial.php`, `test_decode.php`). These are throwaway scripts, not part of the app — don't import from them.
 - **`layouts/guest.blade.php` is dual-mode**: it renders both `{{ $slot ?? '' }}` (component-style, e.g. `<x-guest-layout>` from `auth/*.blade.php`) AND `@yield('content')` (extends-style, used by `frontend/computers/mobile-kiosk-register*.blade.php`). Don't "clean it up" to one or the other without checking both consumer styles.
 - **Carbon 3 `diffInSeconds` returns signed**: `$now->diffInSeconds($earlierDate)` returns NEGATIVE because the parameter is "from" not "to". Several places in the codebase historically used this incorrectly with unsigned-int columns (e.g. `actual_duration_seconds`). Fix is `max(0, (int) abs(...))`. Watch for this when reading old code.
+- **`ProductUnitObserver` syncs kit serials**: when a `ProductUnit.serial_number` changes, `ProductUnitObserver::updated` silently (`updateQuietly`) updates all `UnitKit` rows that have `linked_unit_id = this unit` to carry the new serial. If you rename a serial via raw SQL and skip the observer, `KitUnitLinker` will fail to resolve that kit slot on the next save and may spawn a duplicate ghost unit.
+- **`UnitKitObserver` guards self-reference**: `UnitKitObserver::saving` throws `DomainException` if a kit slot's serial matches its own parent unit's serial, or belongs to another unit of the same product. This guard fires on all save paths, including console/seeders.
+- **Active rentals cannot be edited**: `Rental::canBeEdited()` returns false for `ACTIVE` / `LATE_RETURN` / `PARTIAL_RETURN` / `COMPLETED` / `CANCELLED`. `EditRental::mount()` redirects away from the editor if this returns false.
 - **Kiosk register page polling** (`checkin-register.blade.php`): polls `/kiosk/checkin/{slug}/status` (JSON endpoint returning `{has_active_booking, booking_id}`) every 5s. Only redirects when an active checked-in booking exists — not on every poll. The earlier version unconditionally redirected on each tick which caused the kiosk to bounce back to home every 8s. `ComputerCheckinController::show()` also auto-redirects to `kiosk.timer` when an `ACTIVE` + `checked_in_at` booking exists, so the post-mobile-register transition is seamless.

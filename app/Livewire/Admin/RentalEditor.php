@@ -76,6 +76,7 @@ class RentalEditor extends Component
     protected ?array $availMapCache = null;
     protected ?array $catalogRowsCache = null;
     protected ?array $bookedUnitIdsCache = null;
+    protected ?array $totalOwnedMapCache = null;
 
     public function updatedStartDate(): void
     {
@@ -360,6 +361,7 @@ class RentalEditor extends Component
     {
         $products = $this->loadProductsForCatalog($needle, $limit);
         $availMap = $this->availableCountMap();
+        $totalMap = $this->totalOwnedMap();
 
         $rows = [];
         foreach ($products as $p) {
@@ -376,6 +378,7 @@ class RentalEditor extends Component
                         'cat' => $cat,
                         'price' => (float) ($v->daily_rate ?? $p->daily_rate ?? 0),
                         'avail' => $availMap["{$p->id}:{$v->id}"] ?? 0,
+                        'total' => $totalMap["{$p->id}:{$v->id}"] ?? 0,
                         'image' => $img,
                     ];
                 }
@@ -389,6 +392,7 @@ class RentalEditor extends Component
                     'cat' => $cat,
                     'price' => (float) ($p->daily_rate ?? 0),
                     'avail' => $availMap["{$p->id}:0"] ?? 0,
+                    'total' => $totalMap["{$p->id}:0"] ?? 0,
                     'image' => $img,
                 ];
             }
@@ -433,6 +437,40 @@ class RentalEditor extends Component
 
         $this->availMapCache = ['_key' => $cacheKey, 'data' => $map];
         return $map;
+    }
+
+    /**
+     * Total physically-owned, rentable units per "{product_id}:{variation_id|0}".
+     * Same status/condition filter as availability, but WITHOUT excluding units
+     * booked elsewhere or already used in this rental — this is the absolute ceiling
+     * of how many units of a product a single rental can ever hold (the rest become
+     * empty slots filled via Transfer). Request-scoped cache; independent of dates.
+     */
+    protected function totalOwnedMap(): array
+    {
+        if ($this->totalOwnedMapCache !== null) {
+            return $this->totalOwnedMapCache;
+        }
+
+        $rows = ProductUnit::query()
+            ->selectRaw('product_id, COALESCE(product_variation_id, 0) as vid, COUNT(*) as c')
+            ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
+            ->whereNotIn('condition', ['broken', 'lost'])
+            ->groupBy('product_id', 'vid')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $r) {
+            $map["{$r->product_id}:{$r->vid}"] = (int) $r->c;
+        }
+
+        return $this->totalOwnedMapCache = $map;
+    }
+
+    /** Ceiling of rentable units owned for a product/variation (see totalOwnedMap). */
+    public function totalOwnedFor(int $productId, ?int $variationId): int
+    {
+        return $this->totalOwnedMap()["{$productId}:" . ($variationId ?: 0)] ?? 0;
     }
 
     /**
@@ -626,6 +664,25 @@ class RentalEditor extends Component
             : $product->name;
         $dailyRate = (float) ($product->daily_rate ?? 0);
 
+        // Hard cap: a rental can never hold more units of a product than physically
+        // owned. Anything beyond available is allowed (becomes empty slots → Transfer),
+        // but the line quantity may not exceed the total owned pool.
+        $total = $this->totalOwnedFor($productId, $variationId);
+        $existingQty = 0;
+        foreach ($this->items as $exIt) {
+            if ($exIt['composite_id'] === $compositeId) {
+                $existingQty = (int) $exIt['quantity'];
+                break;
+            }
+        }
+        $room = max(0, $total - $existingQty);
+        if ($room <= 0) {
+            $this->dispatch('rent-toast', message: "{$name}: maksimal {$total} unit (total dimiliki)");
+
+            return;
+        }
+        $qty = min($qty, $room);
+
         $available = $this->fetchAvailableUnitsCached($productId, $variationId);
 
         $availCount = $available->count();
@@ -640,11 +697,13 @@ class RentalEditor extends Component
                 ->send();
         }
 
-        // merge with existing line
+        // merge with existing line. Quantity grows by the (capped) requested amount —
+        // assigning available units first, the remainder staying as empty slots — so the
+        // stepper can climb up to the owned total just like the items-table qty input.
         foreach ($this->items as &$it) {
             if ($it['composite_id'] === $compositeId) {
                 $it['unit_ids'] = array_values(array_merge($it['unit_ids'], $newUnitIds));
-                $it['quantity'] = count($it['unit_ids']);
+                $it['quantity'] = (int) $it['quantity'] + $qty;
                 $this->dispatch('rent-toast', message: "{$name} qty +{$qty}");
 
                 return;
@@ -758,6 +817,18 @@ class RentalEditor extends Component
             if ($field === 'quantity') {
                 $newQty = max(1, (int) $value);
                 $oldQty = (int) $it['quantity'];
+
+                // Cap at the total units physically owned for this product/variation.
+                $total = $this->totalOwnedFor($it['product_id'], $it['variation_id']);
+                if ($total > 0 && $newQty > $total) {
+                    $newQty = $total;
+                    Notification::make()
+                        ->title('Melebihi total unit')
+                        ->body("Maksimal {$total} unit untuk produk ini (jumlah unit yang dimiliki).")
+                        ->warning()
+                        ->send();
+                }
+
                 if ($newQty === $oldQty) {
                     return;
                 }

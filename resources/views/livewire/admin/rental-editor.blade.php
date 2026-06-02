@@ -1027,6 +1027,7 @@
                                 $rowSubtotal = max(0, $gross - $gross * ((float) $it['discount'] / 100));
                                 $unitLabels = collect($it['unit_ids'])->map(fn($id) => $serialMap[$id] ?? '?')->all();
                                 $avail = $this->availableCount($it['product_id'], $it['variation_id']) + $assigned;
+                                $rowTotal = $this->totalOwnedFor($it['product_id'], $it['variation_id']);
                                 $stockCls = $avail === 0 ? 'out' : ($avail <= 2 ? 'low' : '');
                                 $product = $prodMap[$it['product_id']] ?? null;
                                 $variation = $it['variation_id'] ? ($varMap[$it['variation_id']] ?? null) : null;
@@ -1073,8 +1074,9 @@
                                 </div>
                                 <div class="qty-cell">
                                     <div class="qty-cell-inner">
-                                        <input type="number" min="1" class="cell-input"
+                                        <input type="number" min="1" @if($rowTotal > 0) max="{{ $rowTotal }}" @endif class="cell-input"
                                             value="{{ $it['quantity'] }}"
+                                            title="{{ $rowTotal > 0 ? 'Maks '.$rowTotal.' unit (total dimiliki)' : '' }}"
                                             wire:change="updateItem('{{ $it['key'] }}', 'quantity', $event.target.value)">
                                         <button type="button"
                                             class="unit-btn {{ $missing > 0 ? 'has-missing' : '' }}"
@@ -1472,6 +1474,7 @@
                                 $rowSubtotal = max(0, $gross - $gross * ((float) $it['discount'] / 100));
                                 $unitLabels = collect($it['unit_ids'])->map(fn($id) => $serialMap[$id] ?? '?')->all();
                                 $avail = $this->availableCount($it['product_id'], $it['variation_id']) + $assigned;
+                                $rowTotal = $this->totalOwnedFor($it['product_id'], $it['variation_id']);
                                 $stockCls = $avail === 0 ? 'out' : ($avail <= 2 ? 'low' : 'ok');
                                 $product = $prodMap[$it['product_id']] ?? null;
                                 $variation = $it['variation_id'] ? ($varMap[$it['variation_id']] ?? null) : null;
@@ -1539,10 +1542,11 @@
                                 </div>
                                 <div class="mitem-qty">
                                     <button type="button" wire:click="updateItem('{{ $it['key'] }}', 'quantity', {{ max(1, (int) $it['quantity'] - 1) }})">−</button>
-                                    <input type="number" min="1"
+                                    <input type="number" min="1" @if($rowTotal > 0) max="{{ $rowTotal }}" @endif
                                         value="{{ $it['quantity'] }}"
                                         wire:change="updateItem('{{ $it['key'] }}', 'quantity', $event.target.value)">
-                                    <button type="button" wire:click="updateItem('{{ $it['key'] }}', 'quantity', {{ (int) $it['quantity'] + 1 }})">+</button>
+                                    <button type="button" @disabled($rowTotal > 0 && (int) $it['quantity'] >= $rowTotal)
+                                        wire:click="updateItem('{{ $it['key'] }}', 'quantity', {{ (int) $it['quantity'] + 1 }})">+</button>
                                 </div>
                                 <div class="mitem-price">
                                     <strong>Rp {{ number_format($it['daily_rate'], 0, ',', '.') }}</strong>/hari
@@ -1704,8 +1708,12 @@
             foreach ($items as $__it) {
                 $cartQtyMap[$__it['composite_id']] = ($cartQtyMap[$__it['composite_id']] ?? 0) + (int) $__it['quantity'];
             }
+            $catalogMaxMap = [];
+            foreach ($this->catalogRows as $__r) {
+                $catalogMaxMap[$__r['composite_id']] = (int) $__r['total'];
+            }
         @endphp
-        <div x-data="catalogShared(@js($cartQtyMap))"
+        <div x-data="catalogShared(@js($cartQtyMap), @js($catalogMaxMap))"
              wire:key="catalog-shared-wrap">
         {{-- Mobile bottom sheet --}}
         <div class="mobile-view">
@@ -1776,7 +1784,7 @@
                     @endforeach
                 </div>
                 <div class="sheet-foot" style="display:flex; align-items:center; gap:8px;">
-                    <span wire:loading wire:target="addProductsBatch,decrementByComposite" style="display:inline-flex; align-items:center; gap:6px; color: var(--fg-3); font-size:12px;">
+                    <span x-show="syncing" x-cloak style="display:inline-flex; align-items:center; gap:6px; color: var(--fg-3); font-size:12px;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                         Sinkron…
                     </span>
@@ -1849,8 +1857,8 @@
                     </div>
                     <div class="modal-foot">
                         <span style="color: var(--fg-3); font-size:13px;">
-                            <span wire:loading.remove wire:target="addProductsBatch,decrementByComposite">Klik produk untuk menambahkan ke rental</span>
-                            <span wire:loading wire:target="addProductsBatch,decrementByComposite" style="display:inline-flex; align-items:center; gap:6px;">
+                            <span x-show="!syncing">Klik produk untuk menambahkan ke rental</span>
+                            <span x-show="syncing" x-cloak style="display:inline-flex; align-items:center; gap:6px;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                                 Menyinkronkan…
                             </span>
@@ -2267,15 +2275,38 @@
     // cart map but updates immediately on click so the user sees feedback while the
     // Livewire round-trip is in flight. The server response (which re-renders the
     // blade with a fresh seed) takes over on the next sync — see Alpine.morph rules.
-    function catalogShared(seed) {
+    function catalogShared(seed, maxMap) {
         return {
             localQty: Object.assign({}, seed || {}),
+            // Per-composite ceiling = total units physically owned. Mirrors the server
+            // cap in addProduct()/updateItem so the stepper stops at the owned total.
+            maxQty: Object.assign({}, maxMap || {}),
             // Coalesce rapid clicks into a single Livewire call per composite_id to
             // avoid the editor recomputing avail map N times in a row.
             _pendingAdd: {},
             _flushTimer: null,
+            // Spinner state is Alpine-owned (not wire:loading) because the catalog
+            // modal — including the loading spans — is re-rendered by the catalogRows
+            // computed on every request. A morphed-in wire:loading element gets the
+            // server's default (visible) state and never gets re-hidden, so the spinner
+            // sticks on forever. Tracking in-flight calls here survives the morph
+            // because this x-data root carries a wire:key.
+            _inflight: 0,
+            get syncing() { return this._inflight > 0; },
+            _track(promise) {
+                this._inflight++;
+                Promise.resolve(promise).finally(() => {
+                    if (this._inflight > 0) this._inflight--;
+                });
+            },
             add(compositeId) {
-                this.localQty[compositeId] = (this.localQty[compositeId] || 0) + 1;
+                const max = this.maxQty[compositeId];
+                const cur = this.localQty[compositeId] || 0;
+                if (max !== undefined && cur >= max) {
+                    this.$dispatch('rent-toast', { message: `Maksimal ${max} unit (total dimiliki)` });
+                    return;
+                }
+                this.localQty[compositeId] = cur + 1;
                 this._pendingAdd[compositeId] = (this._pendingAdd[compositeId] || 0) + 1;
                 this._scheduleFlush();
             },
@@ -2285,7 +2316,7 @@
                 this.localQty[compositeId] = cur - 1;
                 // Decrement is server-authoritative (no batching) so unit_ids stays consistent.
                 this._flushPending();
-                @this.call('decrementByComposite', compositeId);
+                this._track(@this.call('decrementByComposite', compositeId));
             },
             _scheduleFlush() {
                 if (this._flushTimer) clearTimeout(this._flushTimer);
@@ -2300,7 +2331,7 @@
                     batch.push({ id: cid, qty: pending[cid] });
                 }
                 if (batch.length === 0) return;
-                @this.call('addProductsBatch', batch);
+                this._track(@this.call('addProductsBatch', batch));
             },
         };
     }

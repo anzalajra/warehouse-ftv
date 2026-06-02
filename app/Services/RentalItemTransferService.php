@@ -18,6 +18,19 @@ class RentalItemTransferService
         Rental::STATUS_LATE_PICKUP,
     ];
 
+    /**
+     * Move a single physical unit (serial) from a source rental item into a target rental.
+     *
+     * The unit's *assignment* is transferred, not the row itself:
+     *  - Source rental KEEPS its product line; the source item becomes an empty
+     *    "ghost" slot (product_unit_id = null). Its quantity is unchanged — only the
+     *    assigned-unit count drops by one. The product is never removed from the table.
+     *  - Target rental: if it already has a matching empty slot for the same
+     *    product/variation, that slot is FILLED (quantity unchanged). Otherwise a new
+     *    row is created — a genuine stock addition (quantity +1).
+     *
+     * Returns the target-side RentalItem now holding the unit.
+     */
     public function move(RentalItem $sourceItem, Rental $targetRental): RentalItem
     {
         $sourceRental = $sourceItem->rental;
@@ -30,6 +43,9 @@ class RentalItemTransferService
         }
 
         $unitId = $sourceItem->product_unit_id;
+        if (!$unitId) {
+            throw new RuntimeException('Item sumber belum punya unit serial untuk dipindahkan.');
+        }
 
         $duplicate = $targetRental->items()
             ->where('product_unit_id', $unitId)
@@ -39,26 +55,48 @@ class RentalItemTransferService
             throw new RuntimeException('Rental tujuan sudah memiliki unit ini.');
         }
 
+        // Resolve product/variation for ghost-slot matching (fall back to the unit itself
+        // for older rows that may not have product_id populated).
+        $productId = $sourceItem->product_id ?? $sourceItem->productUnit?->product_id;
+        $variationId = $sourceItem->product_variation_id ?? $sourceItem->productUnit?->product_variation_id;
+
         $serial = $sourceItem->productUnit?->serial_number ?? '#'.$unitId;
         $sourceCode = $sourceRental->rental_code;
         $targetCode = $targetRental->rental_code;
 
-        return DB::transaction(function () use ($sourceItem, $sourceRental, $targetRental, $serial, $sourceCode, $targetCode) {
+        return DB::transaction(function () use ($sourceItem, $sourceRental, $targetRental, $unitId, $productId, $variationId, $serial, $sourceCode, $targetCode) {
+            // ── Target side: assign the unit ──
+            // Prefer filling an existing empty slot so we don't inflate the target's
+            // quantity. Only create a new row when there's no slot waiting (real stock add).
+            $targetItem = $this->findGhostSlot($targetRental, $productId, $variationId);
+
+            if ($targetItem) {
+                $targetItem->parent_item_id = null;
+                $targetItem->product_unit_id = $unitId;
+                $targetItem->days = $this->calcDays($targetRental);
+                $targetItem->save(); // updated hook attaches kits in target
+            } else {
+                $targetItem = $targetRental->items()->create([
+                    'product_unit_id' => $unitId,
+                    'product_id' => $productId,
+                    'product_variation_id' => $variationId,
+                    'daily_rate' => $sourceItem->daily_rate,
+                    'days' => $this->calcDays($targetRental),
+                    'discount' => $sourceItem->discount,
+                ]);
+            }
+
+            // ── Source side: keep the row as an empty ghost slot (don't delete the line) ──
+            // Nulling product_unit_id fires RentalItem::updated → its kits are detached.
             $sourceItem->parent_item_id = null;
-            $sourceItem->rental_id = $targetRental->id;
-            $sourceItem->days = $this->calcDays($targetRental);
+            $sourceItem->product_unit_id = null;
+            // Preserve product/variation so the row still renders as the same product.
+            $sourceItem->product_id = $productId;
+            $sourceItem->product_variation_id = $variationId;
             $sourceItem->save();
 
-            // Re-link children left behind in source rental: their parent moved away.
-            // They will simply be unlinked (parent_item_id was on the moved item).
-            // No further action required — RentalItem::saved hook tries to re-link in the NEW rental.
-
-            // RentalItem has $touches = ['rental'], so saving above already triggered
-            // RentalObserver::updated on the new (target) rental. The source rental,
-            // however, was NOT touched because the item no longer belongs to it — bump
-            // its updated_at explicitly so the observer recalculates its totals too.
-            $sourceRental->touch();
-
+            // Both rentals own a touched RentalItem now, so RentalObserver::updated has
+            // already fired for each via $touches = ['rental']. No manual total recalc here.
             $sourceRental->refresh();
             $targetRental->refresh();
 
@@ -73,15 +111,39 @@ class RentalItemTransferService
             $this->appendNote($targetRental, "MOVE unit {$serial} ← {$sourceCode}");
 
             Log::info('RentalItem MOVE', [
-                'rental_item_id' => $sourceItem->id,
-                'product_unit_id' => $sourceItem->product_unit_id,
+                'source_item_id' => $sourceItem->id,
+                'target_item_id' => $targetItem->id,
+                'product_unit_id' => $unitId,
                 'from_rental_id' => $sourceRental->id,
                 'to_rental_id' => $targetRental->id,
+                'filled_existing_slot' => $targetItem->wasRecentlyCreated === false,
                 'user_id' => Auth::id(),
             ]);
 
-            return $sourceItem->fresh();
+            return $targetItem->fresh();
         });
+    }
+
+    /**
+     * Find an empty slot (ghost RentalItem with no assigned serial) in $rental for the
+     * given product/variation, so a moved unit can fill it instead of adding quantity.
+     */
+    private function findGhostSlot(Rental $rental, ?int $productId, ?int $variationId): ?RentalItem
+    {
+        if (!$productId) {
+            return null;
+        }
+
+        return $rental->items()
+            ->whereNull('product_unit_id')
+            ->whereNull('parent_item_id')
+            ->where('product_id', $productId)
+            ->when(
+                $variationId,
+                fn ($q) => $q->where('product_variation_id', $variationId),
+                fn ($q) => $q->whereNull('product_variation_id'),
+            )
+            ->first();
     }
 
     public function swap(RentalItem $itemA, RentalItem $itemB): void

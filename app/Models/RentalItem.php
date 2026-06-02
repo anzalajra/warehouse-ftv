@@ -73,10 +73,14 @@ class RentalItem extends Model
 
             // Reverse check: Is THIS item a parent to any existing unlinked items?
             // (Handles case where Child is saved before Parent)
-            $childUnitIds = \App\Models\UnitKit::where('unit_id', $item->product_unit_id)
-                ->whereNotNull('linked_unit_id')
-                ->pluck('linked_unit_id');
-            
+            // Skip for ghost slots: a null product_unit_id would make the query below
+            // resolve to whereNull('unit_id') and match unrelated kit rows.
+            $childUnitIds = $item->product_unit_id
+                ? \App\Models\UnitKit::where('unit_id', $item->product_unit_id)
+                    ->whereNotNull('linked_unit_id')
+                    ->pluck('linked_unit_id')
+                : collect();
+
             if ($childUnitIds->isNotEmpty()) {
                  // Find unlinked items in this rental that match these child units
                  $unlinkedChildren = \App\Models\RentalItem::where('rental_id', $item->rental_id)
@@ -142,6 +146,11 @@ class RentalItem extends Model
      */
     public function attachKitsFromUnit(): void
     {
+        // Ghost slots (no assigned serial) have no unit to pull kits from.
+        if (! $this->productUnit) {
+            return;
+        }
+
         $kits = $this->productUnit->kits()
             ->whereNotIn('condition', ['broken', 'lost']) // Filter out broken/lost kits
             ->get();
