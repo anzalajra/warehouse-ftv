@@ -34,7 +34,8 @@ class ViewRental extends Page
     {
         $this->rental = Rental::with([
             'user',
-            'items.productUnit.product',
+            'items.productUnit.product.category',
+            'items.product.category',
             'items.rentalItemKits.unitKit'
         ])->findOrFail($record);
     }
