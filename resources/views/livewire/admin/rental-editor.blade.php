@@ -83,6 +83,9 @@
         .rent-app .mobile-view  { display: none; }
         @media (max-width: 768px) {
             .rent-app .desktop-view { display: none; }
+            /* Desktop toast lives outside .desktop-view, so hide it explicitly on mobile
+               (mobile has its own .mtoast) — otherwise both fire on rent-toast and stack. */
+            .rent-app .toast { display: none !important; }
             .rent-app .mobile-view  { display: flex; flex-direction: column; min-height: 100vh; background: #f3f1ed; margin: 0 -1rem; }
             .dark .rent-app .mobile-view { background: #09090b; }
         }
