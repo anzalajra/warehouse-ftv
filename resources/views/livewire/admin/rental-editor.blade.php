@@ -1461,6 +1461,52 @@
             font: 800 15px var(--font-sans); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
         }
         .rent-app .mobile-view .btn-wide-danger:active { background: var(--danger-700); }
+
+        /* ===========================================================
+           Shared modals → bottom sheets on mobile (Kelola unit, Transfer,
+           Hapus item, Buat customer). CSS-only: markup is shared with desktop,
+           so all interaction/functionality is preserved — only the presentation
+           changes to match the Opsi B bottom-sheet language.
+           =========================================================== */
+        @media (max-width: 768px) {
+            .rent-app .modal-backdrop {
+                align-items: flex-end;
+                padding: 0;
+                background: rgba(15,18,25,.42);
+            }
+            .rent-app .modal {
+                max-width: 100% !important;
+                width: 100%;
+                max-height: 88vh;
+                border-radius: 22px 22px 0 0;
+                box-shadow: 0 -10px 40px rgba(0,0,0,.18);
+                animation: sheet-in .24s cubic-bezier(.2,.8,.2,1);
+            }
+            /* drag-handle grip (first flex child of the column) */
+            .rent-app .modal::before {
+                content: '';
+                display: block; flex: 0 0 auto;
+                width: 38px; height: 4px; border-radius: 99px;
+                background: var(--gray-200); margin: 9px auto 1px;
+            }
+            .rent-app .modal-head { padding: 8px 18px 12px; }
+            .rent-app .modal-head h3 { font-size: 16px; font-weight: 800; }
+            /* close button → rounded gray square like the sheet style */
+            .rent-app .modal-head .btn-ghost.btn-icon {
+                width: 32px; height: 32px; border-radius: 9px;
+                background: var(--gray-100); color: var(--fg-2);
+            }
+            /* footer → full-width stacked-feel action buttons */
+            .rent-app .modal-foot {
+                gap: 11px;
+                padding: 12px 18px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+                justify-content: stretch !important;
+            }
+            .rent-app .modal-foot .btn {
+                flex: 1; height: 50px; border-radius: 14px;
+                font-size: 15px; font-weight: 700; justify-content: center;
+            }
+        }
     </style>
     <div class="mobile-view" x-data="mobileUi()">
         <div class="mobile-subhead">
