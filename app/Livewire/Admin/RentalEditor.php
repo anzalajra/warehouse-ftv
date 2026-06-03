@@ -60,6 +60,12 @@ class RentalEditor extends Component
     public ?string $unitModalKey = null;
     public bool $catalogOpen = false;
 
+    // True once the user changes anything that isn't yet persisted to the DB.
+    // Drives the "Buang perubahan?" confirm sheet when leaving the mobile editor.
+    // Reset to false after a full save (which redirects/reloads) and after the
+    // inline auto-save used by the transfer flow.
+    public bool $isDirty = false;
+
     // Transfer (Move/Swap) modal
     public bool $transferModalOpen = false;
     public string $transferMode = 'move'; // 'move' | 'swap'
@@ -86,6 +92,28 @@ class RentalEditor extends Component
     public function updatedEndDate(): void
     {
         $this->invalidateAvailabilityCaches();
+    }
+
+    /**
+     * Generic Livewire update hook — flag the editor as dirty when a data-bearing
+     * field changes via wire:model. Pure UI state (search boxes, modal toggles) is
+     * ignored so we don't warn about changes that don't affect the saved rental.
+     */
+    public function updated(string $property): void
+    {
+        $dataProps = [
+            'customer_id', 'start_date', 'end_date', 'status',
+            'discount', 'discount_type', 'deposit', 'deposit_type',
+            'down_payment_amount', 'notes',
+        ];
+
+        foreach ($dataProps as $p) {
+            if ($property === $p || str_starts_with($property, $p.'.')) {
+                $this->isDirty = true;
+
+                return;
+            }
+        }
     }
 
     protected function invalidateAvailabilityCaches(): void
@@ -230,6 +258,7 @@ class RentalEditor extends Component
     {
         $this->customer_id = $id;
         $this->customerSearch = '';
+        $this->isDirty = true;
     }
 
     public function openNewCustomerModal(): void
@@ -651,6 +680,7 @@ class RentalEditor extends Component
     // ─── Item operations ───
     public function addProduct(string $compositeId, int $qty = 1): void
     {
+        $this->isDirty = true;
         [$productId, $variationId] = $this->parseComposite($compositeId);
 
         $product = $variationId
@@ -748,6 +778,7 @@ class RentalEditor extends Component
      */
     public function addProductsBatch(array $batch): void
     {
+        $this->isDirty = true;
         foreach ($batch as $entry) {
             $cid = (string) ($entry['id'] ?? '');
             $qty = max(1, (int) ($entry['qty'] ?? 1));
@@ -809,6 +840,7 @@ class RentalEditor extends Component
 
     public function updateItem(string $key, string $field, $value): void
     {
+        $this->isDirty = true;
         foreach ($this->items as $i => $it) {
             if ($it['key'] !== $key) {
                 continue;
@@ -870,6 +902,7 @@ class RentalEditor extends Component
     public function removeItem(string $key): void
     {
         $this->items = array_values(array_filter($this->items, fn ($it) => $it['key'] !== $key));
+        $this->isDirty = true;
     }
 
     /**
@@ -895,6 +928,7 @@ class RentalEditor extends Component
 
     public function reorder(array $orderedKeys): void
     {
+        $this->isDirty = true;
         $byKey = collect($this->items)->keyBy('key');
         $next = [];
         foreach ($orderedKeys as $k) {
@@ -929,6 +963,7 @@ class RentalEditor extends Component
         if (! $this->unitModalKey) {
             return;
         }
+        $this->isDirty = true;
         $clean = array_values(array_filter(array_map('intval', $unitIds)));
         foreach ($this->items as $i => $it) {
             if ($it['key'] === $this->unitModalKey) {
@@ -1329,6 +1364,9 @@ class RentalEditor extends Component
 
         RentalForm::syncRentalItems($this->record, $grouped);
         $this->record->refresh();
+
+        // Inline save persisted everything to the DB — nothing left unsaved.
+        $this->isDirty = false;
     }
 
     #[Computed]

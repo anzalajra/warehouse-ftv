@@ -15,6 +15,11 @@
         }
     }
     $currentStatus = $this->currentStatus;
+    // Back target: an existing rental returns to its view page; a brand-new draft
+    // (not yet saved) has nothing to view, so fall back to the rentals list.
+    $backUrl = ($record && $record->exists)
+        ? \App\Filament\Resources\Rentals\RentalResource::getUrl('view', ['record' => $record->getKey()])
+        : \App\Filament\Resources\Rentals\RentalResource::getUrl('index');
     $missingUnitsCount = 0;
     foreach ($items as $__it) {
         $missingUnitsCount += max(0, (int) $__it['quantity'] - count($__it['unit_ids']));
@@ -358,7 +363,7 @@
         .rent-app .mobile-view .mbody {
             flex: 1 1 auto;
             overflow-y: visible;
-            padding-bottom: 240px; /* dock + FAB + gr-bottombar */
+            padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); /* editbar (nav global disembunyikan di halaman ini) */
         }
         .rent-app .mobile-view .msec {
             background: #fff; margin: 10px 12px 0; border-radius: 14px; border: 1px solid var(--border-1); overflow: hidden;
@@ -1302,18 +1307,175 @@
     </div>
 
     {{-- ============================================================
-         MOBILE V1 — dedicated layout (matches design's RentalMobileV1)
+         MOBILE — Rental Edit "Opsi B" redesign
+         Item rows = card layout (name + ⋯ action sheet, unit chip, qty,
+         money), bottom = edit action bar (Tambah produk + Simpan).
          ============================================================ --}}
+    <style>
+        /* ----- Item card ----- */
+        .rent-app .mobile-view .item {
+            display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px;
+            padding: 13px 14px 14px; border-top: 1px solid var(--gray-100);
+            position: relative; background: #fff;
+        }
+        .dark .rent-app .mobile-view .item { background: var(--bg-surface); }
+        .rent-app .mobile-view .item:first-child { border-top: 0; }
+        .rent-app .mobile-view .item.dragging { opacity: .4; }
+        .rent-app .mobile-view .item.warn-row { background: color-mix(in srgb, var(--warning-50) 45%, #fff); }
+        .dark .rent-app .mobile-view .item.warn-row { background: color-mix(in srgb, var(--warning-50) 16%, var(--bg-surface)); }
+        .rent-app .mobile-view .item-grip {
+            grid-column: 1; grid-row: 1 / -1; align-self: flex-start; margin-top: 2px;
+            color: var(--fg-4); display: flex; cursor: grab; touch-action: none;
+        }
+        .rent-app .mobile-view .item-grip:active { cursor: grabbing; }
+        .rent-app .mobile-view .item > *:not(.item-grip) { grid-column: 2; }
+
+        .rent-app .mobile-view .item-top { display: flex; align-items: flex-start; gap: 8px; }
+        .rent-app .mobile-view .item-name {
+            flex: 1; min-width: 0; font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--fg-1);
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .rent-app .mobile-view .item-more {
+            width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border-1);
+            background: #fff; color: var(--fg-3); display: grid; place-items: center; flex: none; cursor: pointer;
+        }
+        .dark .rent-app .mobile-view .item-more { background: var(--bg-surface); }
+        .rent-app .mobile-view .item-more:active { background: var(--gray-100); }
+
+        .rent-app .mobile-view .item-sub { display: flex; align-items: center; gap: 8px; margin-top: 5px; flex-wrap: wrap; }
+        .rent-app .mobile-view .item-sku { font-size: 11px; color: var(--fg-3); }
+        .rent-app .mobile-view .disc-tag { font-size: 11px; font-weight: 700; color: var(--success-700); }
+
+        .rent-app .mobile-view .item-ctrl { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 11px; }
+
+        /* unit chip — tap = kelola unit */
+        .rent-app .mobile-view .unit-chip {
+            display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px 0 11px;
+            border: 1px solid var(--border-1); border-radius: 10px; background: #fff; cursor: pointer; flex: 1; min-width: 0;
+        }
+        .dark .rent-app .mobile-view .unit-chip { background: var(--bg-surface); }
+        .rent-app .mobile-view .unit-chip svg.lead { width: 15px; height: 15px; color: var(--fg-3); flex: none; }
+        .rent-app .mobile-view .unit-chip .uc-text { font-size: 12.5px; font-weight: 600; color: var(--fg-1); white-space: nowrap; flex: none; }
+        .rent-app .mobile-view .unit-chip .uc-serials { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+        .rent-app .mobile-view .unit-chip svg.chev { width: 13px; height: 13px; color: var(--fg-4); flex: none; }
+        .rent-app .mobile-view .unit-chip.warn { border-color: var(--warning-300); background: var(--warning-50); }
+        .rent-app .mobile-view .unit-chip.warn .uc-text { color: var(--warning-800); }
+        .rent-app .mobile-view .unit-chip.warn svg.lead { color: var(--warning-700); }
+        .rent-app .mobile-view .unit-chip.empty { border-color: var(--danger-200); background: var(--danger-50); }
+        .rent-app .mobile-view .unit-chip.empty .uc-text { color: var(--danger-700); }
+        .rent-app .mobile-view .uc-badge { background: var(--danger-600); color: #fff; font-size: 10px; font-weight: 700; border-radius: var(--radius-full); padding: 1px 6px; flex: none; }
+
+        /* qty stepper */
+        .rent-app .mobile-view .item .qty {
+            display: flex; align-items: center; border: 1px solid var(--border-1); border-radius: 10px;
+            overflow: hidden; height: 36px; flex: none; background: #fff;
+        }
+        .dark .rent-app .mobile-view .item .qty { background: var(--bg-surface); }
+        .rent-app .mobile-view .item .qty button {
+            width: 38px; height: 36px; border: 0; background: #fff; color: var(--fg-1);
+            font: 600 19px var(--font-sans); cursor: pointer; display: grid; place-items: center;
+        }
+        .dark .rent-app .mobile-view .item .qty button { background: var(--bg-surface); }
+        .rent-app .mobile-view .item .qty button:active { background: var(--gray-100); }
+        .rent-app .mobile-view .item .qty button:disabled { color: var(--gray-300); cursor: not-allowed; }
+        .rent-app .mobile-view .item .qty input {
+            width: 42px; height: 36px; border: 0; border-left: 1px solid var(--border-1); border-right: 1px solid var(--border-1);
+            text-align: center; font: 700 14px var(--font-sans); color: var(--fg-1); background: transparent;
+            -moz-appearance: textfield; outline: none;
+        }
+        .rent-app .mobile-view .item .qty input::-webkit-outer-spin-button,
+        .rent-app .mobile-view .item .qty input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+        .rent-app .mobile-view .item-money { display: flex; align-items: baseline; justify-content: space-between; margin-top: 10px; }
+        .rent-app .mobile-view .item-rate { font-size: 12px; color: var(--fg-3); white-space: nowrap; }
+        .rent-app .mobile-view .item-rate b { color: var(--fg-2); font-weight: 700; }
+        .rent-app .mobile-view .item-total { font-size: 15px; font-weight: 800; color: var(--fg-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+        /* ----- Per-item action sheet (⋯) ----- */
+        .rent-app .mobile-view .act-list { padding: 8px; overflow-y: auto; }
+        .rent-app .mobile-view .act {
+            display: flex; align-items: center; gap: 13px; width: 100%; padding: 14px 12px; border: 0;
+            background: transparent; border-radius: 12px; cursor: pointer; text-align: left; font-family: var(--font-sans);
+        }
+        .rent-app .mobile-view .act:active { background: var(--gray-100); }
+        .rent-app .mobile-view .act .ai { width: 38px; height: 38px; border-radius: 10px; background: var(--gray-100); color: var(--fg-2); display: grid; place-items: center; flex: none; }
+        .rent-app .mobile-view .act .at { flex: 1; min-width: 0; }
+        .rent-app .mobile-view .act .at .att { display: block; font-size: 14.5px; font-weight: 700; color: var(--fg-1); }
+        .rent-app .mobile-view .act .at .ats { display: block; font-size: 12px; color: var(--fg-3); margin-top: 1px; }
+        .rent-app .mobile-view .act .chev { color: var(--fg-4); margin-left: auto; display: flex; }
+        .rent-app .mobile-view .act.danger .ai { background: var(--danger-50); color: var(--danger-600); }
+        .rent-app .mobile-view .act.danger .att { color: var(--danger-700); }
+        .rent-app .mobile-view .act-badge { margin-left: auto; background: var(--warning-100); color: var(--warning-800); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius-full); }
+        .rent-app .mobile-view .act-div { height: 1px; background: var(--gray-100); margin: 6px 14px; }
+        .rent-app .mobile-view .sheet-head .sh-sub { font-size: 12px; color: var(--fg-3); margin-top: 2px; font-weight: 500; }
+
+        /* In edit/new rental mode the global bottom nav is hidden — the editbar
+           replaces it (Opsi B: "navigasi disembunyikan sementara"). This rule only
+           exists in the DOM while this page is rendered, so it's effectively scoped. */
+        @media (max-width: 767px) {
+            .gr-bottombar { display: none !important; }
+        }
+
+        /* ----- Edit action bar (Opsi B) ----- */
+        .rent-app .mobile-view .editbar {
+            position: fixed; left: 0; right: 0;
+            bottom: 0;
+            background: #fff; border-top: 1px solid var(--border-1);
+            box-shadow: 0 -2px 10px rgba(20,24,31,.05), 0 -8px 30px rgba(20,24,31,.05);
+            padding: 11px 14px calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 35;
+        }
+        .dark .rent-app .mobile-view .editbar { background: var(--bg-surface); }
+        .rent-app .mobile-view .editbar .actions { display: flex; gap: 11px; }
+        .rent-app .mobile-view .editbar .btn-add {
+            flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; height: 50px;
+            border-radius: 14px; border: 1.5px solid var(--border-1); background: #fff; color: var(--fg-1);
+            font: 700 15px var(--font-sans); cursor: pointer;
+        }
+        .dark .rent-app .mobile-view .editbar .btn-add { background: var(--bg-surface); }
+        .rent-app .mobile-view .editbar .btn-add svg { color: var(--danger-600); }
+        .rent-app .mobile-view .editbar .btn-save {
+            flex: 1.35; display: flex; align-items: center; justify-content: center; gap: 8px; height: 50px;
+            border-radius: 14px; border: 0; background: var(--danger-600); color: #fff;
+            font: 800 16px var(--font-sans); cursor: pointer;
+            box-shadow: 0 4px 12px color-mix(in srgb, var(--danger-600) 30%, transparent);
+        }
+        .rent-app .mobile-view .editbar .btn-save:active { background: var(--danger-700); }
+        .rent-app .mobile-view .editbar .btn-save:disabled { opacity: .6; }
+
+        /* ----- "belum disimpan" indicator in header ----- */
+        .rent-app .mobile-view .msh-unsaved { color: var(--danger-600); font-weight: 600; white-space: nowrap; }
+        .rent-app .mobile-view .msh-unsaved .msh-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--danger-600); margin: 0 2px 0 4px; vertical-align: middle; }
+
+        /* ----- Discard-changes confirm sheet ----- */
+        .rent-app .mobile-view .confirm-pad { padding: 22px 18px 6px; }
+        .rent-app .mobile-view .confirm-pad h4 { margin: 0 0 6px; font-size: 17px; font-weight: 800; color: var(--fg-1); }
+        .rent-app .mobile-view .confirm-pad p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--fg-2); }
+        .rent-app .mobile-view .sheet-foot.confirm-foot { display: flex; gap: 11px; }
+        .rent-app .mobile-view .btn-wide-line {
+            flex: 1; height: 50px; border-radius: 14px; border: 1px solid var(--border-1); background: #fff; color: var(--fg-1);
+            font: 700 15px var(--font-sans); cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .dark .rent-app .mobile-view .btn-wide-line { background: var(--bg-surface); }
+        .rent-app .mobile-view .btn-wide-danger {
+            flex: 1; height: 50px; border-radius: 14px; border: 0; background: var(--danger-600); color: #fff;
+            font: 800 15px var(--font-sans); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none;
+        }
+        .rent-app .mobile-view .btn-wide-danger:active { background: var(--danger-700); }
+    </style>
     <div class="mobile-view" x-data="mobileUi()">
         <div class="mobile-subhead">
-            <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('index') }}" class="msh-back" aria-label="Kembali">
+            <a href="{{ $backUrl }}" class="msh-back" aria-label="Kembali"
+               @click="if ($wire.isDirty) { $event.preventDefault(); showDiscard = true; }">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </a>
             <div class="msh-title">
                 {{ $record && $record->exists ? 'Edit '.$rental_code : 'Buat Rental Baru' }}
-                @if($record && $record->exists)
-                    <span class="msh-sub">{{ $currentStatus['label'] }}</span>
-                @endif
+                <span class="msh-sub">
+                    @if($record && $record->exists){{ $currentStatus['label'] }}@endif
+                    <span x-show="$wire.isDirty" x-cloak class="msh-unsaved">
+                        @if($record && $record->exists)<span class="msh-dot"></span>@endif belum disimpan
+                    </span>
+                </span>
             </div>
             <div class="kebab-wrap" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
                 <button type="button" class="msh-kebab" @click="open = !open" aria-label="More actions" aria-haspopup="true" :aria-expanded="open">
@@ -1331,7 +1493,14 @@
                     </div>
                     <div class="cust-info">
                         <div class="cust-name">
-                            {{ $custInfo['name'] ?? 'Pilih customer' }}
+                            @if($custInfo)
+                                <a href="{{ \App\Filament\Resources\Customers\CustomerResource::getUrl('view', ['record' => $custInfo['id']]) }}"
+                                   target="_blank" rel="noopener"
+                                   style="color: var(--fg-1); text-decoration: none;"
+                                   title="Lihat detail customer">{{ $custInfo['name'] }}</a>
+                            @else
+                                Pilih customer
+                            @endif
                             @if($custInfo)
                                 @php $vsM = $custInfo['verification_status'] ?? 'not_verified'; @endphp
                                 @if($vsM === 'verified')
@@ -1482,79 +1651,107 @@
                                 $product = $prodMap[$it['product_id']] ?? null;
                                 $variation = $it['variation_id'] ? ($varMap[$it['variation_id']] ?? null) : null;
                                 $displayName = $variation ? ($product?->name.' ('.$variation->name.')') : ($product?->name ?? '—');
+                                $catName = $product?->category?->name ?? 'Lainnya';
                             @endphp
-                            <div class="mitem" wire:key="mrow-{{ $it['key'] }}" data-key="{{ $it['key'] }}">
-                                <div class="mitem-grip" data-drag-handle draggable="true" aria-label="Drag">
+                            <div class="item {{ $missing > 0 ? 'warn-row' : '' }}" wire:key="mrow-{{ $it['key'] }}" data-key="{{ $it['key'] }}" x-data="{ act: false }">
+                                <div class="item-grip" data-drag-handle draggable="true" aria-label="Drag untuk urutkan">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>
                                 </div>
-                                <div class="mitem-thumb">📦</div>
-                                <div class="mitem-prod">
-                                    <div class="mitem-name">{{ $displayName }}</div>
-                                    <div class="mitem-trail">
-                                        <button type="button"
-                                            class="unit-btn sm {{ $missing > 0 ? 'has-missing' : '' }}"
-                                            wire:click="openUnitModal('{{ $it['key'] }}')"
-                                            title="{{ $missing > 0 ? $missing.' unit kosong' : 'Kelola unit' }}">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="20" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>
-                                            @if($missing > 0)<span class="unit-btn-badge">{{ $missing }}</span>@endif
-                                        </button>
-                                        @if($this->canTransfer && ($assigned > 0 || $missing > 0))
-                                            <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; display:inline-block;">
-                                                <button type="button" class="iconbtn" title="Transfer unit" @click="open = !open">
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                                                </button>
-                                                <div x-show="open" x-cloak
-                                                    style="position: absolute; right: 0; top: 100%; margin-top: 4px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,.08); z-index: 30; min-width: 200px; padding: 4px;">
-                                                    @if($missing > 0)
-                                                        <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left; color: var(--success-700, #15803d); font-weight:600;"
-                                                            wire:click="openPullModal('{{ $it['key'] }}')" @click="open = false">Tarik dari rental lain ({{ $missing }})</button>
-                                                        @if($assigned > 0)
-                                                            <div style="height:1px; background: #e5e7eb; margin: 4px 2px;"></div>
-                                                        @endif
-                                                    @endif
-                                                    @if($assigned > 0)
-                                                        <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left;"
-                                                            wire:click="openTransferForRow('{{ $it['key'] }}', 'move')" @click="open = false">Move ke rental lain</button>
-                                                        <button type="button" style="display:block; width:100%; padding:8px 10px; border:0; background:transparent; cursor:pointer; font-size:13px; text-align:left;"
-                                                            wire:click="openTransferForRow('{{ $it['key'] }}', 'swap')" @click="open = false">Swap dengan rental lain</button>
-                                                    @endif
-                                                </div>
-                                            </div>
-                                        @endif
-                                        <button type="button" class="iconbtn"
-                                            @click="$dispatch('confirm-remove-item', { key: '{{ $it['key'] }}', name: @js($displayName) })">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
-                                        </button>
-                                    </div>
+
+                                <div class="item-top">
+                                    <div class="item-name">{{ $displayName }}</div>
+                                    <button type="button" class="item-more" @click="act = true" aria-label="Aksi lain">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+                                    </button>
                                 </div>
-                                <div class="mitem-meta">
-                                    @if($assigned === 0)
-                                        <span class="unit-inline empty">0 unit</span>
-                                    @else
-                                        <span class="unit-inline" title="{{ implode(', ', $unitLabels) }}">
-                                            <span class="unit-inline-text">{{ implode(', ', $unitLabels) }}</span>
-                                            @if($missing > 0)<span class="unit-inline-missing">+{{ $missing }}</span>@endif
-                                        </span>
-                                    @endif
-                                    <span class="dot"></span>
+
+                                <div class="item-sub">
+                                    <span class="item-sku">{{ $catName }}</span>
                                     <span class="stock-pill {{ $stockCls }}">{{ $avail === 0 ? 'Habis' : $avail.' stok' }}</span>
                                     @if((float) $it['discount'] > 0)
-                                        <span class="dot"></span>
-                                        <span style="color: var(--success-700); font-weight: 600;">−{{ (int) $it['discount'] }}%</span>
+                                        <span class="disc-tag">−{{ rtrim(rtrim(number_format((float) $it['discount'], 2), '0'), '.') }}%</span>
                                     @endif
                                 </div>
-                                <div class="mitem-qty">
-                                    <button type="button" wire:click="updateItem('{{ $it['key'] }}', 'quantity', {{ max(1, (int) $it['quantity'] - 1) }})">−</button>
-                                    <input type="number" min="1" @if($rowTotal > 0) max="{{ $rowTotal }}" @endif
-                                        value="{{ $it['quantity'] }}"
-                                        wire:change="updateItem('{{ $it['key'] }}', 'quantity', $event.target.value)">
-                                    <button type="button" @disabled($rowTotal > 0 && (int) $it['quantity'] >= $rowTotal)
-                                        wire:click="updateItem('{{ $it['key'] }}', 'quantity', {{ (int) $it['quantity'] + 1 }})">+</button>
+
+                                <div class="item-ctrl">
+                                    <button type="button"
+                                        class="unit-chip {{ $assigned === 0 ? 'empty' : ($missing > 0 ? 'warn' : '') }}"
+                                        wire:click="openUnitModal('{{ $it['key'] }}')">
+                                        <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="20" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>
+                                        <span class="uc-text">{{ $assigned === 0 ? '0 unit' : ($missing > 0 ? $assigned.' dari '.$it['quantity'] : $assigned.' unit') }}</span>
+                                        @if($assigned > 0 && $missing === 0)
+                                            <span class="uc-serials">· {{ implode(', ', $unitLabels) }}</span>
+                                        @endif
+                                        @if($missing > 0)<span class="uc-badge">{{ $missing }} kosong</span>@endif
+                                        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                                    </button>
+                                    <div class="qty">
+                                        <button type="button" @disabled((int) $it['quantity'] <= 1)
+                                            wire:click="updateItem('{{ $it['key'] }}', 'quantity', {{ max(1, (int) $it['quantity'] - 1) }})">−</button>
+                                        <input type="number" min="1" @if($rowTotal > 0) max="{{ $rowTotal }}" @endif
+                                            value="{{ $it['quantity'] }}"
+                                            wire:change="updateItem('{{ $it['key'] }}', 'quantity', $event.target.value)">
+                                        <button type="button" @disabled($rowTotal > 0 && (int) $it['quantity'] >= $rowTotal)
+                                            wire:click="updateItem('{{ $it['key'] }}', 'quantity', {{ (int) $it['quantity'] + 1 }})">+</button>
+                                    </div>
                                 </div>
-                                <div class="mitem-price">
-                                    <strong>Rp {{ number_format($it['daily_rate'], 0, ',', '.') }}</strong>/hari
+
+                                <div class="item-money">
+                                    <span class="item-rate"><b>Rp {{ number_format($it['daily_rate'], 0, ',', '.') }}</b>/hari</span>
+                                    <span class="item-total">Rp {{ number_format($rowSubtotal, 0, ',', '.') }}</span>
                                 </div>
-                                <div class="mitem-sub">Rp {{ number_format($rowSubtotal, 0, ',', '.') }}</div>
+
+                                {{-- Per-item action sheet (⋯) --}}
+                                <div class="sheet-backdrop" x-show="act" x-cloak @click="act = false" style="display:none;"></div>
+                                <div class="sheet" x-show="act" x-cloak style="display:none;">
+                                    <div class="grip"></div>
+                                    <div class="sheet-head">
+                                        <div style="flex:1; min-width:0;">
+                                            <h3 style="white-space:normal;">{{ $displayName }}</h3>
+                                            <div class="sh-sub">{{ $catName }}</div>
+                                        </div>
+                                        <button type="button" class="sheet-close" @click="act = false">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+                                    <div class="act-list">
+                                        <button type="button" class="act" @click="act = false" wire:click="openUnitModal('{{ $it['key'] }}')">
+                                            <span class="ai"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="20" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+                                            <span class="at"><span class="att">Kelola unit</span><span class="ats">{{ $assigned }} dari {{ $it['quantity'] }} unit ditugaskan</span></span>
+                                            @if($missing > 0)
+                                                <span class="act-badge">{{ $missing }} kosong</span>
+                                            @else
+                                                <span class="chev"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                                            @endif
+                                        </button>
+                                        @if($this->canTransfer && $missing > 0)
+                                            <button type="button" class="act" @click="act = false" wire:click="openPullModal('{{ $it['key'] }}')">
+                                                <span class="ai"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7 7 7-7"/></svg></span>
+                                                <span class="at"><span class="att">Tarik dari rental lain</span><span class="ats">Isi {{ $missing }} unit kosong dari rental overlap</span></span>
+                                                <span class="chev"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                                            </button>
+                                        @endif
+                                        @if($this->canTransfer && $assigned > 0)
+                                            <button type="button" class="act" @click="act = false" wire:click="openTransferForRow('{{ $it['key'] }}', 'move')">
+                                                <span class="ai"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+                                                <span class="at"><span class="att">Pindahkan unit (Move)</span><span class="ats">Pindah unit ke rental lain</span></span>
+                                                <span class="chev"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                                            </button>
+                                            <button type="button" class="act" @click="act = false" wire:click="openTransferForRow('{{ $it['key'] }}', 'swap')">
+                                                <span class="ai"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span>
+                                                <span class="at"><span class="att">Swap dengan rental lain</span><span class="ats">Tukar unit antar dua rental</span></span>
+                                                <span class="chev"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                                            </button>
+                                        @endif
+                                        <div class="act-div"></div>
+                                        <button type="button" class="act danger"
+                                            @click="act = false; $dispatch('confirm-remove-item', { key: '{{ $it['key'] }}', name: @js($displayName) })">
+                                            <span class="ai"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg></span>
+                                            <span class="at"><span class="att">Hapus item</span><span class="ats">Keluarkan produk ini dari rental</span></span>
+                                        </button>
+                                    </div>
+                                    <div style="height: calc(10px + env(safe-area-inset-bottom, 0px));"></div>
+                                </div>
                             </div>
                         @endforeach
                     @endif
@@ -1658,36 +1855,31 @@
             </div>
         </div>
 
-        {{-- FAB --}}
-        <button type="button" class="fab" wire:click="$set('catalogOpen', true)" aria-label="Tambah produk">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-
-        {{-- Bottom dock --}}
-        <div class="mdock">
-            <div class="mdock-summary">
-                <div>
-                    <div class="mdock-meta">
-                        <span>{{ count($items) }} item</span>
-                        <span class="sep">·</span>
-                        <span>{{ $days }} hari</span>
-                        @if($missingUnitsCount > 0)
-                            <span class="sep">·</span>
-                            <span style="color: var(--danger-700); font-weight:600;">{{ $missingUnitsCount }} unit kosong</span>
-                        @endif
-                    </div>
-                    <div class="mdock-total">
-                        <span class="mdock-total-label">Total</span>
-                        <span class="mdock-total-val">Rp {{ number_format($totals['total'], 0, ',', '.') }}</span>
-                    </div>
-                </div>
-            </div>
-            <div class="mdock-actions">
-                <button type="button" class="btn-cancel" wire:click="cancel">Batal</button>
+        {{-- Edit action bar (Opsi B) — Tambah produk + Simpan. Batal via ← di header --}}
+        <div class="editbar">
+            <div class="actions">
+                <button type="button" class="btn-add" wire:click="$set('catalogOpen', true)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    Tambah produk
+                </button>
                 <button type="button" class="btn-save" wire:click="save" wire:loading.attr="disabled">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
                     {{ (! $record || ! $record->exists) ? 'Buat Rental' : 'Simpan' }}
                 </button>
+            </div>
+        </div>
+
+        {{-- Discard-changes confirm sheet (muncul saat back ditekan & ada perubahan belum disimpan) --}}
+        <div class="sheet-backdrop" x-show="showDiscard" x-cloak @click="showDiscard = false" style="display:none;"></div>
+        <div class="sheet" x-show="showDiscard" x-cloak style="display:none;">
+            <div class="grip"></div>
+            <div class="confirm-pad">
+                <h4>Buang perubahan?</h4>
+                <p>Ada perubahan yang belum disimpan. Kalau keluar sekarang, perubahan akan hilang.</p>
+            </div>
+            <div class="sheet-foot confirm-foot">
+                <button type="button" class="btn-wide-line" @click="showDiscard = false">Tetap di sini</button>
+                <a href="{{ $backUrl }}" class="btn-wide-danger">Buang &amp; keluar</a>
             </div>
         </div>
 
@@ -2232,6 +2424,7 @@
             openDeposit: false,
             openDp: false,
             openNotes: false,
+            showDiscard: false,
         };
     }
 
