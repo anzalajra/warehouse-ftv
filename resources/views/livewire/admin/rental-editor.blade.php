@@ -322,26 +322,77 @@
         .rent-app .bulk-cat-tabs button.active { background: var(--danger-600); color:#fff; }
 
         /* === Unit modal === */
+        /* ====================================================
+           KELOLA UNIT + TRANSFER sheets — Opsi B redesign.
+           Shared markup desktop ⇆ mobile (mobile = bottom sheet via CSS);
+           same Livewire functionality, refreshed presentation.
+           ==================================================== */
         .rent-app .unit-modal { max-width: 520px; }
-        .rent-app .unit-modal-summary { padding:12px 20px; background: var(--gray-50); border-bottom:1px solid var(--border-1); display:flex; gap:24px; flex-wrap:wrap; }
-        .rent-app .unit-modal-summary-row { display:flex; flex-direction:column; gap:2px; }
-        .rent-app .unit-modal-summary-row .lbl { font-size:10.5px; font-weight:600; color: var(--fg-3); text-transform: uppercase; letter-spacing:.06em; }
-        .rent-app .unit-modal-summary-row .val { font-size:13px; font-weight:600; color: var(--fg-1); font-variant-numeric: tabular-nums; }
-        .rent-app .unit-modal-summary-row .val.warn { color: var(--warning-800); }
-        .rent-app .unit-modal-summary-row .val.ok { color: var(--success-700); }
-        .rent-app .unit-modal-summary-row .val.danger { color: var(--danger-700); }
+
+        /* summary bar (period + availability) */
+        .rent-app .um-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 20px; background: var(--gray-50); border-bottom:1px solid var(--border-1); font-size:12.5px; }
+        .dark .rent-app .um-summary { background: var(--gray-100); }
+        .rent-app .um-summary .ums-l { color: var(--fg-3); }
+        .rent-app .um-summary .ums-r { font-weight:700; font-variant-numeric: tabular-nums; }
+        .rent-app .um-summary .ums-r.ok { color: var(--success-700); }
+        .rent-app .um-summary .ums-r.warn { color: var(--danger-600); }
+
         .rent-app .unit-modal-banner { margin: 12px 20px 0; padding:10px 12px; border-radius:10px; display:flex; align-items:flex-start; gap:8px; font-size:12.5px; line-height:1.4; background: var(--warning-50); color: var(--warning-800); border: 1px solid var(--warning-100); }
-        .rent-app .unit-modal-slots { flex:1 1 auto; overflow-y:auto; padding:8px 20px; display:flex; flex-direction:column; gap:12px; }
-        .rent-app .unit-slot { display:flex; flex-direction:column; gap:6px; }
-        .rent-app .unit-slot-label { font-size:12.5px; font-weight:600; color: var(--fg-2); }
-        .rent-app .unit-slot-label .req { color: var(--danger-600); margin-left:2px; }
-        .rent-app .unit-slot-select { width:100%; padding:9px 12px; font:500 13.5px var(--font-mono); color: var(--fg-1); background:#fff; border: 1.5px solid var(--border-1); border-radius:8px; outline:none; cursor:pointer; }
-        .dark .rent-app .unit-slot-select { background: var(--bg-surface); }
-        .rent-app .unit-slot-select:focus { border-color: var(--danger-500); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-500) 25%, transparent); }
-        .rent-app .unit-slot.empty .unit-slot-select { border-color: var(--warning-300); background-color: var(--warning-50); }
+
+        /* toolbar: count pill + auto-assign / clear tools */
+        .rent-app .um-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 20px 4px; }
+        .rent-app .um-count { font-size:12px; font-weight:700; padding:5px 11px; border-radius: var(--radius-full); white-space:nowrap; font-variant-numeric: tabular-nums; }
+        .rent-app .um-count.ok { background: var(--success-50); color: var(--success-700); }
+        .rent-app .um-count.warn { background: var(--warning-50); color: var(--warning-800); }
+        .rent-app .um-tools { display:flex; align-items:center; gap:16px; }
+        .rent-app .um-tool { display:inline-flex; align-items:center; gap:5px; border:0; background:transparent; padding:0; font:700 12.5px var(--font-sans); color: var(--fg-2); cursor:pointer; }
+        .rent-app .um-tool svg { width:13px; height:13px; }
+        .rent-app .um-tool:disabled { color: var(--fg-4); cursor:not-allowed; }
+        .rent-app .um-tool.danger { color: var(--danger-600); }
+        .rent-app .um-tool.danger:disabled { color: var(--fg-4); }
+
+        /* slots */
+        .rent-app .um-slots { flex:1 1 auto; overflow-y:auto; padding:8px 20px 6px; display:flex; flex-direction:column; gap:15px; }
+        .rent-app .um-slot-lbl { display:block; font-size:12.5px; font-weight:700; color: var(--fg-2); margin-bottom:7px; }
+        .rent-app .um-slot-lbl .req { color: var(--danger-600); margin-left:2px; }
+        .rent-app .sel-wrap { position:relative; }
+        .rent-app .sel { width:100%; height:46px; padding:0 40px 0 13px; border:1.5px solid var(--border-1); border-radius:11px; background:#fff; font:600 13.5px var(--font-mono); color: var(--fg-1); appearance:none; -webkit-appearance:none; cursor:pointer; }
+        .dark .rent-app .sel { background: var(--bg-surface); }
+        .rent-app .sel:focus { outline:none; border-color: var(--danger-500); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-500) 22%, transparent); }
+        .rent-app .sel.sans { font-family: var(--font-sans); }
+        .rent-app .sel:disabled { background: var(--gray-50); color: var(--fg-4); cursor:not-allowed; }
+        .rent-app .um-slot.empty .sel { border-color: var(--warning-300); background-color: var(--warning-50); color: var(--warning-800); }
+        .rent-app .sel-chev { position:absolute; right:13px; top:50%; transform:translateY(-50%); color: var(--fg-4); pointer-events:none; display:flex; }
+        .rent-app .sel-chev svg { width:16px; height:16px; }
+
+        /* per-slot transfer links */
+        .rent-app .um-xfer { display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }
+        .rent-app .um-xfer-lbl { font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color: var(--fg-4); }
+        .rent-app .um-xfer-link { border:0; background:transparent; padding:0; font:700 12.5px var(--font-sans); cursor:pointer; }
+        .rent-app .um-xfer-link.move { color: var(--danger-600); }
+        .rent-app .um-xfer-link.swap { color: #1F6FEB; }
+        .rent-app .um-xfer-link.pull { display:inline-flex; align-items:center; gap:5px; color: var(--warning-800); }
+        .rent-app .um-xfer-link.pull svg { width:13px; height:13px; }
+        .rent-app .um-xfer-dot { color: var(--gray-300); font-weight:700; }
+
         .rent-app .unit-modal-empty { padding:24px; text-align:center; color: var(--danger-700); }
         .rent-app .unit-modal-empty .t { font-size:15px; font-weight:700; margin-bottom:4px; }
         .rent-app .unit-modal-empty .s { font-size:12.5px; }
+
+        /* transfer sheet (Move / Swap / Tarik) */
+        .rent-app .tx-seg { display:flex; gap:6px; padding:14px 20px 6px; }
+        .rent-app .tx-seg button { flex:1; height:38px; border-radius:10px; border:1px solid var(--border-1); background:#fff; font:700 13px var(--font-sans); color: var(--fg-2); cursor:pointer; }
+        .dark .rent-app .tx-seg button { background: var(--bg-surface); }
+        .rent-app .tx-seg button.on { background: var(--danger-600); border-color: var(--danger-600); color:#fff; }
+        .rent-app .tx-note { font-size:12px; color: var(--fg-3); line-height:1.5; padding:6px 20px 4px; }
+        .rent-app .tx-fields { padding:8px 20px 6px; display:flex; flex-direction:column; gap:14px; }
+        .rent-app .tx-fld-lbl { display:block; font-size:12.5px; font-weight:700; color: var(--fg-2); margin-bottom:7px; }
+        .rent-app .tx-fld-lbl .req { color: var(--danger-600); margin-left:2px; }
+        .rent-app .tx-unit-static { font-size:13px; color: var(--fg-2); }
+        .rent-app .tx-unit-static strong { color: var(--fg-1); }
+        .rent-app .tx-swap-arrow { display:flex; align-items:center; justify-content:center; gap:8px; color: var(--fg-4); font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+        .rent-app .tx-swap-arrow svg { width:18px; height:18px; transform:rotate(90deg); }
+        .rent-app .tx-empty-hint { font-size:11.5px; color: var(--warning-800); background: var(--warning-50); border:1px solid var(--warning-100); border-radius:10px; padding:9px 12px; line-height:1.45; }
 
         /* === Toast === */
         .rent-app .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--gray-900); color:#fff; padding:10px 16px; border-radius: var(--radius-lg); font-size:13px; z-index: 200; display:flex; gap:8px; align-items:center; box-shadow: var(--shadow-lg); }
@@ -2149,17 +2200,9 @@
                     </button>
                 </div>
 
-                <div class="unit-modal-summary">
-                    <div class="unit-modal-summary-row">
-                        <span class="lbl">Periode</span>
-                        <span class="val">{{ $um['date_label'] ?: '—' }}</span>
-                    </div>
-                    <div class="unit-modal-summary-row">
-                        <span class="lbl">Tersedia</span>
-                        <span class="val {{ $um['available_total'] < $um['qty'] ? 'warn' : 'ok' }}">
-                            {{ $um['available_total'] }} dari {{ $um['pool_total'] }} unit
-                        </span>
-                    </div>
+                <div class="um-summary">
+                    <span class="ums-l">Periode · {{ $um['date_label'] ?: '—' }}</span>
+                    <span class="ums-r {{ $um['available_total'] < $um['qty'] ? 'warn' : 'ok' }}">{{ $um['available_total'] }} dari {{ $um['pool_total'] }} unit tersedia</span>
                 </div>
 
                 @if($um['pool_total'] === 0 || $um['available_total'] === 0)
@@ -2174,43 +2217,53 @@
                             <span>Qty <strong>{{ $um['qty'] }}</strong> melebihi stok tersedia (<strong>{{ $um['available_total'] }}</strong> unit). Beberapa slot tidak bisa diisi.</span>
                         </div>
                     @endif
-                    <div style="padding:12px 20px 8px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                        <span class="pill pill-amber" x-show="assigned() < qty" style="font-size:12px;">
+                    <div class="um-toolbar">
+                        <span class="um-count" :class="assigned() === qty ? 'ok' : 'warn'">
                             <span x-text="assigned()"></span>/{{ $um['qty'] }} ter-assign
                         </span>
-                        <span class="pill pill-green" x-show="assigned() === qty" style="font-size:12px;">
-                            <span x-text="assigned()"></span>/{{ $um['qty'] }} ter-assign
-                        </span>
-                        <div style="display:flex; gap:12px;">
-                            <button type="button" class="btn btn-ghost" @click="autoAssign()" style="font-size:12.5px; padding:4px 8px;">Auto-assign sisa</button>
-                            <button type="button" class="btn btn-ghost" @click="clearAll()" style="font-size:12.5px; padding:4px 8px; color: var(--danger-600);">Kosongkan</button>
+                        <div class="um-tools">
+                            <button type="button" class="um-tool" @click="autoAssign()" :disabled="assigned() === qty">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/><path d="M3 21v-5h5"/></svg>
+                                <span>Auto-assign sisa</span>
+                            </button>
+                            <button type="button" class="um-tool danger" @click="clearAll()" :disabled="assigned() === 0">Kosongkan</button>
                         </div>
                     </div>
-                    <div class="unit-modal-slots">
+                    <div class="um-slots">
                         <template x-for="(val, i) in draft" :key="i">
-                            <div class="unit-slot" :class="!val ? 'empty' : ''">
-                                <label class="unit-slot-label">
+                            <div class="um-slot" :class="!val ? 'empty' : ''">
+                                <label class="um-slot-lbl">
                                     Unit #<span x-text="i + 1"></span><span class="req">*</span>
                                 </label>
-                                <select class="unit-slot-select"
-                                        @change="draft[i] = $event.target.value === '' ? null : Number($event.target.value)">
-                                    <option value="" :selected="draft[i] === null || draft[i] === '' || draft[i] === undefined">— Pilih unit —</option>
-                                    <template x-for="p in pool" :key="p.id">
-                                        <option :value="p.id"
-                                            :selected="String(draft[i]) === String(p.id)"
-                                            :disabled="!p.available || (draft.filter((d,j) => j !== i).map(String).includes(String(p.id)))"
-                                            x-text="p.serial + (!p.available ? ' (dipinjam)' : (draft.filter((d,j) => j !== i).map(String).includes(String(p.id)) ? ' (sudah dipakai)' : ''))"></option>
-                                    </template>
-                                </select>
+                                <div class="sel-wrap">
+                                    <select class="sel"
+                                            @change="draft[i] = $event.target.value === '' ? null : Number($event.target.value)">
+                                        <option value="" :selected="draft[i] === null || draft[i] === '' || draft[i] === undefined">— Pilih unit —</option>
+                                        <template x-for="p in pool" :key="p.id">
+                                            <option :value="p.id"
+                                                :selected="String(draft[i]) === String(p.id)"
+                                                :disabled="!p.available || (draft.filter((d,j) => j !== i).map(String).includes(String(p.id)))"
+                                                x-text="p.serial + (!p.available ? ' (dipinjam)' : (draft.filter((d,j) => j !== i).map(String).includes(String(p.id)) ? ' (slot lain)' : ''))"></option>
+                                        </template>
+                                    </select>
+                                    <span class="sel-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+                                </div>
                                 @if($this->canTransfer)
                                     <template x-if="val">
-                                        <div style="display:flex; gap:8px; align-items:center; margin-top:4px; padding-left:2px;">
-                                            <span style="font-size:11px; color: var(--fg-3, #6b7280); text-transform: uppercase; letter-spacing: .04em; font-weight:600;">Transfer:</span>
-                                            <button type="button" style="font-size:12px; color: var(--primary-700, #1d4ed8); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline;"
-                                                @click="$wire.openMoveModal(Number(val))">Move</button>
-                                            <span style="color: var(--border-1, #e5e7eb);">·</span>
-                                            <button type="button" style="font-size:12px; color: var(--info-700, #0e7490); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline;"
-                                                @click="$wire.openSwapModal(Number(val))">Swap</button>
+                                        <div class="um-xfer">
+                                            <span class="um-xfer-lbl">Transfer</span>
+                                            <button type="button" class="um-xfer-link move" @click="$wire.openMoveModal(Number(val))">Move</button>
+                                            <span class="um-xfer-dot">·</span>
+                                            <button type="button" class="um-xfer-link swap" @click="$wire.openSwapModal(Number(val))">Swap</button>
+                                        </div>
+                                    </template>
+                                    <template x-if="!val">
+                                        <div class="um-xfer">
+                                            <span class="um-xfer-lbl">Transfer</span>
+                                            <button type="button" class="um-xfer-link pull" @click="$wire.openPullModal(@js($um['key']))">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7 7 7-7"/></svg>
+                                                <span>Tarik dari rental lain</span>
+                                            </button>
                                         </div>
                                     </template>
                                 @endif
@@ -2220,8 +2273,8 @@
                 @endif
 
                 <div class="modal-foot">
-                    <button type="button" class="btn btn-secondary" wire:click="closeUnitModal">Cancel</button>
-                    <button type="button" class="btn btn-primary" @click="submit()">Submit</button>
+                    <button type="button" class="btn btn-secondary" wire:click="closeUnitModal">Batal</button>
+                    <button type="button" class="btn btn-primary" @click="submit()">Simpan unit</button>
                 </div>
             </div>
         </div>
@@ -2235,17 +2288,18 @@
         @if($tx)
             <div class="modal-backdrop" wire:click.self="closeTransferModal" style="z-index: 60;">
                 <div class="modal" style="max-width: 560px;">
+                    @php $chevSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>'; @endphp
                     <div class="modal-head">
                         <h3 style="display:flex; align-items:center; gap:8px;">
                             @if($tx['mode'] === 'move')
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                                Pindahkan Unit ke Rental Lain
+                                Pindahkan Unit (Move)
                             @elseif($tx['mode'] === 'pull')
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
-                                Tarik Unit dari Rental Lain
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7 7 7-7"/></svg>
+                                Tarik dari Rental Lain
                             @else
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                                Tukar Unit dengan Rental Lain
+                                Swap dengan Rental Lain
                             @endif
                         </h3>
                         <button class="btn btn-ghost btn-icon" wire:click="closeTransferModal" type="button">
@@ -2253,86 +2307,96 @@
                         </button>
                     </div>
 
-                    <div class="modal-body" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
+                    {{-- Segmented mode toggle — switch Move / Swap / Tarik in place --}}
+                    <div class="tx-seg">
+                        <button type="button" class="{{ $tx['mode'] === 'move' ? 'on' : '' }}" wire:click="switchTransferMode('move')">Move</button>
+                        <button type="button" class="{{ $tx['mode'] === 'swap' ? 'on' : '' }}" wire:click="switchTransferMode('swap')">Swap</button>
+                        <button type="button" class="{{ $tx['mode'] === 'pull' ? 'on' : '' }}" wire:click="switchTransferMode('pull')">Tarik</button>
+                    </div>
+
+                    <div class="tx-note">
+                        @if($tx['mode'] === 'pull')
+                            Pilih unit dari rental lain yang overlap (produk sama, status quotation/confirmed/late_pickup) untuk mengisi slot kosong.
+                        @elseif($tx['mode'] === 'swap')
+                            Tukar unit yang ditugaskan di rental ini dengan unit di rental tujuan. Total kedua rental dihitung ulang otomatis.
+                        @else
+                            Pindahkan unit yang ditugaskan ke rental tujuan. Total kedua rental dihitung ulang otomatis.
+                        @endif
+                    </div>
+
+                    <div class="tx-fields">
                         @if($tx['mode'] === 'pull')
                             {{-- PULL mode: pick a RentalItem from another (conflicting) rental --}}
                             <div>
-                                <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Unit dari Rental Lain</label>
+                                <label class="tx-fld-lbl">Unit dari rental lain<span class="req">*</span></label>
                                 @if(empty($tx['pull_candidates']))
-                                    <div style="font-size: 13px; color: var(--danger-700, #b91c1c); padding: 10px 12px; background: var(--danger-50, #fef2f2); border: 1px solid var(--danger-200, #fecaca); border-radius: 8px;">
-                                        Tidak ada unit produk ini di rental lain yang overlap dengan periode rental ini (status quotation/confirmed/late_pickup).
-                                    </div>
+                                    <div class="tx-empty-hint">Tidak ada unit produk ini di rental lain yang overlap periode rental ini (status quotation/confirmed/late_pickup).</div>
                                 @else
-                                    <select class="input" wire:model="transferTargetItemId" style="width:100%;">
-                                        <option value="">— Pilih unit untuk ditarik —</option>
-                                        @foreach($tx['pull_candidates'] as $pc)
-                                            <option value="{{ $pc['item_id'] }}">{{ $pc['label'] }}</option>
-                                        @endforeach
-                                    </select>
-                                    <p style="font-size:11.5px; color: var(--fg-3, #6b7280); margin-top: 4px;">Daftar unit produk yang sama dari rental lain (status quotation/confirmed/late_pickup) yang overlap periode rental ini.</p>
+                                    <div class="sel-wrap">
+                                        <select class="sel sans" wire:model="transferTargetItemId">
+                                            <option value="">— Pilih unit untuk ditarik —</option>
+                                            @foreach($tx['pull_candidates'] as $pc)
+                                                <option value="{{ $pc['item_id'] }}">{{ $pc['label'] }}</option>
+                                            @endforeach
+                                        </select>
+                                        <span class="sel-chev">{!! $chevSvg !!}</span>
+                                    </div>
                                 @endif
                             </div>
-
-                            <div style="font-size: 12px; color: var(--fg-3, #6b7280); padding: 10px 12px; background: var(--gray-50, #f9fafb); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px;">
-                                Unit akan dihapus dari rental sumber dan dipindahkan ke rental ini. Total kedua rental akan dihitung ulang otomatis.
-                            </div>
                         @else
-                            @if(!empty($tx['needs_unit_pick']))
-                                <div>
-                                    <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Pilih Unit yang akan {{ $tx['mode'] === 'move' ? 'dipindahkan' : 'di-swap' }}</label>
-                                    @if(empty($tx['pickable_units']))
-                                        <div style="font-size: 13px; color: var(--danger-700, #b91c1c);">Tidak ada unit ter-assign di row ini.</div>
-                                    @else
-                                        <select class="input" wire:model.live="transferUnitId" style="width:100%;">
+                            {{-- Unit dari rental ini (Move / Swap) --}}
+                            <div>
+                                <label class="tx-fld-lbl">Unit dari rental ini<span class="req">*</span></label>
+                                @if(empty($tx['pickable_units']))
+                                    <div class="tx-empty-hint">Belum ada unit yang ditugaskan untuk dipindah / di-swap.</div>
+                                @else
+                                    <div class="sel-wrap">
+                                        <select class="sel" wire:model.live="transferUnitId">
                                             <option value="">— Pilih unit —</option>
                                             @foreach($tx['pickable_units'] as $u)
                                                 <option value="{{ $u['id'] }}">{{ $u['serial'] }}</option>
                                             @endforeach
                                         </select>
-                                    @endif
-                                </div>
-                            @else
-                                <div style="font-size: 13px; color: var(--fg-2, #374151);">
-                                    Unit: <strong>{{ $tx['product_name'] }} — {{ $tx['unit_serial'] }}</strong>
+                                        <span class="sel-chev">{!! $chevSvg !!}</span>
+                                    </div>
+                                @endif
+                            </div>
+
+                            @if($tx['mode'] === 'swap')
+                                <div class="tx-swap-arrow">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                                    <span>ditukar dengan</span>
                                 </div>
                             @endif
 
+                            {{-- Rental tujuan --}}
                             <div>
-                                <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Rental Tujuan</label>
-                                <select class="input" wire:model.live="transferTargetRentalId" style="width:100%;">
-                                    <option value="">— Pilih rental tujuan —</option>
-                                    @foreach($tx['targets'] as $t)
-                                        <option value="{{ $t['id'] }}">{{ $t['label'] }}</option>
-                                    @endforeach
-                                </select>
-                                <p style="font-size:11.5px; color: var(--fg-3, #6b7280); margin-top: 4px;">Hanya rental berstatus quotation, confirmed, atau late_pickup yang tampil.</p>
+                                <label class="tx-fld-lbl">Rental tujuan<span class="req">*</span></label>
+                                <div class="sel-wrap">
+                                    <select class="sel sans" wire:model.live="transferTargetRentalId">
+                                        <option value="">— Pilih rental —</option>
+                                        @foreach($tx['targets'] as $t)
+                                            <option value="{{ $t['id'] }}">{{ $t['label'] }}</option>
+                                        @endforeach
+                                    </select>
+                                    <span class="sel-chev">{!! $chevSvg !!}</span>
+                                </div>
                             </div>
 
                             @if($tx['mode'] === 'swap')
                                 <div>
-                                    <label class="input-label" style="display:block; font-size:12px; font-weight:600; color: var(--fg-2, #374151); margin-bottom:6px;">Unit Lawan untuk Di-Swap</label>
-                                    @if(empty($tx['target_items']))
-                                        <select class="input" disabled style="width:100%;">
-                                            <option>— Pilih rental tujuan dahulu —</option>
-                                        </select>
-                                    @else
-                                        <select class="input" wire:model="transferTargetItemId" style="width:100%;">
-                                            <option value="">— Pilih unit lawan —</option>
+                                    <label class="tx-fld-lbl">Tukar dengan unit<span class="req">*</span></label>
+                                    <div class="sel-wrap">
+                                        <select class="sel sans" wire:model="transferTargetItemId" @disabled(empty($tx['target_items']))>
+                                            <option value="">{{ empty($tx['target_items']) ? 'Pilih rental tujuan dulu' : '— Pilih unit lawan —' }}</option>
                                             @foreach($tx['target_items'] as $ti)
                                                 <option value="{{ $ti['id'] }}">{{ $ti['label'] }}</option>
                                             @endforeach
                                         </select>
-                                    @endif
+                                        <span class="sel-chev">{!! $chevSvg !!}</span>
+                                    </div>
                                 </div>
                             @endif
-
-                            <div style="font-size: 12px; color: var(--fg-3, #6b7280); padding: 10px 12px; background: var(--gray-50, #f9fafb); border: 1px solid var(--border-1, #e5e7eb); border-radius: 8px;">
-                                @if($tx['mode'] === 'move')
-                                    Unit akan dihapus dari rental ini dan ditambahkan ke rental tujuan. Total kedua rental akan dihitung ulang otomatis.
-                                @else
-                                    Unit di rental ini akan ditukar dengan unit di rental tujuan. Total kedua rental akan dihitung ulang otomatis.
-                                @endif
-                            </div>
                         @endif
                     </div>
 

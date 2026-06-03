@@ -68,7 +68,7 @@ class RentalEditor extends Component
 
     // Transfer (Move/Swap) modal
     public bool $transferModalOpen = false;
-    public string $transferMode = 'move'; // 'move' | 'swap'
+    public string $transferMode = 'move'; // 'move' | 'swap' | 'pull'
     public ?int $transferUnitId = null;   // serial unit being transferred (source side)
     public ?string $transferItemKey = null; // editor items[] key when opened from a row (limits unit picker)
     public ?int $transferTargetRentalId = null;
@@ -1052,6 +1052,17 @@ class RentalEditor extends Component
             }
         }
 
+        // When opened from a specific serial (Move/Swap slot link), resolve the
+        // owning row so the in-sheet mode toggle has an item key for PULL mode too.
+        if ($unitId !== null && $itemKey === null) {
+            $owner = collect($this->items)->first(
+                fn ($r) => in_array((int) $unitId, array_map('intval', $r['unit_ids'] ?? []), true)
+            );
+            if ($owner) {
+                $itemKey = $owner['key'];
+            }
+        }
+
         $this->transferMode = $mode;
         $this->transferUnitId = $unitId;
         $this->transferItemKey = $itemKey;
@@ -1062,6 +1073,32 @@ class RentalEditor extends Component
         // If opened from a row and there's only one unit assigned, auto-pick it.
         if ($unitId === null && $itemKey !== null) {
             $row = collect($this->items)->firstWhere('key', $itemKey);
+            if ($row && count($row['unit_ids']) === 1) {
+                $this->transferUnitId = (int) $row['unit_ids'][0];
+            }
+        }
+    }
+
+    /**
+     * Switch transfer mode (Move / Swap / Tarik) without leaving the open sheet.
+     * The source rental was already auto-saved by beginTransfer(), so this only
+     * re-targets the existing operation — same underlying move/swap/pull service.
+     */
+    public function switchTransferMode(string $mode): void
+    {
+        if (!$this->transferModalOpen || !in_array($mode, ['move', 'swap', 'pull'], true)) {
+            return;
+        }
+
+        $this->transferMode = $mode;
+        $this->transferTargetRentalId = null;
+        $this->transferTargetItemId = null;
+
+        // Move / Swap need a concrete unit from this rental. Auto-pick when the
+        // owning row has exactly one assigned serial; otherwise the sheet shows
+        // the unit picker (needs_unit_pick).
+        if ($mode !== 'pull' && $this->transferUnitId === null && $this->transferItemKey) {
+            $row = collect($this->items)->firstWhere('key', $this->transferItemKey);
             if ($row && count($row['unit_ids']) === 1) {
                 $this->transferUnitId = (int) $row['unit_ids'][0];
             }
