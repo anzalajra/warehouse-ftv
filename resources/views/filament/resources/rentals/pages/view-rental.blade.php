@@ -52,6 +52,28 @@
     }
 
     $rp = fn ($n) => 'Rp ' . number_format((float) ($n ?? 0), 0, ',', '.');
+
+    // --- Action visibility (mirrors the original getHeaderActions gates) ---
+    $R = \App\Models\Rental::class;
+    $rawStatus = $rental->status;
+
+    $canConfirm = $rawStatus === \App\Models\Rental::STATUS_QUOTATION;
+    $canPickup  = in_array($rawStatus, [\App\Models\Rental::STATUS_CONFIRMED, \App\Models\Rental::STATUS_LATE_PICKUP]);
+    $canReturn  = in_array($rawStatus, [\App\Models\Rental::STATUS_ACTIVE, \App\Models\Rental::STATUS_LATE_RETURN, \App\Models\Rental::STATUS_PARTIAL_RETURN]);
+    $canRevert  = $rawStatus === \App\Models\Rental::STATUS_CONFIRMED;
+    $canCancel  = in_array($realStatus, [\App\Models\Rental::STATUS_QUOTATION, \App\Models\Rental::STATUS_LATE_PICKUP]);
+    $canDelete  = in_array($rawStatus, [\App\Models\Rental::STATUS_CANCELLED, \App\Models\Rental::STATUS_COMPLETED]);
+
+    $editUrl     = $this->getEditUrl();
+    $deliveryUrl = $this->getDeliveryUrl();
+    $waUrl            = ($this->isWhatsappEnabled() && !empty($customer?->phone)) ? $this->getWhatsappUrl() : null;
+    $waEnabled        = $this->isWhatsappEnabled();
+    $orderConfirmUrl  = !empty($customer?->phone) ? $this->getOrderConfirmedUrl() : null;
+    $canDlQuotation   = $this->canDownloadQuotation();
+    $canDlInvoice     = $this->canDownloadInvoice();
+
+    $hasOverflow = $canRevert || $canCancel || $canDelete;
+    $rentalsIndexUrl = \App\Filament\Resources\Rentals\RentalResource::getUrl('index');
 @endphp
 
 <x-filament-panels::page>
@@ -106,6 +128,65 @@
             .rent-app .pill-gray   { background: var(--gray-100); color: var(--fg-2); }
             .rent-app .pill-purple { background:#f3e8ff; color:#7e22ce; }
             .rent-app .pill-orange { background:#ffedd5; color:#c2410c; }
+
+            .rent-app [x-cloak] { display:none !important; }
+
+            /* === Sticky design topbar (replaces Filament header) === */
+            .rent-app .topbar { position:sticky; top:0; z-index:30; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); border-bottom:1px solid var(--border-1); margin:-1.5rem -1.5rem 0; }
+            .dark .rent-app .topbar { background:rgba(24,24,27,0.92); }
+            .rent-app .topbar-inner { padding:12px 24px; display:flex; align-items:center; gap:16px; }
+            .rent-app .crumbs { display:flex; align-items:center; gap:6px; min-width:0; font-size:12.5px; color:var(--fg-3); }
+            .rent-app .crumbs a { color:var(--fg-3); text-decoration:none; }
+            .rent-app .crumbs a:hover { color:var(--fg-1); }
+            .rent-app .crumbs .sep { color:var(--gray-300); }
+            .rent-app .topbar h1 { margin:0; font-size:18px; font-weight:700; color:var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
+            .rent-app .topbar-actions { margin-left:auto; display:flex; align-items:center; gap:8px; }
+
+            /* Buttons */
+            .rent-app .btn { display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:var(--radius-lg); font-size:0.875rem; font-weight:600; line-height:1; border:1px solid transparent; cursor:pointer; transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease); white-space:nowrap; text-decoration:none; }
+            .rent-app .btn-secondary { background:var(--bg-surface); color:var(--fg-1); border-color:var(--border-1); }
+            .rent-app .btn-secondary:hover { background:var(--gray-50); }
+            .rent-app .btn-info { background:#2563eb; color:#fff; }
+            .rent-app .btn-info:hover { background:#1d4ed8; }
+            .rent-app .btn-success { background:#16a34a; color:#fff; }
+            .rent-app .btn-success:hover { background:#15803d; }
+            .rent-app .btn.is-disabled { opacity:0.45; cursor:not-allowed; pointer-events:none; }
+            .rent-app .btn .caret { margin-left:-2px; color:currentColor; opacity:0.7; display:inline-flex; }
+
+            .rent-app .btn-iconsq { width:36px; height:36px; padding:0; justify-content:center; gap:0; }
+            .rent-app .btn-iconsq.with-caret { width:auto; padding:0 7px 0 9px; gap:1px; }
+
+            /* Tooltip for icon buttons */
+            .rent-app .has-tip { position:relative; }
+            .rent-app .has-tip::after { content:attr(data-tip); position:absolute; top:calc(100% + 7px); left:50%; transform:translateX(-50%) translateY(-3px); background:var(--gray-900); color:#fff; font-size:11.5px; font-weight:500; white-space:nowrap; padding:4px 8px; border-radius:6px; opacity:0; pointer-events:none; transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease); z-index:60; }
+            .dark .rent-app .has-tip::after { background:#000; }
+            .rent-app .has-tip:hover::after { opacity:1; transform:translateX(-50%) translateY(0); }
+
+            .rent-app .tb-sep { width:1px; align-self:stretch; background:var(--border-1); margin:2px 4px; }
+
+            /* Dropdown menus */
+            .rent-app .menu-wrap { position:relative; display:inline-flex; }
+            .rent-app .menu { position:absolute; top:calc(100% + 6px); right:0; min-width:240px; background:var(--bg-surface); border:1px solid var(--border-1); border-radius:var(--radius-lg); box-shadow:0 4px 20px -4px rgb(0 0 0 / 0.15); padding:6px; z-index:50; }
+            .rent-app .menu.align-left { left:0; right:auto; }
+            .rent-app .menu-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; white-space:nowrap; padding:9px 10px; border:0; background:transparent; border-radius:var(--radius-md); cursor:pointer; font-size:13.5px; font-weight:500; color:var(--fg-1); text-decoration:none; }
+            .rent-app .menu-item:hover { background:var(--gray-50); }
+            .rent-app .menu-item .mi-icon { color:var(--fg-3); display:flex; flex:0 0 18px; }
+            .rent-app .menu-item.disabled { color:var(--fg-4); cursor:not-allowed; pointer-events:none; }
+            .rent-app .menu-item.disabled .mi-icon { color:var(--fg-4); }
+            .rent-app .menu-item.danger { color:#dc2626; }
+            .rent-app .menu-item.danger:hover { background:#fef2f2; }
+            .rent-app .menu-item.danger .mi-icon { color:#ef4444; }
+            .dark .rent-app .menu-item.danger:hover { background:rgba(220,38,38,0.15); }
+            .rent-app .menu-item .mi-tag { margin-left:auto; font-size:10px; font-weight:600; color:var(--fg-4); text-transform:uppercase; letter-spacing:0.04em; }
+            .rent-app .menu-sep { height:1px; background:var(--gray-100); margin:5px 2px; }
+
+            @media (max-width: 760px) {
+                .rent-app .topbar { margin:-1rem -1rem 0; }
+                .rent-app .topbar-inner { padding:10px 12px; gap:8px; }
+                .rent-app .crumbs { display:none; }
+                .rent-app .topbar h1 { font-size:15px; }
+                .rent-app .topbar-actions .btn .text { display:none; }
+            }
 
             /* Count chip */
             .rent-app .count-chip { display:inline-flex; align-items:center; gap:6px; background:var(--bg-surface); border:1px solid var(--border-1); padding:6px 10px; border-radius:var(--radius-full); font-size:12.5px; color:var(--fg-2); white-space:nowrap; }
@@ -190,6 +271,159 @@
                 .rent-app .view-foot .frow { min-width:0; grid-template-columns:auto 130px; gap:16px; }
             }
         </style>
+
+        {{-- ===================== Sticky topbar ===================== --}}
+        <div class="topbar">
+            <div class="topbar-inner">
+                <div style="min-width:0;flex:1;">
+                    <div class="crumbs">
+                        <a href="{{ $rentalsIndexUrl }}">Rentals</a>
+                        <span class="sep">/</span>
+                        <span style="color:var(--fg-1);">View Rental</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;margin-top:3px;">
+                        <h1>View Rental — {{ $rental->rental_code }}</h1>
+                        <span class="pill pill-{{ $statusTone }}">{{ $statusLabel }}</span>
+                    </div>
+                </div>
+
+                <div class="topbar-actions">
+                    {{-- Send dropdown --}}
+                    <div class="menu-wrap" x-data="{ open:false }" @click.outside="open=false">
+                        <button type="button" class="btn btn-secondary btn-iconsq with-caret has-tip" data-tip="Send" @click="open=!open">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/><path d="M22 2 11 13"/></svg>
+                            <span class="caret"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+                        </button>
+                        <div class="menu align-left" x-show="open" x-cloak @click="open=false">
+                            @if($waEnabled)
+                                @if($waUrl)
+                                    <a href="{{ $waUrl }}" target="_blank" rel="noopener" class="menu-item">
+                                        <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                                        <span>via WhatsApp</span>
+                                    </a>
+                                @else
+                                    <span class="menu-item disabled" title="Customer phone number is missing">
+                                        <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                                        <span>via WhatsApp</span>
+                                    </span>
+                                @endif
+                            @endif
+                            @if($orderConfirmUrl)
+                                <a href="{{ $orderConfirmUrl }}" target="_blank" rel="noopener" class="menu-item">
+                                    <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3z"/></svg></span>
+                                    <span>Order Confirmed</span>
+                                </a>
+                            @else
+                                <span class="menu-item disabled" title="Customer phone number is missing">
+                                    <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3z"/></svg></span>
+                                    <span>Order Confirmed</span>
+                                </span>
+                            @endif
+                            <div class="menu-sep"></div>
+                            <span class="menu-item disabled">
+                                <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg></span>
+                                <span>via Email</span>
+                                <span class="mi-tag">Soon</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    {{-- Print dropdown --}}
+                    <div class="menu-wrap" x-data="{ open:false }" @click.outside="open=false">
+                        <button type="button" class="btn btn-secondary btn-iconsq with-caret has-tip" data-tip="Print" @click="open=!open">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+                            <span class="caret"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+                        </button>
+                        <div class="menu align-left" x-show="open" x-cloak @click="open=false">
+                            <button type="button" class="menu-item" wire:click="mountAction('downloadChecklist')">
+                                <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></svg></span>
+                                <span>Download Checklist Form</span>
+                            </button>
+                            @if($canDlQuotation)
+                                <button type="button" class="menu-item" wire:click="mountAction('downloadQuotation')">
+                                    <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></span>
+                                    <span>Download Quotation</span>
+                                </button>
+                            @endif
+                            @if($canDlInvoice)
+                                <button type="button" class="menu-item" wire:click="mountAction('downloadInvoice')">
+                                    <span class="mi-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6M9 15h6"/></svg></span>
+                                    <span>Download Invoice</span>
+                                </button>
+                            @endif
+                        </div>
+                    </div>
+
+                    {{-- Edit --}}
+                    @if($editUrl)
+                        <a href="{{ $editUrl }}" class="btn btn-secondary btn-iconsq has-tip" data-tip="Edit">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </a>
+                    @else
+                        <span class="btn btn-secondary btn-iconsq has-tip is-disabled" data-tip="Tidak bisa diedit">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </span>
+                    @endif
+
+                    {{-- Delivery --}}
+                    <a href="{{ $deliveryUrl }}" class="btn btn-secondary btn-iconsq has-tip" data-tip="Delivery">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="13" height="14" rx="1"/><path d="M16 8h3l3 3v5a1 1 0 0 1-1 1h-1"/><circle cx="7.5" cy="18.5" r="1.8"/><circle cx="17.5" cy="18.5" r="1.8"/></svg>
+                    </a>
+
+                    {{-- More actions --}}
+                    @if($hasOverflow)
+                        <div class="menu-wrap" x-data="{ open:false }" @click.outside="open=false">
+                            <button type="button" class="btn btn-secondary btn-iconsq with-caret has-tip" data-tip="More actions" @click="open=!open">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                                <span class="caret"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+                            </button>
+                            <div class="menu align-left" x-show="open" x-cloak @click="open=false">
+                                @if($canRevert)
+                                    <button type="button" class="menu-item" wire:click="mountAction('revert')">
+                                        <span class="mi-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5H9"/></svg></span>
+                                        <span>Revert to Quotation</span>
+                                    </button>
+                                @endif
+                                @if($canCancel)
+                                    @if($canRevert)<div class="menu-sep"></div>@endif
+                                    <button type="button" class="menu-item danger" wire:click="mountAction('cancel')">
+                                        <span class="mi-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></svg></span>
+                                        <span>Cancel Rental</span>
+                                    </button>
+                                @endif
+                                @if($canDelete)
+                                    <button type="button" class="menu-item danger" wire:click="mountAction('delete')">
+                                        <span class="mi-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg></span>
+                                        <span>Delete Rental</span>
+                                    </button>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
+
+                    {{-- Contextual primary action (far right) --}}
+                    @if($canConfirm)
+                        <span class="tb-sep"></span>
+                        <button type="button" class="btn btn-info" wire:click="mountAction('confirm')">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
+                            <span class="text">Confirm</span>
+                        </button>
+                    @elseif($canPickup)
+                        <span class="tb-sep"></span>
+                        <a href="{{ $this->getPickupUrl() }}" class="btn btn-success">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17h4V5a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h2"/><path d="M14 9h4l3 3v4a1 1 0 0 1-1 1h-1"/><circle cx="7.5" cy="17.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>
+                            <span class="text">Process Pickup</span>
+                        </a>
+                    @elseif($canReturn)
+                        <span class="tb-sep"></span>
+                        <a href="{{ $this->getReturnUrl() }}" class="btn btn-success">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5H9"/></svg>
+                            <span class="text">Process Return</span>
+                        </a>
+                    @endif
+                </div>
+            </div>
+        </div>
 
         {{-- ===================== Rental Information ===================== --}}
         <div class="card">
