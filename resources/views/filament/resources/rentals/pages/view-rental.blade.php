@@ -1,6 +1,5 @@
+@use('Illuminate\Support\Facades\Storage')
 @php
-    use Illuminate\Support\Facades\Storage;
-
     $customer = $rental->user;
 
     // Customer admin view URL (CustomerResource view page → /{record})

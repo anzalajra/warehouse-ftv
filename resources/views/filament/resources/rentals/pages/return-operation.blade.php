@@ -1,8 +1,7 @@
 <x-filament-panels::page>
+    @use('App\Models\DeliveryItem')
+    @use('App\Models\Rental')
     @php
-        use App\Models\DeliveryItem;
-        use App\Models\Rental;
-
         $items = $this->getDeliveryItems();
         // Inline icon helper (heroicons-like stroke set). Returns an <svg> string.
         $icon = function (string $name, string $class = ''): string {
