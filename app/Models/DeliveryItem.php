@@ -13,11 +13,13 @@ class DeliveryItem extends Model
         'rental_item_kit_id',
         'is_checked',
         'condition',
+        'photos',
         'notes',
     ];
 
     protected $casts = [
         'is_checked' => 'boolean',
+        'photos' => 'array',
     ];
 
     public function delivery(): BelongsTo
@@ -68,5 +70,37 @@ class DeliveryItem extends Model
             'broken' => 'danger',
             default => 'gray',
         };
+    }
+
+    /**
+     * Visual meta for the operation console condition control.
+     * tone drives both the badge color and the segmented-button accent.
+     */
+    public static function getConditionMeta(): array
+    {
+        return [
+            'excellent' => ['label' => 'Excellent', 'tone' => 'good', 'icon' => 'check'],
+            'good' => ['label' => 'Good', 'tone' => 'good', 'icon' => 'check'],
+            'fair' => ['label' => 'Fair', 'tone' => 'minor', 'icon' => 'alert'],
+            'poor' => ['label' => 'Poor', 'tone' => 'broken', 'icon' => 'broken'],
+            'broken' => ['label' => 'Broken', 'tone' => 'broken', 'icon' => 'broken'],
+            'lost' => ['label' => 'Lost', 'tone' => 'lost', 'icon' => 'lost'],
+        ];
+    }
+
+    /**
+     * Conditions that flag an item as damaged / needing attention (Issues filter + maintenance).
+     */
+    public static function getIssueConditions(): array
+    {
+        return ['fair', 'poor', 'broken', 'lost'];
+    }
+
+    /**
+     * Conditions that send a unit to maintenance on check-in/out.
+     */
+    public static function getMaintenanceConditions(): array
+    {
+        return ['broken', 'lost'];
     }
 }
