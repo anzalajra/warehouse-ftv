@@ -64,7 +64,11 @@ class RentalItemTransferService
         $sourceCode = $sourceRental->rental_code;
         $targetCode = $targetRental->rental_code;
 
-        return DB::transaction(function () use ($sourceItem, $sourceRental, $targetRental, $unitId, $productId, $variationId, $serial, $sourceCode, $targetCode) {
+        // Snapshot units already contested BEFORE the move. A manual transfer is allowed to
+        // leave (or relocate) a pre-existing conflict — we only block if it creates a NEW one.
+        $beforeConflicts = $this->conflictUnitIds($sourceRental, $targetRental);
+
+        return DB::transaction(function () use ($sourceItem, $sourceRental, $targetRental, $unitId, $productId, $variationId, $serial, $sourceCode, $targetCode, $beforeConflicts) {
             // ── Target side: assign the unit ──
             // Prefer filling an existing empty slot so we don't inflate the target's
             // quantity. Only create a new row when there's no slot waiting (real stock add).
@@ -100,10 +104,11 @@ class RentalItemTransferService
             $sourceRental->refresh();
             $targetRental->refresh();
 
-            $conflictsTarget = $targetRental->checkAvailability();
-            if (!empty($conflictsTarget)) {
+            $newConflicts = $this->newlyIntroducedConflicts($beforeConflicts, $sourceRental, $targetRental);
+            if (!empty($newConflicts)) {
                 throw new RuntimeException(
-                    'Pemindahan menyebabkan konflik baru di rental tujuan. Operasi dibatalkan.'
+                    'Pemindahan menyebabkan konflik BARU di rental tujuan (unit: '
+                    . implode(', ', $newConflicts) . '). Operasi dibatalkan.'
                 );
             }
 
@@ -169,7 +174,10 @@ class RentalItemTransferService
         $codeA = $rentalA->rental_code;
         $codeB = $rentalB->rental_code;
 
-        DB::transaction(function () use ($itemA, $itemB, $rentalA, $rentalB, $unitAId, $unitBId, $serialA, $serialB, $codeA, $codeB) {
+        // Only block if the swap creates a NEW conflict; pre-existing ones may persist.
+        $beforeConflicts = $this->conflictUnitIds($rentalA, $rentalB);
+
+        DB::transaction(function () use ($itemA, $itemB, $rentalA, $rentalB, $unitAId, $unitBId, $serialA, $serialB, $codeA, $codeB, $beforeConflicts) {
             // Reset parents so hook can re-link cleanly.
             $itemA->parent_item_id = null;
             $itemB->parent_item_id = null;
@@ -190,12 +198,11 @@ class RentalItemTransferService
             $rentalA->refresh();
             $rentalB->refresh();
 
-            $conflictsA = $rentalA->checkAvailability();
-            $conflictsB = $rentalB->checkAvailability();
-
-            if (!empty($conflictsA) || !empty($conflictsB)) {
+            $newConflicts = $this->newlyIntroducedConflicts($beforeConflicts, $rentalA, $rentalB);
+            if (!empty($newConflicts)) {
                 throw new RuntimeException(
-                    'Swap menyebabkan konflik baru. Operasi dibatalkan.'
+                    'Swap menyebabkan konflik BARU (unit: ' . implode(', ', $newConflicts)
+                    . '). Operasi dibatalkan.'
                 );
             }
 
@@ -212,6 +219,52 @@ class RentalItemTransferService
                 'user_id' => Auth::id(),
             ]);
         });
+    }
+
+    /**
+     * Collect the serial numbers of every product unit currently flagged as conflicting
+     * across the given rentals. Used to diff before/after a transfer so we can tell a
+     * conflict the operation *created* apart from one that was already there.
+     *
+     * Keyed by unit id (so the diff is by unit), value = human-readable serial for messaging.
+     *
+     * @return array<int, string> [unit_id => serial]
+     */
+    private function conflictUnitIds(Rental ...$rentals): array
+    {
+        $map = [];
+        foreach ($rentals as $rental) {
+            // Re-fetch a clean instance with the relations checkAvailability() needs, so the
+            // result reflects committed DB state rather than any in-memory mutations.
+            $fresh = Rental::with(['items.productUnit.kits'])->find($rental->id);
+            if (!$fresh) {
+                continue;
+            }
+            foreach ($fresh->checkAvailability() as $conflict) {
+                $unit = $conflict['product_unit'] ?? null;
+                if ($unit) {
+                    $map[$unit->id] = $unit->serial_number ?? '#'.$unit->id;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Compare post-operation conflicts against the pre-operation snapshot and return the
+     * serials of units that became contested *because of* this operation (i.e. were not
+     * already in conflict beforehand). Empty array = no new conflict introduced.
+     *
+     * @param  array<int, string>  $before  [unit_id => serial] captured before the operation
+     * @return array<int, string>  serials of newly-conflicting units
+     */
+    private function newlyIntroducedConflicts(array $before, Rental ...$rentals): array
+    {
+        $after = $this->conflictUnitIds(...$rentals);
+        $newUnitIds = array_diff(array_keys($after), array_keys($before));
+
+        return array_values(array_intersect_key($after, array_flip($newUnitIds)));
     }
 
     private function assertTransferable(Rental $rental, string $label): void
