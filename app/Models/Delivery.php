@@ -14,13 +14,22 @@ class Delivery extends Model
         'type',
         'date',
         'checked_by',
+        'recipient_name',
+        'recipient_signature',
+        'signed_at',
         'status',
         'notes',
     ];
 
     protected $casts = [
         'date' => 'date',
+        'signed_at' => 'datetime',
     ];
+
+    public function isSigned(): bool
+    {
+        return ! empty($this->recipient_signature);
+    }
 
     public const TYPE_OUT = 'out';
     public const TYPE_IN = 'in';
@@ -36,7 +45,7 @@ class Delivery extends Model
 
         static::creating(function ($delivery) {
             if (empty($delivery->delivery_number)) {
-                $delivery->delivery_number = self::generateDeliveryNumber($delivery->type);
+                $delivery->delivery_number = self::generateDeliveryNumber($delivery);
             }
         });
 
@@ -51,17 +60,40 @@ class Delivery extends Model
         });
     }
 
-    public static function generateDeliveryNumber(string $type): string
+    /**
+     * Derive the delivery number from the parent rental code so that one rental
+     * has a single integrated code family instead of three separate sequences:
+     *   Rental            : RNT202606060001
+     *   SJ Keluar (out)   : RNT202606060001-K
+     *   SJ Masuk (in)     : RNT202606060001-M   (partial returns: -M2, -M3, ...)
+     */
+    public static function generateDeliveryNumber(Delivery $delivery): string
     {
-        $prefix = $type === self::TYPE_OUT ? 'SJK' : 'SJM'; // SJ Keluar / SJ Masuk
-        $date = now()->format('Ymd');
-        $lastDelivery = self::where('type', $type)
-            ->whereDate('created_at', today())
-            ->latest()
-            ->first();
-        $sequence = $lastDelivery ? (int) substr($lastDelivery->delivery_number, -3) + 1 : 1;
+        $rental = $delivery->relationLoaded('rental') && $delivery->rental
+            ? $delivery->rental
+            : Rental::find($delivery->rental_id);
 
-        return $prefix . '-' . $date . '-' . str_pad($sequence, 3, '0', STR_PAD_LEFT);
+        // Defensive fallback: keep the legacy date-based scheme if a delivery is
+        // ever created without a rental (should not happen in normal flows).
+        if (! $rental) {
+            $prefix = $delivery->type === self::TYPE_OUT ? 'SJK' : 'SJM';
+            return $prefix . '-' . now()->format('Ymd') . '-' . str_pad(1, 3, '0', STR_PAD_LEFT);
+        }
+
+        $base = $rental->rental_code;
+        $letter = $delivery->type === self::TYPE_OUT ? 'K' : 'M';
+
+        // Count existing deliveries of the same direction for this rental. The
+        // delivery being created is not yet persisted, so the first one gets a
+        // bare suffix (-K / -M) and any subsequent one (partial returns) gets a
+        // running counter (-M2, -M3, ...).
+        $existing = self::where('rental_id', $rental->id)
+            ->where('type', $delivery->type)
+            ->count();
+
+        return $existing === 0
+            ? $base . '-' . $letter
+            : $base . '-' . $letter . ($existing + 1);
     }
 
     public function rental(): BelongsTo

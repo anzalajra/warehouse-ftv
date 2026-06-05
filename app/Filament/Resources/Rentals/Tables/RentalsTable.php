@@ -498,7 +498,7 @@ class RentalsTable
                         ->label('In/Out Status')
                         ->icon('heroicon-o-document-duplicate')
                         ->color('gray')
-                        ->url(fn (Rental $record) => RentalResource::getUrl('documents', ['record' => $record])),
+                        ->url(fn (Rental $record) => RentalResource::getUrl('delivery', ['record' => $record])),
 
                     // Checklist Form PDF
                     Action::make('download_checklist')

@@ -94,7 +94,7 @@ class RentalResource extends Resource
             'edit' => EditRental::route('/{record}/edit'),
             'pickup' => PickupOperation::route('/{record}/pickup'),
             'return' => ProcessReturn::route('/{record}/return'),
-            'documents' => RentalDocuments::route('/{record}/documents'),
+            'delivery' => RentalDocuments::route('/{record}/delivery'),
             'view' => ViewRental::route('/{record}/view'),
             'kanban' => RentalKanbanBoard::route('/kanban'),
         ];

@@ -219,6 +219,23 @@ class Rental extends Model
         return $this->hasMany(Delivery::class);
     }
 
+    /**
+     * The outgoing delivery note (SJ Keluar) for this rental. One per rental.
+     */
+    public function outDelivery(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Delivery::class)->where('type', Delivery::TYPE_OUT);
+    }
+
+    /**
+     * The most recent incoming delivery note (SJ Masuk). Partial returns can
+     * produce several; the latest one is the currently-relevant checklist.
+     */
+    public function inDelivery(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Delivery::class)->where('type', Delivery::TYPE_IN)->latestOfMany();
+    }
+
     public static function getStatusOptions(): array
     {
         return [

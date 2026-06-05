@@ -3,17 +3,70 @@
 namespace App\Filament\Resources\Deliveries\Pages;
 
 use App\Filament\Resources\Deliveries\DeliveryResource;
-use Filament\Actions\CreateAction;
+use App\Models\Rental;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Schemas\Components\Tabs\Tab;
+use Illuminate\Database\Eloquent\Builder;
 
 class ListDeliveries extends ListRecords
 {
     protected static string $resource = DeliveryResource::class;
 
-    protected function getHeaderActions(): array
+    public function getTitle(): string
     {
+        return 'Deliveries';
+    }
+
+    /**
+     * The deliveries board is a movement-centric view of rentals: one row per
+     * rental that has (or needs) a surat jalan, rather than one row per Delivery.
+     * Clicking a row opens that rental's delivery hub.
+     */
+    protected function getTableQuery(): ?Builder
+    {
+        return Rental::query()
+            ->whereIn('status', [
+                Rental::STATUS_CONFIRMED,
+                Rental::STATUS_LATE_PICKUP,
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_LATE_RETURN,
+                Rental::STATUS_PARTIAL_RETURN,
+                Rental::STATUS_COMPLETED,
+            ])
+            ->with(['customer', 'outDelivery', 'inDelivery']);
+    }
+
+    public function getTabs(): array
+    {
+        $pickupStatuses = [Rental::STATUS_CONFIRMED, Rental::STATUS_LATE_PICKUP];
+        $returnStatuses = [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN, Rental::STATUS_PARTIAL_RETURN];
+        $lateStatuses = [Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN];
+
         return [
-            CreateAction::make(),
+            'pickup' => Tab::make('Perlu Keluar')
+                ->icon('heroicon-o-truck')
+                ->modifyQueryUsing(fn (Builder $q) => $q->whereIn('status', $pickupStatuses))
+                ->badge(Rental::whereIn('status', $pickupStatuses)->count())
+                ->badgeColor('warning'),
+
+            'return' => Tab::make('Perlu Masuk')
+                ->icon('heroicon-o-arrow-uturn-left')
+                ->modifyQueryUsing(fn (Builder $q) => $q->whereIn('status', $returnStatuses))
+                ->badge(Rental::whereIn('status', $returnStatuses)->count())
+                ->badgeColor('info'),
+
+            'late' => Tab::make('Telat')
+                ->icon('heroicon-o-exclamation-triangle')
+                ->modifyQueryUsing(fn (Builder $q) => $q->whereIn('status', $lateStatuses))
+                ->badge(Rental::whereIn('status', $lateStatuses)->count())
+                ->badgeColor('danger'),
+
+            'done' => Tab::make('Selesai')
+                ->icon('heroicon-o-check-circle')
+                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', Rental::STATUS_COMPLETED)),
+
+            'all' => Tab::make('Semua')
+                ->icon('heroicon-o-queue-list'),
         ];
     }
 }

@@ -2,15 +2,17 @@
 
 namespace App\Filament\Resources\Deliveries\Tables;
 
-use App\Filament\Resources\Deliveries\DeliveryResource;
+use App\Filament\Resources\Rentals\RentalResource;
 use App\Models\Delivery;
+use App\Models\Rental;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Actions\Action;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\EditAction;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 
 class DeliveriesTable
 {
@@ -18,92 +20,130 @@ class DeliveriesTable
     {
         return $table
             ->columns([
-                TextColumn::make('delivery_number')
-                    ->label('Delivery Number')
-                    ->searchable()
-                    ->sortable()
-                    ->toggleable(),
-
-                TextColumn::make('rental.rental_code')
+                TextColumn::make('rental_code')
                     ->label('Rental')
+                    ->weight('bold')
                     ->searchable()
                     ->sortable()
-                    ->toggleable()
-                    ->visibleFrom('sm'),
+                    ->description(fn (Rental $record): ?string => $record->customer?->name),
 
-                TextColumn::make('rental.customer.name')
-                    ->label('Customer')
-                    ->searchable()
-                    ->toggleable()
+                TextColumn::make('window')
+                    ->label('Periode Sewa')
+                    ->state(fn (Rental $record): string => $record->start_date?->format('d M') . ' → ' . $record->end_date?->format('d M Y'))
+                    ->icon('heroicon-o-calendar-days')
                     ->visibleFrom('md'),
 
-                TextColumn::make('type')
+                TextColumn::make('out_status')
+                    ->label('Keluar (SJK)')
                     ->badge()
-                    ->color(fn (string $state): string => Delivery::getTypeColor($state))
-                    ->formatStateUsing(fn (string $state): string => $state === 'out' ? 'Keluar' : 'Masuk')
-                    ->toggleable(),
+                    ->state(fn (Rental $record): string => self::movementLabel($record->outDelivery))
+                    ->color(fn (Rental $record): string => self::movementColor($record->outDelivery))
+                    ->description(fn (Rental $record): ?string => $record->outDelivery?->delivery_number),
 
-                TextColumn::make('date')
-                    ->date('d M Y')
-                    ->sortable()
-                    ->toggleable()
-                    ->visibleFrom('sm'),
+                TextColumn::make('in_status')
+                    ->label('Masuk (SJM)')
+                    ->badge()
+                    ->state(fn (Rental $record): string => self::movementLabel($record->inDelivery))
+                    ->color(fn (Rental $record): string => self::movementColor($record->inDelivery))
+                    ->description(fn (Rental $record): ?string => $record->inDelivery?->delivery_number),
 
                 TextColumn::make('status')
+                    ->label('Status Rental')
                     ->badge()
-                    ->color(fn (string $state): string => Delivery::getStatusColor($state))
-                    ->formatStateUsing(fn (string $state): string => ucfirst($state))
-                    ->toggleable(),
-
-                TextColumn::make('checkedBy.name')
-                    ->label('Checked By')
-                    ->toggleable()
+                    ->formatStateUsing(fn (string $state): string => Rental::getStatusOptions()[$state] ?? ucfirst($state))
+                    ->color(fn (string $state): string => Rental::getStatusColor($state))
                     ->visibleFrom('lg'),
-
-                TextColumn::make('created_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->defaultSort('created_at', 'desc')
-            ->filters([
-                SelectFilter::make('type')
-                    ->options(Delivery::getTypeOptions()),
-                SelectFilter::make('status')
-                    ->options(Delivery::getStatusOptions()),
+            ->defaultSort('start_date', 'asc')
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    BulkAction::make('print_surat_jalan')
+                        ->label('Cetak Surat Jalan')
+                        ->icon('heroicon-o-printer')
+                        ->color('info')
+                        ->deselectRecordsAfterCompletion()
+                        ->action(function (Collection $records) {
+                            $deliveries = Delivery::whereIn('rental_id', $records->pluck('id'))
+                                ->with([
+                                    'rental.user',
+                                    'items.rentalItem.productUnit.product',
+                                    'items.rentalItem.productUnit.variation',
+                                    'items.rentalItemKit.unitKit',
+                                    'checkedBy',
+                                ])
+                                ->orderBy('rental_id')
+                                ->orderBy('type')
+                                ->get();
+
+                            if ($deliveries->isEmpty()) {
+                                Notification::make()
+                                    ->title('Tidak ada surat jalan')
+                                    ->body('Rental terpilih belum memiliki surat jalan.')
+                                    ->warning()
+                                    ->send();
+
+                                return null;
+                            }
+
+                            $pdf = Pdf::loadView('pdf.delivery-notes-batch', ['deliveries' => $deliveries]);
+
+                            return response()->streamDownload(
+                                fn () => print($pdf->output()),
+                                'SuratJalan-batch-' . now()->format('Ymd-His') . '.pdf'
+                            );
+                        }),
+                ]),
             ])
             ->recordActions([
-                Action::make('process')
-                    ->label('Process')
-                    ->icon('heroicon-o-clipboard-document-check')
+                Action::make('pickup')
+                    ->label('Proses Keluar')
+                    ->icon('heroicon-o-truck')
                     ->color('warning')
-                    ->url(fn (Delivery $record) => DeliveryResource::getUrl('process', ['record' => $record]))
-                    ->visible(fn (Delivery $record) => $record->status === Delivery::STATUS_DRAFT),
-
-                Action::make('download_pdf')
-                    ->label('Download PDF')
-                    ->icon('heroicon-o-document-arrow-down')
-                    ->color('info')
-                    ->action(function (Delivery $record) {
-                        $record->load(['rental.customer', 'rental.items.productUnit.product', 'items.rentalItem.productUnit', 'items.rentalItemKit.unitKit', 'checkedBy']);
-                        
-                        $pdf = Pdf::loadView('pdf.delivery-note', ['delivery' => $record]);
-                        
-                        return response()->streamDownload(
-                            fn () => print($pdf->output()),
-                            $record->delivery_number . '.pdf'
-                        );
-                    }),
-
-                EditAction::make()
-                    ->visible(fn (Delivery $record) => $record->status === Delivery::STATUS_DRAFT),
-
-                DeleteAction::make()
-                    ->visible(fn (Delivery $record) => in_array($record->status, [
-                        Delivery::STATUS_DRAFT,
-                        Delivery::STATUS_CANCELLED,
+                    ->url(fn (Rental $record): string => RentalResource::getUrl('pickup', ['record' => $record]))
+                    ->visible(fn (Rental $record): bool => in_array($record->status, [
+                        Rental::STATUS_CONFIRMED,
+                        Rental::STATUS_LATE_PICKUP,
                     ])),
+
+                Action::make('return')
+                    ->label('Proses Masuk')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('success')
+                    ->url(fn (Rental $record): string => RentalResource::getUrl('return', ['record' => $record]))
+                    ->visible(fn (Rental $record): bool => in_array($record->status, [
+                        Rental::STATUS_ACTIVE,
+                        Rental::STATUS_LATE_RETURN,
+                        Rental::STATUS_PARTIAL_RETURN,
+                    ])),
+
+                Action::make('open')
+                    ->label('Buka')
+                    ->icon('heroicon-o-document-text')
+                    ->color('gray')
+                    ->url(fn (Rental $record): string => RentalResource::getUrl('delivery', ['record' => $record])),
             ])
-            ->recordUrl(fn (Delivery $record) => DeliveryResource::getUrl('process', ['record' => $record]));
+            ->recordUrl(fn (Rental $record): string => RentalResource::getUrl('delivery', ['record' => $record]));
+    }
+
+    /**
+     * Human label for a delivery slot on the board: "Belum dibuat" when the
+     * surat jalan has not been generated yet, otherwise its status.
+     */
+    protected static function movementLabel(?Delivery $delivery): string
+    {
+        if (! $delivery) {
+            return 'Belum dibuat';
+        }
+
+        return Delivery::getStatusOptions()[$delivery->status] ?? ucfirst($delivery->status);
+    }
+
+    protected static function movementColor(?Delivery $delivery): string
+    {
+        if (! $delivery) {
+            return 'gray';
+        }
+
+        return Delivery::getStatusColor($delivery->status);
     }
 }

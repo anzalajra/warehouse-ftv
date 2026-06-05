@@ -572,7 +572,7 @@ class PickupOperation extends Page
 
     public function deliveryDocsUrl(): string
     {
-        return RentalResource::getUrl('documents', ['record' => $this->rental]);
+        return RentalResource::getUrl('delivery', ['record' => $this->rental]);
     }
 
     public function customerUrl(): string
