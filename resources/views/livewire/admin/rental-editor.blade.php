@@ -385,7 +385,7 @@
         .dark .rent-app .tx-seg button { background: var(--bg-surface); }
         .rent-app .tx-seg button.on { background: var(--danger-600); border-color: var(--danger-600); color:#fff; }
         .rent-app .tx-note { font-size:12px; color: var(--fg-3); line-height:1.5; padding:6px 20px 4px; }
-        .rent-app .tx-fields { padding:8px 20px 6px; display:flex; flex-direction:column; gap:14px; }
+        .rent-app .tx-fields { padding:8px 20px 6px; display:flex; flex-direction:column; gap:14px; max-height:58vh; overflow-y:auto; }
         .rent-app .tx-fld-lbl { display:block; font-size:12.5px; font-weight:700; color: var(--fg-2); margin-bottom:7px; }
         .rent-app .tx-fld-lbl .req { color: var(--danger-600); margin-left:2px; }
         .rent-app .tx-unit-static { font-size:13px; color: var(--fg-2); }
@@ -393,6 +393,25 @@
         .rent-app .tx-swap-arrow { display:flex; align-items:center; justify-content:center; gap:8px; color: var(--fg-4); font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
         .rent-app .tx-swap-arrow svg { width:18px; height:18px; transform:rotate(90deg); }
         .rent-app .tx-empty-hint { font-size:11.5px; color: var(--warning-800); background: var(--warning-50); border:1px solid var(--warning-100); border-radius:10px; padding:9px 12px; line-height:1.45; }
+
+        /* searchable combobox (transfer modal) */
+        .rent-app .tx-combo { position:relative; }
+        .rent-app .tx-combo-trigger { width:100%; height:46px; padding:0 40px 0 13px; border:1.5px solid var(--border-1); border-radius:11px; background:#fff; font:600 13.5px var(--font-sans); color: var(--fg-1); cursor:pointer; display:flex; align-items:center; text-align:left; }
+        .dark .rent-app .tx-combo-trigger { background: var(--bg-surface); }
+        .rent-app .tx-combo-trigger:focus { outline:none; border-color: var(--danger-500); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-500) 22%, transparent); }
+        .rent-app .tx-combo-trigger .lbl { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .rent-app .tx-combo-trigger .lbl.ph { color: var(--fg-4); font-weight:500; }
+        .rent-app .tx-combo-pop { margin-top:6px; background:#fff; border:1.5px solid var(--border-1); border-radius:11px; box-shadow: var(--shadow-lg); padding:7px; }
+        .dark .rent-app .tx-combo-pop { background: var(--bg-surface); }
+        .rent-app .tx-combo-search { width:100%; height:38px; padding:0 11px; border:1px solid var(--border-1); border-radius:8px; background: var(--gray-50); font:500 13px var(--font-sans); color: var(--fg-1); margin-bottom:6px; }
+        .dark .rent-app .tx-combo-search { background: var(--bg-1); }
+        .rent-app .tx-combo-search:focus { outline:none; border-color: var(--danger-500); }
+        .rent-app .tx-combo-list { max-height:230px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+        .rent-app .tx-combo-opt { display:block; width:100%; text-align:left; padding:9px 11px; border:0; border-radius:8px; background:transparent; font:500 13px var(--font-sans); color: var(--fg-2); cursor:pointer; white-space:normal; line-height:1.35; }
+        .rent-app .tx-combo-opt:hover { background: var(--gray-100); }
+        .dark .rent-app .tx-combo-opt:hover { background: var(--bg-1); }
+        .rent-app .tx-combo-opt.on { background: var(--danger-50); color: var(--danger-700); font-weight:700; }
+        .rent-app .tx-combo-empty { padding:12px; text-align:center; font-size:12px; color: var(--fg-4); }
 
         /* === Toast === */
         .rent-app .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--gray-900); color:#fff; padding:10px 16px; border-radius: var(--radius-lg); font-size:13px; z-index: 200; display:flex; gap:8px; align-items:center; box-shadow: var(--shadow-lg); }
@@ -2338,14 +2357,22 @@
                                 @if(empty($tx['pull_candidates']))
                                     <div class="tx-empty-hint">Tidak ada unit produk ini di rental lain yang overlap periode rental ini (status quotation/confirmed/late_pickup).</div>
                                 @else
-                                    <div class="sel-wrap">
-                                        <select class="sel sans" wire:model="transferTargetItemId">
-                                            <option value="">— Pilih unit untuk ditarik —</option>
-                                            @foreach($tx['pull_candidates'] as $pc)
-                                                <option value="{{ $pc['item_id'] }}">{{ $pc['label'] }}</option>
-                                            @endforeach
-                                        </select>
-                                        <span class="sel-chev">{!! $chevSvg !!}</span>
+                                    <div class="tx-combo" wire:key="txc-pull"
+                                         x-data="txCombo({ options: @js(collect($tx['pull_candidates'])->map(fn($pc) => ['value' => (string) $pc['item_id'], 'label' => $pc['label']])->values()), prop: 'transferTargetItemId', live: false, placeholder: '— Pilih unit untuk ditarik —' })"
+                                         @click.outside="open=false" x-on:keydown.escape="open=false">
+                                        <button type="button" class="tx-combo-trigger" @click="toggle()">
+                                            <span class="lbl" :class="{ 'ph': !currentLabel }" x-text="currentLabel || placeholder"></span>
+                                            <span class="sel-chev">{!! $chevSvg !!}</span>
+                                        </button>
+                                        <div class="tx-combo-pop" x-show="open" x-cloak>
+                                            <input type="text" class="tx-combo-search" x-ref="search" x-model="query" placeholder="Cari unit / rental…" @keydown.escape.stop="open=false">
+                                            <div class="tx-combo-list">
+                                                <template x-for="o in filtered" :key="o.value">
+                                                    <button type="button" class="tx-combo-opt" :class="{ 'on': String(o.value) === current }" @click="choose(o)" x-text="o.label"></button>
+                                                </template>
+                                                <div class="tx-combo-empty" x-show="filtered.length === 0">Tidak ada hasil</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 @endif
                             </div>
@@ -2356,14 +2383,22 @@
                                 @if(empty($tx['pickable_units']))
                                     <div class="tx-empty-hint">Belum ada unit yang ditugaskan untuk dipindah / di-swap.</div>
                                 @else
-                                    <div class="sel-wrap">
-                                        <select class="sel" wire:model.live="transferUnitId">
-                                            <option value="">— Pilih unit —</option>
-                                            @foreach($tx['pickable_units'] as $u)
-                                                <option value="{{ $u['id'] }}">{{ $u['serial'] }}</option>
-                                            @endforeach
-                                        </select>
-                                        <span class="sel-chev">{!! $chevSvg !!}</span>
+                                    <div class="tx-combo" wire:key="txc-unit"
+                                         x-data="txCombo({ options: @js(collect($tx['pickable_units'])->map(fn($u) => ['value' => (string) $u['id'], 'label' => $u['serial']])->values()), prop: 'transferUnitId', live: true, placeholder: '— Pilih unit —' })"
+                                         @click.outside="open=false" x-on:keydown.escape="open=false">
+                                        <button type="button" class="tx-combo-trigger" @click="toggle()">
+                                            <span class="lbl" :class="{ 'ph': !currentLabel }" x-text="currentLabel || placeholder"></span>
+                                            <span class="sel-chev">{!! $chevSvg !!}</span>
+                                        </button>
+                                        <div class="tx-combo-pop" x-show="open" x-cloak>
+                                            <input type="text" class="tx-combo-search" x-ref="search" x-model="query" placeholder="Cari serial…" @keydown.escape.stop="open=false">
+                                            <div class="tx-combo-list">
+                                                <template x-for="o in filtered" :key="o.value">
+                                                    <button type="button" class="tx-combo-opt" :class="{ 'on': String(o.value) === current }" @click="choose(o)" x-text="o.label"></button>
+                                                </template>
+                                                <div class="tx-combo-empty" x-show="filtered.length === 0">Tidak ada hasil</div>
+                                            </div>
+                                        </div>
                                     </div>
                                 @endif
                             </div>
@@ -2378,29 +2413,54 @@
                             {{-- Rental tujuan --}}
                             <div>
                                 <label class="tx-fld-lbl">Rental tujuan<span class="req">*</span></label>
-                                <div class="sel-wrap">
-                                    <select class="sel sans" wire:model.live="transferTargetRentalId">
-                                        <option value="">— Pilih rental —</option>
-                                        @foreach($tx['targets'] as $t)
-                                            <option value="{{ $t['id'] }}">{{ $t['label'] }}</option>
-                                        @endforeach
-                                    </select>
-                                    <span class="sel-chev">{!! $chevSvg !!}</span>
+                                <div class="tx-combo" wire:key="txc-target"
+                                     x-data="txCombo({ options: @js(collect($tx['targets'])->map(fn($t) => ['value' => (string) $t['id'], 'label' => $t['label']])->values()), prop: 'transferTargetRentalId', live: true, placeholder: '— Pilih rental —' })"
+                                     @click.outside="open=false" x-on:keydown.escape="open=false">
+                                    <button type="button" class="tx-combo-trigger" @click="toggle()">
+                                        <span class="lbl" :class="{ 'ph': !currentLabel }" x-text="currentLabel || placeholder"></span>
+                                        <span class="sel-chev">{!! $chevSvg !!}</span>
+                                    </button>
+                                    <div class="tx-combo-pop" x-show="open" x-cloak>
+                                        <input type="text" class="tx-combo-search" x-ref="search" x-model="query" placeholder="Cari kode / nama / tanggal…" @keydown.escape.stop="open=false">
+                                        <div class="tx-combo-list">
+                                            <template x-for="o in filtered" :key="o.value">
+                                                <button type="button" class="tx-combo-opt" :class="{ 'on': String(o.value) === current }" @click="choose(o)" x-text="o.label"></button>
+                                            </template>
+                                            <div class="tx-combo-empty" x-show="filtered.length === 0">Tidak ada hasil</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
                             @if($tx['mode'] === 'swap')
                                 <div>
                                     <label class="tx-fld-lbl">Tukar dengan unit<span class="req">*</span></label>
-                                    <div class="sel-wrap">
-                                        <select class="sel sans" wire:model="transferTargetItemId" @disabled(empty($tx['target_items']))>
-                                            <option value="">{{ empty($tx['target_items']) ? 'Pilih rental tujuan dulu' : '— Pilih unit lawan —' }}</option>
-                                            @foreach($tx['target_items'] as $ti)
-                                                <option value="{{ $ti['id'] }}">{{ $ti['label'] }}</option>
-                                            @endforeach
-                                        </select>
-                                        <span class="sel-chev">{!! $chevSvg !!}</span>
-                                    </div>
+                                    @if(empty($tx['target_items']))
+                                        <div class="sel-wrap">
+                                            <select class="sel sans" disabled>
+                                                <option value="">Pilih rental tujuan dulu</option>
+                                            </select>
+                                            <span class="sel-chev">{!! $chevSvg !!}</span>
+                                        </div>
+                                    @else
+                                        <div class="tx-combo" wire:key="txc-swapunit-{{ $transferTargetRentalId }}"
+                                             x-data="txCombo({ options: @js(collect($tx['target_items'])->map(fn($ti) => ['value' => (string) $ti['id'], 'label' => $ti['label']])->values()), prop: 'transferTargetItemId', live: false, placeholder: '— Pilih unit lawan —' })"
+                                             @click.outside="open=false" x-on:keydown.escape="open=false">
+                                            <button type="button" class="tx-combo-trigger" @click="toggle()">
+                                                <span class="lbl" :class="{ 'ph': !currentLabel }" x-text="currentLabel || placeholder"></span>
+                                                <span class="sel-chev">{!! $chevSvg !!}</span>
+                                            </button>
+                                            <div class="tx-combo-pop" x-show="open" x-cloak>
+                                                <input type="text" class="tx-combo-search" x-ref="search" x-model="query" placeholder="Cari produk / serial…" @keydown.escape.stop="open=false">
+                                                <div class="tx-combo-list">
+                                                    <template x-for="o in filtered" :key="o.value">
+                                                        <button type="button" class="tx-combo-opt" :class="{ 'on': String(o.value) === current }" @click="choose(o)" x-text="o.label"></button>
+                                                    </template>
+                                                    <div class="tx-combo-empty" x-show="filtered.length === 0">Tidak ada hasil</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @endif
                                 </div>
                             @endif
                         @endif
@@ -2693,6 +2753,44 @@
                 @this.call('handleScanned', text);
                 setTimeout(() => this.close(), 700);
             }
+        };
+    }
+
+    /* Searchable combobox for transfer modal selects (Move / Swap / Tarik).
+       config: { options:[{value,label}], prop:'wireProp', live:bool, placeholder } */
+    function txCombo(config) {
+        return {
+            open: false,
+            query: '',
+            options: config.options || [],
+            prop: config.prop,
+            live: config.live !== false,
+            placeholder: config.placeholder || 'Pilih…',
+            get current() {
+                const v = this.$wire.get(this.prop);
+                return v === null || v === undefined ? '' : String(v);
+            },
+            get currentLabel() {
+                const o = this.options.find(x => String(x.value) === this.current);
+                return o ? o.label : '';
+            },
+            get filtered() {
+                const q = this.query.trim().toLowerCase();
+                if (!q) return this.options;
+                return this.options.filter(o => String(o.label).toLowerCase().includes(q));
+            },
+            toggle() {
+                this.open = !this.open;
+                if (this.open) {
+                    this.query = '';
+                    this.$nextTick(() => this.$refs.search && this.$refs.search.focus());
+                }
+            },
+            choose(o) {
+                this.$wire.set(this.prop, o.value, this.live);
+                this.query = '';
+                this.open = false;
+            },
         };
     }
 </script>
