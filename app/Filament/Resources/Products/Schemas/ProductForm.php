@@ -133,6 +133,15 @@ class ProductForm
                             ->minValue(0)
                             ->columnSpan(1),
 
+                        TextInput::make('late_fee_daily_amount')
+                            ->label('Denda Telat Harian (Override)')
+                            ->helperText('Tarif dasar denda keterlambatan per unit per hari khusus produk ini. Kosongkan untuk mengikuti tarif sewa harian / setting global.')
+                            ->numeric()
+                            ->prefix('Rp')
+                            ->minValue(0)
+                            ->placeholder('Ikuti tarif sewa / global')
+                            ->columnSpan(1),
+
                         Select::make('tags')
                             ->label('Tags')
                             ->relationship('tags', 'name')

@@ -24,6 +24,7 @@ class Product extends Model
         'description',
         'daily_rate',
         'buffer_time',
+        'late_fee_daily_amount',
         'image',
         'is_active',
         'is_taxable',
@@ -34,6 +35,7 @@ class Product extends Model
     protected $casts = [
         'daily_rate' => 'decimal:2',
         'buffer_time' => 'integer',
+        'late_fee_daily_amount' => 'decimal:2',
         'is_active' => 'boolean',
         'is_taxable' => 'boolean',
         'price_includes_tax' => 'boolean',

@@ -871,18 +871,119 @@ class Rental extends Model
             return 0;
         }
 
-        $overdueDays = $this->end_date->diffInDays(now(), false);
-        
-        if ($overdueDays <= 0) {
+        // Selisih jam telat (signed). end_date di masa lalu → now lebih besar → positif.
+        $hoursLate = (float) $this->end_date->diffInHours(now(), false);
+
+        if ($hoursLate <= 0) {
             return 0;
         }
 
-        // Calculate total daily rate of all items
-        $totalDailyRate = $this->items->sum(function ($item) {
-            return $item->daily_rate * ($item->quantity ?? 1);
-        });
+        // Resolve late fee mode. Backward-compat: derive from old late_fee_type.
+        $mode = Setting::get('late_fee_mode');
+        if ($mode === null) {
+            $oldType = Setting::get('late_fee_type');
+            $mode = match ($oldType) {
+                'fixed'      => 'flat_per_day',
+                'percentage' => 'percentage_per_day',
+                default      => 'full_daily_rate',
+            };
+        }
 
-        return round($totalDailyRate * $overdueDays, 2);
+        $amount = (float) Setting::get('late_fee_amount', 0);
+
+        // Item fisik yang ter-assign (abaikan ghost slot tanpa unit).
+        $items = $this->items->whereNotNull('product_unit_id');
+
+        // Tiered mode dihitung per-jam, per-item (menghormati override produk).
+        if ($mode === 'tiered') {
+            $tiers = json_decode(Setting::get('late_fee_tiers', '[]'), true);
+            $tiers = is_array($tiers) ? $tiers : [];
+
+            $fee = 0.0;
+            foreach ($items as $item) {
+                $fee += $this->tieredLateFeeForItem($item, $tiers, $hoursLate);
+            }
+
+            return round($fee, 2);
+        }
+
+        // Mode per-hari: bulatkan jam telat ke atas menjadi hari penuh.
+        $overdueDays = (int) ceil($hoursLate / 24);
+
+        $unitCount = (int) $items->sum(fn ($item) => $item->quantity ?? 1);
+
+        // Total tarif dasar denda harian (menghormati override produk per-item).
+        $totalDailyBase = (float) $items->sum(
+            fn ($item) => $this->lateFeeDailyBase($item) * ($item->quantity ?? 1)
+        );
+
+        $fee = match ($mode) {
+            // Override produk (jika ada) menggantikan nominal global per unit.
+            'per_unit_per_day'   => $items->sum(function ($item) use ($amount) {
+                $override = $item->productUnit?->product?->late_fee_daily_amount;
+                $perUnit = $override !== null ? (float) $override : $amount;
+                return $perUnit * ($item->quantity ?? 1);
+            }) * $overdueDays,
+            'flat_per_day'       => $amount * $overdueDays,
+            'percentage_per_day' => $totalDailyBase * ($amount / 100) * $overdueDays,
+            default              => $totalDailyBase * $overdueDays, // full_daily_rate
+        };
+
+        return round($fee, 2);
+    }
+
+    /**
+     * Tarif dasar denda harian per unit untuk sebuah item:
+     * pakai override produk bila di-set, jika tidak pakai tarif sewa harian item.
+     */
+    protected function lateFeeDailyBase(RentalItem $item): float
+    {
+        $override = $item->productUnit?->product?->late_fee_daily_amount;
+
+        return $override !== null ? (float) $override : (float) $item->daily_rate;
+    }
+
+    /**
+     * Hitung denda tiered untuk satu item berdasarkan jam telat.
+     * Setelah tier terakhir, tiap 24 jam berikutnya = +1× tarif dasar harian.
+     */
+    protected function tieredLateFeeForItem(RentalItem $item, array $tiers, float $hoursLate): float
+    {
+        $qty = $item->quantity ?? 1;
+        $base = $this->lateFeeDailyBase($item); // tarif dasar harian per unit
+
+        // Tanpa tier → fallback: tarif harian penuh per hari.
+        if (empty($tiers)) {
+            return $base * (int) ceil($hoursLate / 24) * $qty;
+        }
+
+        // Urutkan tier menaik berdasarkan up_to_hours.
+        usort($tiers, fn ($a, $b) => (float) ($a['up_to_hours'] ?? 0) <=> (float) ($b['up_to_hours'] ?? 0));
+
+        $chargePerUnit = function (array $tier) use ($base): float {
+            $value = (float) ($tier['amount'] ?? 0);
+            return ($tier['charge_type'] ?? 'percentage') === 'fixed'
+                ? $value                       // Rp tetap per unit
+                : $base * ($value / 100);      // % dari tarif harian
+        };
+
+        $lastTier = end($tiers);
+        $lastHours = (float) ($lastTier['up_to_hours'] ?? 0);
+
+        // Masih dalam jangkauan tier → ambil tier pertama yang menampung jam telat.
+        if ($hoursLate <= $lastHours) {
+            foreach ($tiers as $tier) {
+                if ($hoursLate <= (float) ($tier['up_to_hours'] ?? 0)) {
+                    return $chargePerUnit($tier) * $qty;
+                }
+            }
+        }
+
+        // Lewat tier terakhir → charge tier terakhir + tiap 24 jam berikutnya 1× tarif harian.
+        $extraDays = (int) ceil(($hoursLate - $lastHours) / 24);
+        $perUnit = $chargePerUnit($lastTier) + ($extraDays * $base);
+
+        return $perUnit * $qty;
     }
 
     public function validateReturn(): void

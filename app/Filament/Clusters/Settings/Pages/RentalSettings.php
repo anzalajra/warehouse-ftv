@@ -6,6 +6,7 @@ use App\Filament\Clusters\Settings\SettingsCluster;
 use App\Models\Setting;
 use BackedEnum;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Textarea;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -63,6 +64,12 @@ class RentalSettings extends Page implements HasForms
             }
         }
 
+        // Decode late fee tiers (stored as JSON string) into an array for the Repeater
+        if (isset($settings['late_fee_tiers'])) {
+            $decoded = json_decode($settings['late_fee_tiers'], true);
+            $settings['late_fee_tiers'] = is_array($decoded) ? $decoded : [];
+        }
+
         // Remove keys managed outside the Filament form
         unset($settings['holidays'], $settings['operational_days'], $settings['operational_schedule']);
 
@@ -106,22 +113,70 @@ class RentalSettings extends Page implements HasForms
                             ])->columnSpanFull(),
 
                         Section::make('Late Fee Settings')
+                            ->description('Denda keterlambatan dihitung otomatis saat proses pengembalian (dapat di-override manual oleh admin).')
                             ->schema([
-                                Select::make('late_fee_type')
-                                    ->label('Late Fee Type')
+                                Select::make('late_fee_mode')
+                                    ->label('Metode Perhitungan Denda')
                                     ->options([
-                                        'percentage' => 'Percentage (%)',
-                                        'fixed' => 'Fixed Amount (Rp)',
+                                        'per_unit_per_day'   => 'Rp tetap per unit per hari',
+                                        'flat_per_day'       => 'Rp tetap per hari (flat, berapapun jumlah unit)',
+                                        'percentage_per_day' => 'Persentase tarif harian per hari',
+                                        'full_daily_rate'    => 'Tarif sewa harian penuh per hari',
+                                        'tiered'             => 'Bertingkat per jam telat (tier)',
                                     ])
-                                    ->default('percentage')
+                                    ->default('per_unit_per_day')
                                     ->live()
-                                    ->required(),
+                                    ->required()
+                                    ->helperText(fn ($get) => match ($get('late_fee_mode')) {
+                                        'per_unit_per_day'   => 'Contoh: Rp 50.000 × 3 unit × 2 hari telat = Rp 300.000.',
+                                        'flat_per_day'       => 'Contoh: Rp 50.000 × 2 hari telat = Rp 100.000 (jumlah unit diabaikan).',
+                                        'percentage_per_day' => 'Contoh: 10% dari total tarif harian rental × jumlah hari telat.',
+                                        'full_daily_rate'    => 'Mengenakan total tarif sewa harian rental untuk setiap hari keterlambatan.',
+                                        'tiered'             => 'Denda bertingkat berdasarkan berapa jam telat. Setelah tier terakhir, tiap 24 jam berikutnya = 1× tarif sewa harian.',
+                                        default              => null,
+                                    }),
                                 TextInput::make('late_fee_amount')
-                                    ->label(fn ($get) => $get('late_fee_type') === 'percentage' ? 'Percentage per Day' : 'Amount per Day')
+                                    ->label(fn ($get) => $get('late_fee_mode') === 'percentage_per_day' ? 'Persentase per Hari' : 'Nominal per Hari')
                                     ->numeric()
-                                    ->suffix(fn ($get) => $get('late_fee_type') === 'percentage' ? '%' : null)
-                                    ->prefix(fn ($get) => $get('late_fee_type') === 'fixed' ? 'Rp' : null)
-                                    ->required(),
+                                    ->minValue(0)
+                                    ->suffix(fn ($get) => $get('late_fee_mode') === 'percentage_per_day' ? '%' : null)
+                                    ->prefix(fn ($get) => in_array($get('late_fee_mode'), ['per_unit_per_day', 'flat_per_day']) ? 'Rp' : null)
+                                    ->visible(fn ($get) => !in_array($get('late_fee_mode'), ['full_daily_rate', 'tiered']))
+                                    ->required(fn ($get) => !in_array($get('late_fee_mode'), ['full_daily_rate', 'tiered'])),
+
+                                Repeater::make('late_fee_tiers')
+                                    ->label('Tingkatan Denda (per jam telat)')
+                                    ->helperText('Urut dari telat paling singkat ke paling lama. "Sampai X jam" = denda yang dikenakan jika keterlambatan ≤ X jam. Tier terakhir biasanya 24 jam = 1× tarif harian (100%). Lewat tier terakhir, tiap 24 jam berikutnya otomatis +1× tarif sewa harian.')
+                                    ->visible(fn ($get) => $get('late_fee_mode') === 'tiered')
+                                    ->schema([
+                                        TextInput::make('up_to_hours')
+                                            ->label('Sampai (jam)')
+                                            ->numeric()
+                                            ->minValue(1)
+                                            ->required()
+                                            ->suffix('jam'),
+                                        Select::make('charge_type')
+                                            ->label('Jenis')
+                                            ->options([
+                                                'percentage' => '% tarif harian',
+                                                'fixed'      => 'Rp per unit',
+                                            ])
+                                            ->default('percentage')
+                                            ->live()
+                                            ->required(),
+                                        TextInput::make('amount')
+                                            ->label('Nilai')
+                                            ->numeric()
+                                            ->minValue(0)
+                                            ->required()
+                                            ->suffix(fn ($get) => $get('charge_type') === 'percentage' ? '%' : null)
+                                            ->prefix(fn ($get) => $get('charge_type') === 'fixed' ? 'Rp' : null),
+                                    ])
+                                    ->columns(3)
+                                    ->addActionLabel('Tambah Tingkatan')
+                                    ->defaultItems(0)
+                                    ->reorderable()
+                                    ->columnSpanFull(),
                             ])->columnSpanFull(),
                     ]),
 
@@ -191,6 +246,12 @@ class RentalSettings extends Page implements HasForms
         $data['operational_schedule'] = json_encode($this->operationalSchedule);
         $data['operational_days']     = json_encode($operationalDays);
         $data['holidays']             = json_encode(array_values($this->holidays));
+
+        // Late fee tiers come from the Repeater as an array — persist as JSON.
+        if (array_key_exists('late_fee_tiers', $data)) {
+            $tiers = is_array($data['late_fee_tiers']) ? array_values($data['late_fee_tiers']) : [];
+            $data['late_fee_tiers'] = json_encode($tiers);
+        }
 
         foreach ($data as $key => $value) {
             Setting::set($key, $value);
