@@ -960,6 +960,11 @@ class Rental extends Model
 
         if ($deliveryOut->status === Delivery::STATUS_DRAFT || $deliveryOut->items()->count() === 0) {
             foreach ($this->items as $item) {
+                // Skip empty "ghost" slots (no unit assigned) — nothing physical to hand out.
+                if (!$item->product_unit_id || !$item->productUnit) {
+                    continue;
+                }
+
                 // Main Unit
                 $deliveryOut->items()->firstOrCreate([
                     'rental_item_id' => $item->id,
@@ -1005,6 +1010,11 @@ class Rental extends Model
 
         if ($deliveryIn->status === Delivery::STATUS_DRAFT) {
             foreach ($this->items as $item) {
+                // Skip empty "ghost" slots (no unit assigned) — nothing physical to receive.
+                if (!$item->product_unit_id || !$item->productUnit) {
+                    continue;
+                }
+
                 // Main Unit
                 $deliveryIn->items()->firstOrCreate([
                     'rental_item_id' => $item->id,
