@@ -76,7 +76,7 @@
 @endphp
 
 <x-filament-panels::page>
-    <div class="rent-app rent-view">
+    <div class="rent-app rent-view" x-data="{ sendSheet:false, actSheet:false }">
         <style>
             .rent-app {
                 --danger-50:  var(--primary-50,  #f0f9ff);
@@ -269,6 +269,91 @@
                 .rent-app .view-row .sub { grid-area:sub; }
                 .rent-app .view-foot .frow { min-width:0; grid-template-columns:auto 130px; gap:16px; }
             }
+
+            /* ===================================================================
+               MOBILE: sticky bottom action bar (Send + contextual primary) +
+               Send / Actions bottom sheets. Colors follow the Filament theme
+               (var(--primary-*)); the global app bottom nav is hidden here.
+               =================================================================== */
+            .rent-app .rv-kebab { display:none; }            /* desktop: hidden */
+            .rent-app .rv-mobilebar,
+            .rent-app .rv-sheet-root { display:none; }       /* desktop: hidden */
+
+            @media (max-width: 767px) {
+                /* Hide the global app bottom nav on this page — the rental action
+                   bar replaces it (same approach as the Rental editor, Opsi B). */
+                .gr-bottombar { display:none !important; }
+                /* Reclaim the bottom padding the global nav reserved. The nav hook
+                   renders at body.end (its <style> wins on equal specificity), so we
+                   prefix with `body` to outrank it and zero the reserved space… */
+                body.fi-body { padding-bottom:0 !important; }
+                body .fi-main, body .fi-page { padding-bottom:0 !important; }
+                /* …then give content room for our own fixed bar instead. */
+                .rent-app.rent-view { padding-bottom:calc(84px + env(safe-area-inset-bottom, 0px)); }
+
+                /* The topbar icon-button row moves to the bottom bar + Actions sheet. */
+                .rent-app .topbar-actions { display:none; }
+                .rent-app .rv-kebab { display:inline-flex; flex:none; margin-left:auto; }
+
+                /* ---- Sticky bottom action bar ---- */
+                .rent-app .rv-mobilebar {
+                    display:block; position:fixed; left:0; right:0; bottom:0; z-index:41;
+                    background:var(--bg-surface); border-top:1px solid var(--border-1);
+                    box-shadow:0 -2px 10px rgba(20,24,31,.05), 0 -10px 34px rgba(20,24,31,.06);
+                    padding:12px 13px calc(16px + env(safe-area-inset-bottom, 0px));
+                }
+                .dark .rent-app .rv-mobilebar { box-shadow:0 -2px 10px rgba(0,0,0,.4), 0 -12px 34px rgba(0,0,0,.55); }
+                .rent-app .rv-mobilebar .ab-row { display:flex; gap:10px; }
+                .rent-app .rv-mobilebar .ab-btn {
+                    display:flex; align-items:center; justify-content:center; gap:8px; height:51px;
+                    border-radius:14px; font-family:inherit; font-weight:700; font-size:15.5px; cursor:pointer;
+                    border:1.5px solid var(--border-1); background:var(--bg-surface); color:var(--fg-1);
+                    text-decoration:none;
+                }
+                .rent-app .rv-mobilebar .ab-btn svg { width:19px; height:19px; flex:none; }
+                .rent-app .rv-mobilebar .ab-btn.ghost { flex:1; }
+                .rent-app .rv-mobilebar .ab-btn.ghost .cap { display:inline-flex; width:16px; height:16px; opacity:.8; margin-left:-3px; }
+                .rent-app .rv-mobilebar .ab-btn.ghost:active { background:var(--gray-50); }
+                .rent-app .rv-mobilebar .ab-btn.primary { flex:1.45; border:none; color:#fff; }
+                .rent-app .rv-mobilebar .ab-btn.primary.brand { background:var(--primary-600); box-shadow:0 5px 14px color-mix(in srgb, var(--primary-600) 34%, transparent); }
+                .rent-app .rv-mobilebar .ab-btn.primary.brand:active { background:var(--primary-700); }
+                .rent-app .rv-mobilebar .ab-btn.primary.go { background:#16a34a; box-shadow:0 5px 14px rgba(22,163,74,.32); }
+                .rent-app .rv-mobilebar .ab-btn.primary.go:active { background:#15803d; }
+
+                /* ---- Bottom sheets (Send / Actions) ---- */
+                .rent-app .rv-sheet-root { display:block; }
+                .rent-app .rv-scrim { position:fixed; inset:0; background:rgba(8,11,16,.5); z-index:60; animation:rv-fade .18s ease; }
+                @keyframes rv-fade { from{opacity:0} to{opacity:1} }
+                @keyframes rv-slideup { from{transform:translateY(100%)} to{transform:translateY(0)} }
+                .rent-app .rv-sheet {
+                    position:fixed; left:0; right:0; bottom:0; z-index:61; background:var(--bg-surface);
+                    border-radius:22px 22px 0 0; box-shadow:0 -12px 44px rgba(0,0,0,.3);
+                    max-height:84%; display:flex; flex-direction:column;
+                    padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px));
+                    animation:rv-slideup .26s cubic-bezier(.2,.7,.3,1);
+                }
+                .rent-app .rv-grip { width:40px; height:4px; border-radius:99px; background:var(--gray-200); margin:10px auto 2px; flex:none; }
+                .rent-app .rv-sheet-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 18px 10px; flex:none; }
+                .rent-app .rv-sheet-head h3 { margin:0; font-size:17px; font-weight:800; letter-spacing:-.01em; color:var(--fg-1); }
+                .rent-app .rv-sheet-head .sub { font-size:12.5px; color:var(--fg-3); font-weight:600; margin-top:2px; font-variant-numeric:tabular-nums; }
+                .rent-app .rv-sheet-x { width:34px; height:34px; border-radius:10px; background:var(--gray-100); border:none; display:grid; place-items:center; color:var(--fg-2); cursor:pointer; flex:none; }
+                .rent-app .rv-sheet-list { overflow:auto; padding:4px 12px 8px; }
+                .rent-app .rv-sheet-group { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--fg-4); padding:12px 10px 6px; }
+                .rent-app .rv-act { display:flex; align-items:center; gap:13px; width:100%; padding:13px 12px; border:none; background:transparent; border-radius:13px; cursor:pointer; font-family:inherit; text-align:left; text-decoration:none; }
+                .rent-app .rv-act:active { background:var(--gray-50); }
+                .rent-app .rv-act .ic { width:40px; height:40px; border-radius:11px; background:var(--gray-100); display:grid; place-items:center; color:var(--fg-1); flex:none; }
+                .rent-app .rv-act .ic svg { width:19px; height:19px; }
+                .rent-app .rv-act .lbl { flex:1; min-width:0; }
+                .rent-app .rv-act .lbl .a { font-size:15px; font-weight:700; color:var(--fg-1); }
+                .rent-app .rv-act .lbl .b { font-size:12.5px; color:var(--fg-3); font-weight:600; margin-top:1px; }
+                .rent-app .rv-act .chev { color:var(--fg-4); flex:none; display:flex; }
+                .rent-app .rv-act.danger .ic { background:#fee2e2; color:#dc2626; }
+                .dark .rent-app .rv-act.danger .ic { background:rgba(220,38,38,.18); color:#f87171; }
+                .rent-app .rv-act.danger .lbl .a { color:#dc2626; }
+                .dark .rent-app .rv-act.danger .lbl .a { color:#f87171; }
+                .rent-app .rv-act.disabled { opacity:.5; pointer-events:none; }
+                .rent-app .rv-act .tag { margin-left:auto; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--fg-4); background:var(--gray-100); padding:3px 8px; border-radius:999px; }
+            }
         </style>
 
         {{-- ===================== Sticky topbar ===================== --}}
@@ -421,6 +506,11 @@
                         </a>
                     @endif
                 </div>
+
+                {{-- Mobile-only kebab → opens the Actions bottom sheet --}}
+                <button type="button" class="btn btn-secondary btn-iconsq rv-kebab" @click="actSheet=true" aria-label="Actions">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+                </button>
             </div>
         </div>
 
@@ -572,6 +662,152 @@
                 <div class="frow grand">
                     <span class="fl">Total</span>
                     <span class="fv">{{ $rp($rental->total) }}</span>
+                </div>
+            </div>
+        </div>
+
+        {{-- ===================== Mobile sticky action bar ===================== --}}
+        <div class="rv-mobilebar">
+            <div class="ab-row">
+                <button type="button" class="ab-btn ghost" @click="sendSheet=true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/><path d="M22 2 11 13"/></svg>
+                    <span>Send</span>
+                    <span class="cap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+                </button>
+                @if($canConfirm)
+                    <button type="button" class="ab-btn primary brand" wire:click="mountAction('confirm')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
+                        <span>Confirm</span>
+                    </button>
+                @elseif($canPickup)
+                    <a href="{{ $this->getPickupUrl() }}" class="ab-btn primary go">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17h4V5a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h2"/><path d="M14 9h4l3 3v4a1 1 0 0 1-1 1h-1"/><circle cx="7.5" cy="17.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/></svg>
+                        <span>Process Pickup</span>
+                    </a>
+                @elseif($canReturn)
+                    <a href="{{ $this->getReturnUrl() }}" class="ab-btn primary go">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5H9"/></svg>
+                        <span>Process Return</span>
+                    </a>
+                @endif
+            </div>
+        </div>
+
+        {{-- ===================== Send bottom sheet ===================== --}}
+        <div class="rv-sheet-root" x-show="sendSheet" x-cloak>
+            <div class="rv-scrim" @click="sendSheet=false"></div>
+            <div class="rv-sheet">
+                <div class="rv-grip"></div>
+                <div class="rv-sheet-head">
+                    <h3>Send</h3>
+                    <button type="button" class="rv-sheet-x" @click="sendSheet=false">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="rv-sheet-list">
+                    @if($waEnabled)
+                        @if($waUrl)
+                            <a href="{{ $waUrl }}" target="_blank" rel="noopener" class="rv-act" @click="sendSheet=false">
+                                <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                                <span class="lbl"><div class="a">via WhatsApp</div>@if($customer?->phone)<div class="b">Kirim ke {{ $customer->phone }}</div>@endif</span>
+                                <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                            </a>
+                        @else
+                            <span class="rv-act disabled">
+                                <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                                <span class="lbl"><div class="a">via WhatsApp</div><div class="b">Nomor telepon belum diisi</div></span>
+                            </span>
+                        @endif
+                    @endif
+                    @if($orderConfirmUrl)
+                        <a href="{{ $orderConfirmUrl }}" target="_blank" rel="noopener" class="rv-act" @click="sendSheet=false">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3z"/></svg></span>
+                            <span class="lbl"><div class="a">Order Confirmed</div></span>
+                            <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                        </a>
+                    @else
+                        <span class="rv-act disabled">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3z"/></svg></span>
+                            <span class="lbl"><div class="a">Order Confirmed</div><div class="b">Nomor telepon belum diisi</div></span>
+                        </span>
+                    @endif
+                    <span class="rv-act disabled">
+                        <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg></span>
+                        <span class="lbl"><div class="a">via Email</div></span>
+                        <span class="tag">Soon</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        {{-- ===================== Actions bottom sheet ===================== --}}
+        <div class="rv-sheet-root" x-show="actSheet" x-cloak>
+            <div class="rv-scrim" @click="actSheet=false"></div>
+            <div class="rv-sheet">
+                <div class="rv-grip"></div>
+                <div class="rv-sheet-head">
+                    <div>
+                        <h3>Actions</h3>
+                        <div class="sub">{{ $rental->rental_code }}</div>
+                    </div>
+                    <button type="button" class="rv-sheet-x" @click="actSheet=false">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="rv-sheet-list">
+                    <div class="rv-sheet-group">Dokumen</div>
+                    <button type="button" class="rv-act" @click="actSheet=false" wire:click="mountAction('downloadChecklist')">
+                        <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></svg></span>
+                        <span class="lbl"><div class="a">Download Checklist Form</div></span>
+                        <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                    </button>
+                    @if($canDlQuotation)
+                        <button type="button" class="rv-act" @click="actSheet=false" wire:click="mountAction('downloadQuotation')">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></span>
+                            <span class="lbl"><div class="a">Download Quotation</div></span>
+                            <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                        </button>
+                    @endif
+                    @if($canDlInvoice)
+                        <button type="button" class="rv-act" @click="actSheet=false" wire:click="mountAction('downloadInvoice')">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6M9 15h6"/></svg></span>
+                            <span class="lbl"><div class="a">Download Invoice</div></span>
+                            <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                        </button>
+                    @endif
+
+                    <div class="rv-sheet-group">Kelola Rental</div>
+                    @if($editUrl)
+                        <a href="{{ $editUrl }}" class="rv-act" @click="actSheet=false">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+                            <span class="lbl"><div class="a">Edit Rental</div></span>
+                            <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                        </a>
+                    @endif
+                    <a href="{{ $deliveryUrl }}" class="rv-act" @click="actSheet=false">
+                        <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="13" height="14" rx="1"/><path d="M16 8h3l3 3v5a1 1 0 0 1-1 1h-1"/><circle cx="7.5" cy="18.5" r="1.8"/><circle cx="17.5" cy="18.5" r="1.8"/></svg></span>
+                        <span class="lbl"><div class="a">Delivery</div><div class="b">Atur pengiriman & kurir</div></span>
+                        <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                    </a>
+                    @if($canRevert)
+                        <button type="button" class="rv-act" @click="actSheet=false" wire:click="mountAction('revert')">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5H9"/></svg></span>
+                            <span class="lbl"><div class="a">Revert to Quotation</div></span>
+                            <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                        </button>
+                    @endif
+                    @if($canCancel)
+                        <button type="button" class="rv-act danger" @click="actSheet=false" wire:click="mountAction('cancel')">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg></span>
+                            <span class="lbl"><div class="a">Cancel Rental</div></span>
+                        </button>
+                    @endif
+                    @if($canDelete)
+                        <button type="button" class="rv-act danger" @click="actSheet=false" wire:click="mountAction('delete')">
+                            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg></span>
+                            <span class="lbl"><div class="a">Delete Rental</div></span>
+                        </button>
+                    @endif
                 </div>
             </div>
         </div>
