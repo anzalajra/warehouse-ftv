@@ -88,6 +88,16 @@ class ProcessReturn extends Page
         return 'Return Operation - '.$this->rental->rental_code;
     }
 
+    public function getHeading(): string|Htmlable
+    {
+        return '';
+    }
+
+    public function getBreadcrumbs(): array
+    {
+        return [];
+    }
+
     /* ============================================================
        Read helpers
        ============================================================ */

@@ -1195,6 +1195,132 @@
     <style>
         [x-cloak]{display:none!important;}
         @media (max-width:680px){ #op-console .page{ padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important; } }
+
+        /* ============================================================
+           Dark theme — follows Filament's admin dark mode (.dark on <html>).
+           Strategy: re-map the design tokens first (covers most of the
+           surface that uses var()s), then patch the handful of places
+           that hardcode light values. Mirrors the design's styles-dark.css.
+           ============================================================ */
+        .dark #op-console {
+            color-scheme: dark;
+            /* neutral surfaces (page → inset → surface) */
+            --bg:       #0f1217;
+            --card-2:   #181c22;
+            --card:     #1f242c;
+            --border:   #2e333d;
+            --border-2: #262b33;
+            --ring:     rgba(255,255,255,.05);
+            --text:    #eef1f5;
+            --text-2:  #c3cad4;
+            --muted:   #8b929e;
+            --muted-2: #646b76;
+            /* semantic tints (translucent so they sit on any dark bg) */
+            --success:    #22c55e;
+            --success-bg: rgba(34,197,94,.13);
+            --success-bd: rgba(34,197,94,.30);
+            --warning:    #f59e0b;
+            --warning-bg: rgba(245,158,11,.13);
+            --warning-bd: rgba(245,158,11,.30);
+            --danger:     #ef4444;
+            --danger-bg:  rgba(239,68,68,.13);
+            --danger-bd:  rgba(239,68,68,.32);
+            --info:       #3b82f6;
+            --info-bg:    rgba(59,130,246,.13);
+            --info-bd:    rgba(59,130,246,.30);
+            /* deeper shadows on dark */
+            --shadow-sm: 0 1px 2px rgba(0,0,0,.40);
+            --shadow-md: 0 6px 20px rgba(0,0,0,.50);
+            --shadow-lg: 0 18px 50px rgba(0,0,0,.62);
+        }
+
+        /* ---- glass / sticky bars (hardcoded light rgba) ---- */
+        .dark #op-console .topbar     { background: rgba(15,18,23,.80); }
+        .dark #op-console .op-toolbar { background: rgba(17,20,26,.85); }
+        .dark #op-console .actionbar  { background: rgba(15,18,23,.90); }
+
+        /* ---- buttons / hover borders ---- */
+        .dark #op-console .btn:hover { border-color: #3a414c; }
+        .dark #op-console .dropdown button[aria-expanded="true"] { border-color: #3a414c; }
+        .dark #op-console .scan-btn { border-color: var(--border); }
+
+        /* ---- badges (lighten saturated text on dark tints) ---- */
+        .dark #op-console .b-gray    { background: rgba(255,255,255,.06); color: #c3cad4; border-color: var(--border); }
+        .dark #op-console .b-success { color: #4ade80; }
+        .dark #op-console .b-warning { color: #fbbf24; }
+        .dark #op-console .b-danger  { color: #f87171; }
+        .dark #op-console .b-info    { color: #60a5fa; }
+
+        /* ---- banners ---- */
+        .dark #op-console .banner-danger  { color: #fca5a5; }
+        .dark #op-console .banner-warning { color: #fcd34d; }
+        .dark #op-console .banner-success { color: #86efac; }
+        .dark #op-console .banner-info    { color: #93c5fd; }
+
+        /* ---- conflict banner ---- */
+        .dark #op-console .cb-headtx strong { color: #fca5a5; }
+        .dark #op-console .cb-headtx span   { color: #d7a0a0; }
+        .dark #op-console .cb-status        { color: #fca5a5; }
+
+        /* ---- filter chips ---- */
+        .dark #op-console .chip:hover { border-color: #3a414c; }
+        .dark #op-console .chip .count { background: rgba(255,255,255,.09); }
+        .dark #op-console .chip[aria-pressed="true"] { color: var(--bg); }
+        .dark #op-console .chip[aria-pressed="true"] .count { background: rgba(0,0,0,.18); }
+
+        /* ---- progress track ---- */
+        .dark #op-console .progress-track { background: #2a2f38; }
+
+        /* ---- thumbnails / focus photo placeholders ---- */
+        .dark #op-console .row .thumb {
+            background: repeating-linear-gradient(45deg, #20242c, #20242c 6px, #262b34 6px, #262b34 12px);
+        }
+        .dark #op-console .fc-photo {
+            background: repeating-linear-gradient(45deg, #20242c, #20242c 8px, #262b34 8px, #262b34 16px);
+        }
+        .dark #op-console .row .thumb .cam-badge { border-color: var(--card); }
+
+        /* ---- check status (hollow circle) ---- */
+        .dark #op-console .check-ic.off { background: var(--card); }
+
+        /* ---- condition mini badges ---- */
+        .dark #op-console .cond.good   { color: #4ade80; }
+        .dark #op-console .cond.minor  { color: #fbbf24; }
+        .dark #op-console .cond.broken { color: #f87171; }
+        .dark #op-console .cond.lost   { color: #9ca3af; }
+
+        /* ---- condition segmented (big editor buttons) ---- */
+        .dark #op-console .cond-btn[aria-pressed="true"].c-lost {
+            border-color: #6b7280; background: rgba(255,255,255,.06); color: #cbd1d9;
+        }
+
+        /* ---- photo capture slots ---- */
+        .dark #op-console .photo-slot { border-color: var(--border); }
+        .dark #op-console .photo-slot.filled .fill {
+            background: repeating-linear-gradient(135deg,
+                rgba(59,130,246,.22), rgba(59,130,246,.22) 7px,
+                rgba(59,130,246,.10) 7px, rgba(59,130,246,.10) 14px);
+            color: #93c5fd;
+        }
+
+        /* ---- metrics ok value ---- */
+        .dark #op-console .cm-cell .cm-v.ok { color: #4ade80; }
+
+        /* ---- inputs ---- */
+        .dark #op-console .money-input input { color: var(--text); }
+
+        /* ---- toast + modal scrim ---- */
+        .dark #op-console .toast { background: #2a2f38; }
+        .dark #op-console .scrim { background: rgba(0,0,0,.60); }
+
+        /* ---- mobile sticky action bar (phone breakpoint) ---- */
+        @media (max-width: 680px) {
+            .dark #op-console .mobile-actionbar { box-shadow: 0 -8px 26px rgba(0,0,0,.55); }
+            .dark #op-console .mobile-actionbar .mab-primary:disabled,
+            .dark #op-console .mobile-actionbar .mab-primary[aria-disabled="true"] {
+                background: #3a414c; border-color: #3a414c; color: #8b929e;
+            }
+        }
     </style>
 
     <div id="op-console" data-density="comfortable" x-data="{ filter:'all', showProfile:false, showMore:false, showValidate:false }">

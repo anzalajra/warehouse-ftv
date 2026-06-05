@@ -87,6 +87,16 @@ class PickupOperation extends Page
         return 'Pickup Operation - '.$this->rental->rental_code;
     }
 
+    public function getHeading(): string|Htmlable
+    {
+        return '';
+    }
+
+    public function getBreadcrumbs(): array
+    {
+        return [];
+    }
+
     /* ============================================================
        Read helpers used by the blade view
        ============================================================ */
