@@ -1498,6 +1498,8 @@
                             $name = $this->itemLabel($item);
                             $sn = $isKit ? ($item->rentalItemKit->unitKit->serial_number ?? '-') : $item->rentalItem->productUnit->serial_number;
                             $unavailable = $isUnavailable($item);
+                            // Kit whose parent unit is unavailable (parent shows a Swap button) — hide its actions.
+                            $kitParentUnavailable = $isKit && $this->isItemUnavailable($item);
                             $issue = $isIssue($item);
                             $photoCount = is_array($item->photos) ? count($item->photos) : 0;
                             $tone = $item->condition ? ($conditionMeta[$item->condition]['tone'] ?? null) : null;
@@ -1532,6 +1534,8 @@
                                 <span class="check-ic {{ $item->is_checked ? 'on' : 'off' }}">{!! $icon($item->is_checked ? 'check' : 'x') !!}</span>
                                 @if ($unavailable)
                                     <button class="btn btn-sm btn-primary" wire:click="openSwap({{ $item->id }})">{!! $icon('swap') !!}Swap</button>
+                                @elseif ($kitParentUnavailable)
+                                    {{-- Parent unit will be swapped; kit actions hidden until then. --}}
                                 @else
                                     <div class="row-actions">
                                         <button class="btn btn-sm btn-icon" title="Edit condition & photos" wire:click="openEditor({{ $item->id }})">{!! $icon('edit') !!}</button>
