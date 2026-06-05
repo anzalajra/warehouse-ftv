@@ -1,6 +1,4 @@
 <x-filament-panels::page>
-    @use('App\Models\DeliveryItem')
-    @use('App\Models\Rental')
     @php
         $items = $this->getDeliveryItems();
         // Inline icon helper (heroicons-like stroke set). Returns an <svg> string.
@@ -56,9 +54,9 @@
             return $svg . '</svg>';
         };
 
-        $conditionOptions = DeliveryItem::getConditionInOptions();
-        $conditionMeta = DeliveryItem::getConditionMeta();
-        $issueConditions = DeliveryItem::getIssueConditions();
+        $conditionOptions = \App\Models\DeliveryItem::getConditionInOptions();
+        $conditionMeta = \App\Models\DeliveryItem::getConditionMeta();
+        $issueConditions = \App\Models\DeliveryItem::getIssueConditions();
 
         $total = $items->count();
         $checkedCount = $items->where('is_checked', true)->count();
@@ -77,7 +75,7 @@
         $initials = strtoupper(collect(explode(' ', $cust->name ?? '?'))->map(fn ($w) => mb_substr($w, 0, 1))->take(2)->implode(''));
         $history = $this->customerHistory();
         $histTone = ['active' => 'warning', 'completed' => 'success', 'late_return' => 'danger', 'late_pickup' => 'danger', 'cancelled' => 'gray'];
-        $isLate = in_array($rental->status, [Rental::STATUS_LATE_RETURN]);
+        $isLate = in_array($rental->status, [\App\Models\Rental::STATUS_LATE_RETURN]);
 
         $editItem = $editingId ? $items->firstWhere('id', $editingId) : null;
     @endphp

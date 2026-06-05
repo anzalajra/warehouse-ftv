@@ -1,6 +1,4 @@
 <x-filament-panels::page>
-    @use('App\Models\DeliveryItem')
-    @use('App\Models\Rental')
     @php
         $items = $this->getDeliveryItems();
         // Inline icon helper (heroicons-like stroke set). Returns an <svg> string.
@@ -56,9 +54,9 @@
             return $svg . '</svg>';
         };
 
-        $conditionOptions = DeliveryItem::getConditionOptions();
-        $conditionMeta = DeliveryItem::getConditionMeta();
-        $issueConditions = DeliveryItem::getIssueConditions();
+        $conditionOptions = \App\Models\DeliveryItem::getConditionOptions();
+        $conditionMeta = \App\Models\DeliveryItem::getConditionMeta();
+        $issueConditions = \App\Models\DeliveryItem::getIssueConditions();
 
         $availability = $this->getAvailabilityStatus();
         $total = $items->count();
