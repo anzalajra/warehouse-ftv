@@ -1196,6 +1196,16 @@
         [x-cloak]{display:none!important;}
         @media (max-width:680px){ #op-console .page{ padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important; } }
 
+        /* Blend with Filament content — drop the inset "window" page background */
+        #op-console { background: transparent; }
+        /* Sticky operation toolbar hugs the top of the content area (was 60px) */
+        #op-console .op-toolbar { top: 0; }
+        /* Clickable breadcrumb */
+        #op-console .page-title .crumb { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        #op-console .page-title .crumb a { color: var(--muted); text-decoration: none; }
+        #op-console .page-title .crumb a:hover { color: var(--text); text-decoration: underline; }
+        #op-console .page-title .crumb .sep { color: var(--muted-2); }
+
         /* ============================================================
            Dark theme — follows Filament's admin dark mode (.dark on <html>).
            Strategy: re-map the design tokens first (covers most of the
@@ -1328,7 +1338,13 @@
             {{-- Page head --}}
             <div class="page-head">
                 <div class="page-title">
-                    <span class="crumb">Rentals · <b>{{ $rental->rental_code }}</b> · Pickup</span>
+                    <span class="crumb">
+                        <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('index') }}">Rentals</a>
+                        <span class="sep">/</span>
+                        <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('view', ['record' => $rental]) }}">{{ $rental->rental_code }}</a>
+                        <span class="sep">/</span>
+                        <b>Pickup</b>
+                    </span>
                     <h1>{!! $icon('truck') !!}Pickup Operation</h1>
                 </div>
             </div>

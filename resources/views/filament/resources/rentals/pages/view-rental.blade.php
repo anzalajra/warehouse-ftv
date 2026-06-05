@@ -278,7 +278,7 @@
                     <div class="crumbs">
                         <a href="{{ $rentalsIndexUrl }}">Rentals</a>
                         <span class="sep">/</span>
-                        <span style="color:var(--fg-1);">View Rental</span>
+                        <span style="color:var(--fg-1);">{{ $rental->rental_code }}</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:10px;margin-top:3px;">
                         <h1>View Rental — {{ $rental->rental_code }}</h1>

@@ -865,7 +865,13 @@
                     <div class="crumbs">
                         <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('index') }}">Rentals</a>
                         <span class="sep">/</span>
-                        <span style="color: var(--fg-1)">{{ $rental_code === 'AUTO' ? 'Baru' : $rental_code }}</span>
+                        @if($record && $record->exists)
+                            <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('view', ['record' => $record]) }}">{{ $rental_code }}</a>
+                            <span class="sep">/</span>
+                            <span style="color: var(--fg-1)">Edit</span>
+                        @else
+                            <span style="color: var(--fg-1)">New</span>
+                        @endif
                     </div>
                     <div style="display:flex; align-items:center; gap:10px; margin-top:2px;">
                         <h1>{{ $record && $record->exists ? 'Edit '.$rental_code : 'Buat Rental Baru' }}</h1>
