@@ -20,6 +20,7 @@ class RentalItem extends Model
         'days',
         'subtotal',
         'discount',
+        'sort_order',
     ];
 
     protected $casts = [

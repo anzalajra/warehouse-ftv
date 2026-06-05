@@ -767,7 +767,7 @@ class RentalForm
                 $ghostPool[$compositeKey] = $items->all();
             }
 
-            foreach ($groupedItems as $group) {
+            foreach ($groupedItems as $sortOrder => $group) {
                 $unitIds = json_decode($group['unit_ids'] ?? '[]', true) ?: [];
                 $days = (int) ($group['days'] ?? 1);
                 $dailyRate = (float) ($group['daily_rate'] ?? 0);
@@ -807,6 +807,7 @@ class RentalForm
                             'days' => $days,
                             'discount' => $discount,
                             'subtotal' => $perUnitSubtotal,
+                            'sort_order' => $sortOrder,
                         ]);
                         $processedIds[] = $existing->id;
                     } else {
@@ -818,6 +819,7 @@ class RentalForm
                             'days' => $days,
                             'discount' => $discount,
                             'subtotal' => $perUnitSubtotal,
+                            'sort_order' => $sortOrder,
                         ]);
                         $processedIds[] = $newItem->id;
                         $newlyCreatedItems[] = $newItem;
@@ -838,6 +840,7 @@ class RentalForm
                                 'days' => $days,
                                 'discount' => $discount,
                                 'subtotal' => $perUnitSubtotal,
+                                'sort_order' => $sortOrder,
                             ]);
                             $processedIds[] = $reused->id;
                         } else {
@@ -849,6 +852,7 @@ class RentalForm
                                 'days' => $days,
                                 'discount' => $discount,
                                 'subtotal' => $perUnitSubtotal,
+                                'sort_order' => $sortOrder,
                             ]);
                             $processedIds[] = $newGhost->id;
                         }
@@ -884,6 +888,13 @@ class RentalForm
     public static function groupItemsForForm($items): array
     {
         $grouped = [];
+
+        // Respect the manual drag-and-drop ordering persisted in sort_order.
+        // Fall back to id for rows predating the column (sort_order default 0).
+        $items = collect($items)->sortBy([
+            ['sort_order', 'asc'],
+            ['id', 'asc'],
+        ])->values();
 
         foreach ($items as $item) {
             if ($item->parent_item_id) continue;
