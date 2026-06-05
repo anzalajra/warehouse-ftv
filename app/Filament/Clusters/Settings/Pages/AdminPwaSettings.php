@@ -9,6 +9,7 @@ use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -116,6 +117,24 @@ class AdminPwaSettings extends Page implements HasForms
                             ->helperText('Warna splash screen saat aplikasi dibuka.'),
                     ])->columns(3),
 
+                Section::make('Reminder Harian')
+                    ->description('Reminder gabungan H-1 pickup & return dikirim otomatis setiap hari ke semua admin. Atur jam pengirimannya di bawah. Reminder tetap dikirim walau tidak ada rental besok, sehingga tidak adanya notifikasi pasti berarti scheduler bermasalah — bukan sekadar tidak ada data.')
+                    ->schema([
+                        TimePicker::make('daily_reminder_time')
+                            ->label('Jam Kirim Reminder Harian')
+                            ->seconds(false)
+                            ->format('H:i')
+                            ->displayFormat('H:i')
+                            ->default('17:00')
+                            ->helperText('Membutuhkan scheduler aktif (cron menjalankan `php artisan schedule:run` tiap menit).')
+                            ->required(),
+                        Placeholder::make('daily_reminder_test_hint')
+                            ->label('')
+                            ->content(new HtmlString(
+                                'Gunakan tombol <strong>Kirim Test Reminder Harian</strong> di pojok kanan atas untuk mengirim reminder hari ini ke akun Anda sekarang juga.'
+                            )),
+                    ])->columns(1),
+
                 Section::make('Notification Types')
                     ->description('Pilih notifikasi mana yang dikirim sebagai push ke device admin. Notifikasi yang dimatikan tetap muncul di lonceng admin panel, tapi tidak push ke HP.')
                     ->schema(
@@ -194,6 +213,41 @@ class AdminPwaSettings extends Page implements HasForms
             ->send();
     }
 
+    public function sendTestDailyReminder(): void
+    {
+        $user = \Illuminate\Support\Facades\Auth::user();
+        if (! $user) {
+            return;
+        }
+
+        $tomorrow = now()->addDay()->toDateString();
+
+        $pickupCount = \App\Models\Rental::whereIn('status', [
+            \App\Models\Rental::STATUS_QUOTATION,
+            \App\Models\Rental::STATUS_CONFIRMED,
+        ])->whereDate('start_date', $tomorrow)->count();
+
+        $returnCount = \App\Models\Rental::whereIn('status', [
+            \App\Models\Rental::STATUS_ACTIVE,
+            \App\Models\Rental::STATUS_LATE_PICKUP,
+            \App\Models\Rental::STATUS_LATE_RETURN,
+        ])->whereDate('end_date', '<=', $tomorrow)->count();
+
+        // Goes through the database channel, which the web-push listener mirrors
+        // to the admin's device(s) — same path as the real scheduled reminder.
+        $user->notify(new \App\Notifications\DailyReminderSummaryNotification(
+            $pickupCount,
+            $returnCount,
+            $tomorrow,
+        ));
+
+        Notification::make()
+            ->title('Test reminder harian dikirim')
+            ->body("Untuk besok: {$pickupCount} pickup, {$returnCount} return. Cek lonceng admin & notifikasi di HP.")
+            ->success()
+            ->send();
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -202,6 +256,11 @@ class AdminPwaSettings extends Page implements HasForms
                 ->icon('heroicon-o-paper-airplane')
                 ->color('info')
                 ->action('sendTestPush'),
+            Action::make('sendTestDailyReminder')
+                ->label('Kirim Test Reminder Harian')
+                ->icon('heroicon-o-bell-alert')
+                ->color('warning')
+                ->action('sendTestDailyReminder'),
         ];
     }
 

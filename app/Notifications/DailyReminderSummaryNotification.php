@@ -33,7 +33,9 @@ class DailyReminderSummaryNotification extends Notification
 
     public function toDatabase(object $notifiable): array
     {
-        $body = "Besok ada {$this->pickupCount} pickup dan {$this->returnCount} return.";
+        $body = ($this->pickupCount === 0 && $this->returnCount === 0)
+            ? 'Tidak ada pickup atau return yang dijadwalkan untuk besok.'
+            : "Besok ada {$this->pickupCount} pickup dan {$this->returnCount} return.";
 
         return FilamentNotification::make()
             ->title('Reminder H-1 Pickup & Return')

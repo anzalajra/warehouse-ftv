@@ -106,6 +106,7 @@
         window.addEventListener('load', function () {
             navigator.serviceWorker.register('{{ url('/admin/sw.js') }}', { scope: '/admin' })
                 .then(function (reg) {
+                    window.__wftvAdminReg = reg;
                     if (window.wftvDebug) console.log('[WFTV] SW registered', reg.scope);
                     if (PUSH_ENABLED && PUBLIC_KEY) {
                         maybeSubscribePush(reg);
@@ -176,7 +177,12 @@
                 alert('Browser ini tidak mendukung notifikasi push.');
                 return false;
             }
-            const reg = await navigator.serviceWorker.ready;
+            // Always subscribe through the ADMIN service worker. `serviceWorker.ready`
+            // can resolve to the storefront SW (scope '/') which also controls /admin —
+            // subscribing there would make a second SW deliver the same push (double).
+            const reg = window.__wftvAdminReg
+                || await navigator.serviceWorker.getRegistration('{{ url('/admin') }}')
+                || await navigator.serviceWorker.ready;
 
             const perm = await Notification.requestPermission();
             if (perm !== 'granted') {

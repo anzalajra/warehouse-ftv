@@ -32,10 +32,32 @@ class WebPushService
             return;
         }
 
-        $subs = PushSubscription::where('user_id', $userId)->get();
+        $subs = PushSubscription::where('user_id', $userId)
+            ->orderByDesc('last_used_at')
+            ->get();
         if ($subs->isEmpty()) {
             return;
         }
+
+        // Collapse duplicate subscriptions belonging to the same physical device.
+        // iOS rotates push endpoints and can subscribe through more than one SW
+        // scope, leaving several rows per device. Since iOS does not coalesce
+        // notifications by `tag`, delivering to each row makes one push appear
+        // two (or more) times. Keep only the newest subscription per user agent
+        // and prune the stale ones so the table self-heals.
+        $seenAgents = [];
+        $subs = $subs->filter(function (PushSubscription $sub) use (&$seenAgents) {
+            $ua = trim((string) $sub->user_agent);
+            if ($ua === '') {
+                return true; // unknown device — can't safely dedupe, keep it
+            }
+            if (isset($seenAgents[$ua])) {
+                $sub->delete(); // stale duplicate from the same device
+                return false;
+            }
+            $seenAgents[$ua] = true;
+            return true;
+        });
 
         $auth = [
             'VAPID' => [

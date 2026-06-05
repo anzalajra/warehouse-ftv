@@ -64,7 +64,10 @@ class SendRentalReminders extends Command
         $tomorrow = now()->addDay()->toDateString();
         $admins = \App\Models\User::role(['super_admin', 'admin', 'staff'])->get();
 
-        if ($admins->isNotEmpty() && ($pickupRentals->count() > 0 || $returnRentals->count() > 0)) {
+        // Always send the daily summary to admins — even when there is nothing
+        // scheduled for tomorrow — so the absence of a notification can't be
+        // mistaken for the scheduler being broken.
+        if ($admins->isNotEmpty()) {
             Notification::send($admins, new DailyReminderSummaryNotification(
                 $pickupRentals->count(),
                 $returnRentals->count(),
