@@ -122,9 +122,10 @@ class ViewRental extends Page
         $defaultTemplate = "Halo [customer_name], pesanan Anda [rental_code] telah dikonfirmasi.\n\nSilakan cek detail rental Anda di:\n[my_rental]";
         $template = Setting::get('order_confirmed_wa_template', $defaultTemplate);
 
+        [$dateSearch, $dateReplace] = WhatsAppHelper::rentalDatePlaceholders($rental);
         $message = str_replace(
-            ['[customer_name]', '[rental_code]', '[my_rental]'],
-            [$customer->name, $rental->rental_code, $rentalDetailUrl],
+            array_merge(['[customer_name]', '[rental_code]', '[my_rental]'], $dateSearch),
+            array_merge([$customer->name, $rental->rental_code, $rentalDetailUrl], $dateReplace),
             $template
         );
 

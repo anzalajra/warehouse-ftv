@@ -203,9 +203,11 @@ class CustomerDashboardController extends Controller
         $defaultTemplate = "Halo admin warehouse, saya [customer_name] ingin konfirmasi booking [rental_code].\n\nMohon konfirmasi booking:\n[admin_url]";
         $template = Setting::get('warehouse_wa_template', $defaultTemplate);
 
+        [$dateSearch, $dateReplace] = \App\Helpers\WhatsAppHelper::rentalDatePlaceholders($rental);
+
         return str_replace(
-            ['[customer_name]', '[rental_code]', '[admin_url]'],
-            [$customer->name, $rental->rental_code, route('filament.admin.resources.rentals.view', $rental)],
+            array_merge(['[customer_name]', '[rental_code]', '[admin_url]'], $dateSearch),
+            array_merge([$customer->name, $rental->rental_code, route('filament.admin.resources.rentals.view', $rental)], $dateReplace),
             $template
         );
     }

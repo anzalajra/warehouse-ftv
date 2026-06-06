@@ -30,6 +30,29 @@ class WhatsAppHelper
         return "https://wa.me/{$phone}?text={$encodedMessage}";
     }
 
+    /**
+     * Build the search/replace pairs for rental pickup & return date/time placeholders.
+     *
+     * Returns [$placeholders, $values] ready to be merged into a str_replace() call.
+     * Placeholders: [rental-range], [pickup-date], [return-date], [pickup-time], [return-time].
+     */
+    public static function rentalDatePlaceholders(\App\Models\Rental $rental): array
+    {
+        $start = $rental->start_date ? $rental->start_date->copy()->locale('id') : null;
+        $end   = $rental->end_date ? $rental->end_date->copy()->locale('id') : null;
+
+        $pickupDate = $start ? $start->translatedFormat('j F Y') : '-';
+        $returnDate = $end ? $end->translatedFormat('j F Y') : '-';
+        $pickupTime = $start ? $start->translatedFormat('H:i') : '-';
+        $returnTime = $end ? $end->translatedFormat('H:i') : '-';
+        $range      = ($start && $end) ? "{$pickupDate} - {$returnDate}" : '-';
+
+        return [
+            ['[rental-range]', '[pickup-date]', '[return-date]', '[pickup-time]', '[return-time]'],
+            [$range, $pickupDate, $returnDate, $pickupTime, $returnTime],
+        ];
+    }
+
     public static function parseTemplate(string $templateKey, array $data): string
     {
         // Get template from settings, default to empty string
