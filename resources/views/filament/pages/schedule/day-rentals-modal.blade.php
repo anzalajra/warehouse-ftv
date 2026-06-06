@@ -17,9 +17,8 @@
             $color = $statuses[$r['status']][0] ?? '#6b7280';
             $label = $statuses[$r['status']][1] ?? ucfirst($r['status']);
         @endphp
-        <button type="button"
-            wire:click="mountAction('viewRentalDetails', { rentalId: {{ $r['id'] }} })"
-            style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; text-align:left; width:100%; font-family:inherit;"
+        <a href="{{ url("/admin/rentals/{$r['id']}/view") }}"
+            style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; text-align:left; width:100%; font-family:inherit; text-decoration:none;"
             class="dark:!bg-gray-800 dark:!border-white/10 hover:!bg-gray-50 dark:hover:!bg-white/5"
         >
             <span style="width:8px; height:28px; border-radius:3px; background:{{ $color }}; flex-shrink:0;"></span>
@@ -34,7 +33,7 @@
             <span style="font-size:10px; font-weight:700; padding:3px 8px; border-radius:999px; background:{{ $color }}1a; color:{{ $color }}; flex-shrink:0;">
                 {{ $label }}
             </span>
-        </button>
+        </a>
     @empty
         <div style="padding:20px; text-align:center; color:#9ca3af; font-size:13px;">
             No bookings for this day.
