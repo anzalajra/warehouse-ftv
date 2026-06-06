@@ -45,25 +45,25 @@ class ListDeliveries extends ListRecords
         return [
             'pickup' => Tab::make('Perlu Keluar')
                 ->icon('heroicon-o-truck')
-                ->modifyQueryUsing(fn (Builder $q) => $q->whereIn('status', $pickupStatuses))
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', $pickupStatuses))
                 ->badge(Rental::whereIn('status', $pickupStatuses)->count())
                 ->badgeColor('warning'),
 
             'return' => Tab::make('Perlu Masuk')
                 ->icon('heroicon-o-arrow-uturn-left')
-                ->modifyQueryUsing(fn (Builder $q) => $q->whereIn('status', $returnStatuses))
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', $returnStatuses))
                 ->badge(Rental::whereIn('status', $returnStatuses)->count())
                 ->badgeColor('info'),
 
             'late' => Tab::make('Telat')
                 ->icon('heroicon-o-exclamation-triangle')
-                ->modifyQueryUsing(fn (Builder $q) => $q->whereIn('status', $lateStatuses))
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', $lateStatuses))
                 ->badge(Rental::whereIn('status', $lateStatuses)->count())
                 ->badgeColor('danger'),
 
             'done' => Tab::make('Selesai')
                 ->icon('heroicon-o-check-circle')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', Rental::STATUS_COMPLETED)),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Rental::STATUS_COMPLETED)),
 
             'all' => Tab::make('Semua')
                 ->icon('heroicon-o-queue-list'),
