@@ -1194,6 +1194,15 @@
     <style>
         [x-cloak]{display:none!important;}
         @media (max-width:680px){ #op-console .page{ padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important; } }
+        /* Hide the global app bottom nav on this page — the operation's own sticky
+           action bar replaces it (same approach as the Rental editor / view rental).
+           The nav hook renders at body.end so prefix with `body` to outrank it and
+           reclaim the bottom padding it reserved. */
+        @media (max-width: 767px) {
+            .gr-bottombar { display: none !important; }
+            body.fi-body { padding-bottom: 0 !important; }
+            body .fi-main, body .fi-page { padding-bottom: 0 !important; }
+        }
 
         /* Blend with Filament content — drop the inset "window" page background */
         #op-console { background: transparent; }
