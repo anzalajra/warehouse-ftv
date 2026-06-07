@@ -11,6 +11,7 @@ class UnitKit extends Model
         'unit_id',
         'linked_unit_id',
         'track_by_serial',
+        'auto_scan_with_parent',
         'name',
         'serial_number',
         'condition',
@@ -20,8 +21,9 @@ class UnitKit extends Model
     ];
 
     protected $casts = [
-        'last_checked_at'  => 'datetime',
-        'track_by_serial'  => 'boolean',
+        'last_checked_at'       => 'datetime',
+        'track_by_serial'       => 'boolean',
+        'auto_scan_with_parent' => 'boolean',
     ];
 
     public function productUnit(): BelongsTo

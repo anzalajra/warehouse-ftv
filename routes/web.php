@@ -176,6 +176,25 @@ if (!$isInstalled) {
         Route::get('/admin/documents/{document}/{filename?}', [App\Http\Controllers\CustomerDocumentController::class, 'viewForAdmin'])->name('admin.documents.view');
     });
 
+    // Unit / kit label PNG (closed-system QR + Code128). Streamed as a download.
+    Route::middleware(['auth'])->group(function () {
+        Route::get('/admin/unit-label/{serial}/{type}', function (string $serial, string $type) {
+            if (! in_array($type, ['qr', 'barcode'], true)) {
+                abort(404);
+            }
+
+            $png = app(\App\Services\LabelImageService::class)->png($serial, $type);
+
+            $safe = preg_replace('/[^A-Za-z0-9._-]+/', '_', $serial);
+
+            return response()->streamDownload(
+                fn () => print ($png),
+                "label-{$safe}-{$type}.png",
+                ['Content-Type' => 'image/png']
+            );
+        })->where('serial', '[^/]+')->name('admin.unit-label');
+    });
+
     // User Impersonation (admin -> customer)
     Route::middleware(['auth'])->group(function () {
         Route::get('/admin/impersonate/{user}', [App\Http\Controllers\ImpersonateController::class, 'start'])->name('impersonate.start');

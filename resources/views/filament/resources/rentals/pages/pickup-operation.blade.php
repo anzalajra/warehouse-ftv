@@ -46,6 +46,11 @@
                 'mail' => 'M3 7a1 1 0 011-1h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1zM3.5 7.5l8.5 6 8.5-6',
                 'pin' => 'M12 21s7-5.6 7-11a7 7 0 10-14 0c0 5.4 7 11 7 11zM12 12a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
                 'dots' => 'M12 6.2v.01M12 12v.01M12 17.8v.01',
+                'keyboard' => 'M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M8 14h8',
+                'lock' => 'M5 11h14v9H5zM8 11V8a4 4 0 018 0v3',
+                'cameraOff' => 'M3 3l18 18M9.5 5h4l1 1.5H19a2 2 0 012 2v7M3 8.5V17a2 2 0 002 2h11',
+                'zap' => 'M13 3L4 14h7l-1 7 9-11h-7z',
+                'spinner' => 'M12 3a9 9 0 109 9',
             ];
             $d = $paths[$name] ?? $paths['cube'];
             $segs = array_filter(explode('M', $d));
@@ -1464,15 +1469,9 @@
                 </div>
 
                 <div class="card-body" style="padding-bottom:12px;">
-                    <button type="button" class="scan-btn" wire:click="scanNext" wire:loading.class="live" wire:target="scanNext">
-                        <span class="scan-ic">
-                            <span wire:loading.remove wire:target="scanNext">{!! $icon('scan') !!}</span>
-                            <span wire:loading wire:target="scanNext">{!! $icon('qr', 'spin') !!}</span>
-                        </span>
-                        <span class="scan-tx">
-                            <span wire:loading.remove wire:target="scanNext">Scan unit to hand over</span>
-                            <span wire:loading wire:target="scanNext">Scanning…</span>
-                        </span>
+                    <button type="button" class="scan-btn" @click="$dispatch('open-unit-scanner')">
+                        <span class="scan-ic">{!! $icon('scan') !!}</span>
+                        <span class="scan-tx">Scan unit to hand over</span>
                     </button>
                 </div>
 
@@ -1764,5 +1763,8 @@
                 </div>
             </div>
         </template>
+
+        {{-- Camera scanner popup (desktop modal + mobile sheet) --}}
+        @include('filament.resources.rentals.pages.partials.scanner-popup', ['mode' => 'pickup'])
     </div>
 </x-filament-panels::page>

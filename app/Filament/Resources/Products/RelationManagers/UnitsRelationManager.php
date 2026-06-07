@@ -114,6 +114,12 @@ class UnitsRelationManager extends RelationManager
                                     ->live()
                                     ->columnSpanFull(),
 
+                                Toggle::make('auto_scan_with_parent')
+                                    ->label('Auto-check when parent unit is scanned')
+                                    ->helperText('For small accessories that cannot hold a sticker. When ON this kit is hidden from the scan list and checked automatically as soon as its parent unit is scanned.')
+                                    ->default(false)
+                                    ->columnSpanFull(),
+
                                 TextInput::make('name')
                                     ->required()
                                     ->maxLength(255),
@@ -249,6 +255,17 @@ class UnitsRelationManager extends RelationManager
             ])
             ->recordActions([
                 EditAction::make(),
+                \Filament\Actions\Action::make('label')
+                    ->label('Label')
+                    ->icon('heroicon-o-qr-code')
+                    ->color('gray')
+                    ->modalHeading('Print Labels')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Close')
+                    ->modalContent(fn (ProductUnit $record) => view(
+                        'filament.resources.products.unit-label-modal',
+                        ['record' => $record->load('kits')],
+                    )),
                 \Filament\Actions\Action::make('duplicate')
                     ->label('Duplicate')
                     ->modalHeading('Duplicate Product Unit')

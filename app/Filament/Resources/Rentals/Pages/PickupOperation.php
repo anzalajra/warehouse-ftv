@@ -280,6 +280,115 @@ class PickupOperation extends Page
         $this->delivery->refresh();
     }
 
+    /**
+     * Items the scanner can match against — every delivery item EXCEPT kits
+     * flagged `auto_scan_with_parent` (those ride along with their parent unit).
+     *
+     * @return array<int, array{id:int, name:string, serial:?string, type:string, checked:bool}>
+     */
+    public function scannableList(): array
+    {
+        return $this->getDeliveryItems()
+            ->reject(fn (DeliveryItem $it) => $it->rentalItemKit && $it->rentalItemKit->unitKit?->auto_scan_with_parent)
+            ->map(function (DeliveryItem $it) {
+                $isKit = $it->rentalItemKit !== null;
+
+                return [
+                    'id' => $it->id,
+                    'name' => $this->itemLabel($it),
+                    'serial' => $isKit
+                        ? $it->rentalItemKit->unitKit->serial_number
+                        : $it->rentalItem->productUnit->serial_number,
+                    'type' => $isKit ? 'kit' : 'unit',
+                    'checked' => (bool) $it->is_checked,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Scan a code (or manually typed value) and check the matching item.
+     * Returns a structured result the Alpine layer toasts/animates on.
+     *
+     * @return array<string, mixed>
+     */
+    public function scanByCode(string $raw, bool $cascade = true, bool $manual = false): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return ['status' => 'foreign'];
+        }
+
+        if ($manual) {
+            $serial = $raw;
+        } else {
+            $serial = app(\App\Services\UnitCodeService::class)->decode($raw);
+            if ($serial === null) {
+                return ['status' => 'foreign'];
+            }
+        }
+
+        $items = $this->getDeliveryItems();
+
+        // Unit-serial match first, then kit-serial. Manual entry also matches by name.
+        $needle = mb_strtolower($serial);
+        $match = $items->first(function (DeliveryItem $it) use ($needle) {
+            return ! $it->rentalItemKit
+                && mb_strtolower((string) $it->rentalItem->productUnit->serial_number) === $needle;
+        });
+
+        if (! $match) {
+            $match = $items->first(function (DeliveryItem $it) use ($needle) {
+                return $it->rentalItemKit
+                    && mb_strtolower((string) $it->rentalItemKit->unitKit->serial_number) === $needle;
+            });
+        }
+
+        if (! $match && $manual) {
+            $match = $items->first(function (DeliveryItem $it) use ($needle) {
+                return str_contains(mb_strtolower($this->itemLabel($it)), $needle);
+            });
+        }
+
+        if (! $match) {
+            return ['status' => 'notfound', 'serial' => $serial];
+        }
+
+        $label = $this->itemLabel($match);
+
+        if ($this->isItemUnavailable($match)) {
+            return ['status' => 'unavailable', 'label' => $label];
+        }
+
+        if ($match->is_checked) {
+            return ['status' => 'already', 'label' => $label];
+        }
+
+        $this->quickCheck($match->id);
+        $checkedLabels = [$label];
+
+        // Cascade: auto-check this unit's auto_scan_with_parent kits.
+        if ($cascade && ! $match->rentalItemKit) {
+            $kits = $items->filter(function (DeliveryItem $it) use ($match) {
+                return $it->rentalItemKit
+                    && $it->rental_item_id === $match->rental_item_id
+                    && ! $it->is_checked
+                    && $it->rentalItemKit->unitKit?->auto_scan_with_parent;
+            });
+
+            foreach ($kits as $kit) {
+                if ($this->isItemUnavailable($kit)) {
+                    continue;
+                }
+                $this->quickCheck($kit->id);
+                $checkedLabels[] = $this->itemLabel($kit);
+            }
+        }
+
+        return ['status' => 'ok', 'label' => $label, 'checked' => $checkedLabels];
+    }
+
     /** Scan-to-check: check the next available unchecked item, or notify when none remain. */
     public function scanNext(): void
     {
