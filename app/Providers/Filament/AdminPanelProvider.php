@@ -114,6 +114,10 @@ class AdminPanelProvider extends PanelProvider
                 'panels::body.end',
                 fn () => view('filament.hooks.responsive-navigation')
             )
+            ->renderHook(
+                'panels::body.end',
+                fn () => view('filament.hooks.loading-indicator')
+            )
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverClusters(in: app_path('Filament/Clusters'), for: 'App\Filament\Clusters')
