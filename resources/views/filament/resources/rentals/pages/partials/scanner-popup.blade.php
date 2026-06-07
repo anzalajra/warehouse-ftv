@@ -302,6 +302,7 @@
 </style>
 
 <div class="scn-host"
+     wire:ignore
      x-data="unitScanner({
         mode: @js($mode),
         rentalCode: @js($rental->rental_code),

@@ -72,12 +72,26 @@ class LabelImageService
     private function renderBarcode(string $payload)
     {
         $generator = new BarcodeGeneratorPNG();
-        $png = $generator->getBarcode($payload, $generator::TYPE_CODE_128, 2, 90);
+        // Wider bars (factor 3) + a taller code scan far more reliably from a
+        // phone camera than the previous thin factor-2 render.
+        $png = $generator->getBarcode($payload, $generator::TYPE_CODE_128, 3, 110);
 
-        $img = imagecreatefromstring($png);
-        if ($img === false) {
+        $bar = imagecreatefromstring($png);
+        if ($bar === false) {
             throw new RuntimeException('Failed to render barcode image.');
         }
+
+        // Code128 needs a quiet zone (≈10× the narrow-bar width) of clear space
+        // on each side or scanners can't lock on. picqer does not add one, so
+        // pad the barcode with white margins ourselves.
+        $quiet = 40;
+        $barW = imagesx($bar);
+        $barH = imagesy($bar);
+        $img = imagecreatetruecolor($barW + $quiet * 2, $barH);
+        $white = imagecolorallocate($img, 255, 255, 255);
+        imagefilledrectangle($img, 0, 0, imagesx($img), imagesy($img), $white);
+        imagecopy($img, $bar, $quiet, 0, 0, 0, $barW, $barH);
+        imagedestroy($bar);
 
         return $img;
     }

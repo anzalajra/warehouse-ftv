@@ -11,6 +11,15 @@
 // Registered against Filament's Alpine instance via the `alpine:init` event.
 
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import { DecodeHintType, BarcodeFormat } from '@zxing/library';
+
+// Restrict the decoder to the two formats we actually print (QR + Code128) and
+// turn on TRY_HARDER. Hinting the formats makes 1D (barcode) detection from a
+// live camera far more reliable — an unhinted MultiFormatReader barely locks
+// onto Code128 frames.
+const SCAN_HINTS = new Map();
+SCAN_HINTS.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE, BarcodeFormat.CODE_128]);
+SCAN_HINTS.set(DecodeHintType.TRY_HARDER, true);
 
 function unitScanner(config = {}) {
     return {
@@ -141,7 +150,16 @@ function unitScanner(config = {}) {
             const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
             this.torchSupported = !!caps.torch;
 
-            if (!this.reader) this.reader = new BrowserMultiFormatReader();
+            if (!this.reader) {
+                // zxing throttles decode attempts to 500ms by default → only 2
+                // tries/sec, so a code can sit in frame for seconds before a
+                // sharp frame happens to land on a poll. Poll ~10×/sec instead
+                // for near-instant lock-on.
+                this.reader = new BrowserMultiFormatReader(SCAN_HINTS, {
+                    delayBetweenScanAttempts: 100,
+                    delayBetweenScanSuccess: 300,
+                });
+            }
 
             this.reader
                 .decodeFromStream(this.stream, video, (result) => {
