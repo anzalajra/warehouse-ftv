@@ -1471,7 +1471,7 @@
                 <div class="card-body" style="padding-bottom:12px;">
                     <button type="button" class="scan-btn" @click="$dispatch('open-unit-scanner')">
                         <span class="scan-ic">{!! $icon('scan') !!}</span>
-                        <span class="scan-tx">Scan unit to hand over</span>
+                        <span class="scan-tx">Scan QR/Barcode</span>
                     </button>
                 </div>
 
