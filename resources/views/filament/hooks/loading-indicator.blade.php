@@ -40,8 +40,8 @@
 
     #gr-spinner {
         position: fixed;
-        right: 20px;
-        bottom: 20px;
+        right: 28px;
+        bottom: 32px;
         z-index: 99999;
         width: 34px;
         height: 34px;
@@ -51,14 +51,12 @@
         background: rgba(255, 255, 255, .6);
         box-shadow: 0 4px 14px rgba(0, 0, 0, .12);
         opacity: 0;
-        transform: scale(.85);
         pointer-events: none;
-        transition: opacity .2s ease, transform .2s ease;
+        transition: opacity .2s ease;
         animation: gr-spin .6s linear infinite;
     }
     #gr-spinner.is-on {
         opacity: 1;
-        transform: scale(1);
     }
     .dark #gr-spinner {
         border-color: var(--gray-600, #52525b);
@@ -66,7 +64,16 @@
         background: rgba(24, 24, 27, .6);
     }
 
+    /* Mobile: lift the spinner above the bottom navigation bar so it stays visible. */
+    @media (max-width: 1024px) {
+        #gr-spinner {
+            right: 18px;
+            bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+        }
+    }
+
     @keyframes gr-spin {
+        from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
 
