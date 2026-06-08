@@ -25,7 +25,7 @@ class WarehouseResource extends Resource
 
     protected static ?string $navigationLabel = 'Warehouse';
 
-    protected static ?string $recordTitleAttribute = 'warehouse';
+    protected static ?string $recordTitleAttribute = 'name';
 
     public static function form(Schema $schema): Schema
     {
