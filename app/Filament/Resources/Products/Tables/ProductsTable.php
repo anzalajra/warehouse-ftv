@@ -86,10 +86,6 @@ class ProductsTable
                     ->relationship('brand', 'name')
                     ->searchable()
                     ->preload(),
-                \Filament\Tables\Filters\SelectFilter::make('category')
-                    ->relationship('category', 'name')
-                    ->searchable()
-                    ->preload(),
             ])
             ->paginated([48])
             ->recordActions([])
