@@ -113,8 +113,18 @@ function unitScanner(config = {}) {
                 return;
             }
             try {
+                // Ask for continuous autofocus + a high resolution so small QR
+                // codes keep enough pixels to decode. `focusMode`/`advanced` are
+                // ignored by browsers that don't support them (no throw), and we
+                // re-apply focus after the stream starts (see applyFocus()).
                 this.stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: 'environment' } },
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                        focusMode: 'continuous',
+                        advanced: [{ focusMode: 'continuous' }],
+                    },
                     audio: false,
                 });
                 this.phase = 'live';
@@ -150,6 +160,12 @@ function unitScanner(config = {}) {
             const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
             this.torchSupported = !!caps.torch;
 
+            // Force continuous autofocus so small QR codes come into focus. The
+            // initial getUserMedia hint is often ignored; applyConstraints after
+            // the track is live is the reliable path. Prefer 'continuous', fall
+            // back to whatever the device supports.
+            this.applyFocus(track, caps);
+
             if (!this.reader) {
                 // zxing throttles decode attempts to 500ms by default → only 2
                 // tries/sec, so a code can sit in frame for seconds before a
@@ -167,6 +183,18 @@ function unitScanner(config = {}) {
                 })
                 .then((controls) => { this.controls = controls; })
                 .catch(() => { /* decode loop failed to start */ });
+        },
+
+        async applyFocus(track, caps) {
+            if (!track || !track.applyConstraints) return;
+            const modes = (caps && caps.focusMode) || [];
+            // Some devices expose focusMode capability, some don't list it but
+            // still honour the constraint — try regardless.
+            const want = modes.includes('continuous') ? 'continuous'
+                : (modes.includes('auto') ? 'auto' : 'continuous');
+            try {
+                await track.applyConstraints({ advanced: [{ focusMode: want }] });
+            } catch (e) { /* device has no controllable focus — fixed-focus cam */ }
         },
 
         stopDecode() {

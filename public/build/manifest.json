@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-DDZDYl_o.css",
+    "file": "assets/app-CRjIQB8s.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "name": "app",
@@ -24,7 +24,7 @@
     "isEntry": true
   },
   "resources/js/unit-scanner.js": {
-    "file": "assets/unit-scanner-DcmrG4GG.js",
+    "file": "assets/unit-scanner-C-0utxoO.js",
     "name": "unit-scanner",
     "src": "resources/js/unit-scanner.js",
     "isEntry": true
