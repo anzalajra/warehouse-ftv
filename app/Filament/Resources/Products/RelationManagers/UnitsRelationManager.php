@@ -359,6 +359,14 @@ class UnitsRelationManager extends RelationManager
             ])
             ->bulkActions([
                 BulkActionGroup::make([
+                    BulkAction::make('print_labels')
+                        ->label('Print Labels')
+                        ->icon('heroicon-o-printer')
+                        ->color('gray')
+                        ->action(fn (\Illuminate\Database\Eloquent\Collection $records) => redirect()->to(
+                            \App\Filament\Pages\LabelPrinter::getUrl(['units' => $records->pluck('id')->implode(',')])
+                        ))
+                        ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make()
                         ->action(function ($records) {
                             $blocked = $records->filter(fn ($r) => $r->rentalItems()->exists() || $r->maintenanceRecords()->exists());
