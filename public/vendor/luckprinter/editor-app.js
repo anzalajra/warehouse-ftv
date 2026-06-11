@@ -224,10 +224,11 @@ function syncOverlay() {
   };
   if (state.label.kind === 'cable' && state.label.cable) {
     const c = state.label.cable;
-    const fx = mmToDots(c.front, DPI), dEnd = mmToDots(c.front + c.dead, DPI);
+    // Depan & belakang menyambung di kiri (area cetak), deadzone (lilit) di paling kanan.
+    const fx = mmToDots(c.front, DPI), bEnd = mmToDots(c.front + c.back, DPI);
     addSafe(0, fx, 'Depan');
-    addDead(fx, dEnd, '↻ Lilit kabel · tak dicetak');
-    addSafe(dEnd, W, 'Belakang');
+    addSafe(fx, bEnd, 'Belakang');
+    addDead(bEnd, W, '↻ Lilit kabel · tak dicetak');
   } else {
     addSafe(0, W, 'area aman cetak');
   }
@@ -285,6 +286,20 @@ function renderPrintPreview() {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, pv.width, pv.height);
   ctx.drawImage(c, 0, 0, pv.width, pv.height);
+}
+
+// Hitung zoom agar seluruh label muat di area kanvas (fit to page).
+function fitToPage() {
+  const center = document.querySelector('.center');
+  if (!center) return;
+  const pad = 56; // ruang napas di sekeliling label
+  const availW = Math.max(40, center.clientWidth - pad);
+  const availH = Math.max(40, center.clientHeight - pad);
+  const z = Math.min(availW / designW(), availH / designH());
+  state.zoom = Math.max(0.25, Math.round(z * 20) / 20); // bulatkan ke kelipatan 0.05
+  const slider = $('zoom'); if (slider) slider.value = state.zoom;
+  const lbl = $('zoomLabel'); if (lbl) lbl.textContent = state.zoom + '×';
+  render();
 }
 
 // ---------------- Selection & element ops ----------------
@@ -747,6 +762,21 @@ function init() {
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
 
+  // pan: drag area kosong (di luar elemen) untuk menggeser kanvas
+  const center = document.querySelector('.center');
+  let pan = null;
+  center.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.el-box')) return;          // klik elemen → bukan pan
+    pan = { x: e.clientX, y: e.clientY, sl: center.scrollLeft, st: center.scrollTop };
+    center.style.cursor = 'grabbing';
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!pan) return;
+    center.scrollLeft = pan.sl - (e.clientX - pan.x);
+    center.scrollTop = pan.st - (e.clientY - pan.y);
+  });
+  window.addEventListener('pointerup', () => { if (pan) { pan = null; center.style.cursor = ''; } });
+
   // keyboard
   window.addEventListener('keydown', (e) => {
     const typing = /input|textarea|select/i.test(document.activeElement?.tagName || '');
@@ -774,13 +804,14 @@ function init() {
       const [l, w] = v.slice(2).split('*').map(Number);
       state.label.kind = 'normal'; state.label.cable = null; state.label.lengthMm = l; state.label.widthMm = w;
     }
-    syncLabelControls(); render(); pushHistory();
+    syncLabelControls(); fitToPage(); pushHistory();
   });
-  $('lblLength').addEventListener('change', () => { state.label.kind = 'normal'; state.label.cable = null; state.label.lengthMm = clamp(+$('lblLength').value || 40, 5, 300); syncLabelControls(); render(); pushHistory(); });
-  $('lblWidth').addEventListener('change', () => { state.label.kind = 'normal'; state.label.cable = null; state.label.widthMm = clamp(+$('lblWidth').value || 14, 8, 40); syncLabelControls(); render(); pushHistory(); });
+  $('lblLength').addEventListener('change', () => { state.label.kind = 'normal'; state.label.cable = null; state.label.lengthMm = clamp(+$('lblLength').value || 40, 5, 300); syncLabelControls(); fitToPage(); pushHistory(); });
+  $('lblWidth').addEventListener('change', () => { state.label.kind = 'normal'; state.label.cable = null; state.label.widthMm = clamp(+$('lblWidth').value || 14, 8, 40); syncLabelControls(); fitToPage(); pushHistory(); });
   $('lblPrintWidth').addEventListener('change', () => { state.label.printWidthDots = clamp(+$('lblPrintWidth').value || 96, 8, 1024); render(); });
   $('orientation').addEventListener('change', () => { state.orientation = $('orientation').value; renderPrintPreview(); });
   $('zoom').addEventListener('input', () => { state.zoom = +$('zoom').value; $('zoomLabel').textContent = state.zoom + '×'; render(); });
+  $('btnFit').addEventListener('click', fitToPage);
 
   // undo/redo & clear
   $('btnUndo').addEventListener('click', undo);
@@ -822,6 +853,7 @@ function init() {
   syncLabelControls();
   loadTemplate('teks-qr');
   buildProps();
+  requestAnimationFrame(fitToPage); // pas-kan label ke layar saat pertama muat
 
   // deep-link: ?unit={id} atau ?units=1,2,3 → tarik dari sistem & sisipkan label unit pertama
   if (SYS_URL) {
