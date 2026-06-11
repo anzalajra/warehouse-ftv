@@ -186,6 +186,35 @@ class PickupOperation extends Page
         return in_array($unit->status, [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE]);
     }
 
+    /**
+     * Which other rentals are holding this unit over a period that overlaps this rental?
+     * Used to tell the operator exactly where the conflict is coming from.
+     *
+     * @return \Illuminate\Support\Collection<int, array{code:string, status:string, customer:?string, start:?string, end:?string, url:string}>
+     */
+    public function conflictingRentalsFor(ProductUnit $unit): \Illuminate\Support\Collection
+    {
+        return Rental::whereHas('items', fn ($q) => $q->where('product_unit_id', $unit->id))
+            ->where('id', '!=', $this->rental->id)
+            ->whereIn('status', [
+                Rental::STATUS_QUOTATION, Rental::STATUS_CONFIRMED, Rental::STATUS_ACTIVE,
+                Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN, Rental::STATUS_PARTIAL_RETURN,
+            ])
+            ->where('start_date', '<', $this->rental->end_date)
+            ->where('end_date', '>', $this->rental->start_date)
+            ->with('customer')
+            ->orderBy('start_date')
+            ->get()
+            ->map(fn (Rental $r) => [
+                'code' => $r->rental_code,
+                'status' => $r->status,
+                'customer' => $r->customer?->name,
+                'start' => $r->start_date ? \Carbon\Carbon::parse($r->start_date)->format('d M Y') : null,
+                'end' => $r->end_date ? \Carbon\Carbon::parse($r->end_date)->format('d M Y') : null,
+                'url' => RentalResource::getUrl('edit', ['record' => $r->id]),
+            ]);
+    }
+
     public function allItemsChecked(): bool
     {
         return $this->delivery->items->where('is_checked', false)->count() === 0;
@@ -603,10 +632,34 @@ class PickupOperation extends Page
 
         $status = $this->getAvailabilityStatus();
         if (! $status['available']) {
+            // Spell out exactly which units clash, and with which rental, so the
+            // operator can jump straight to the source instead of hunting.
+            $lines = [];
+            foreach ($status['unavailable_units'] as $unit) {
+                $label = ($unit->product->name ?? 'Unit').' ('.$unit->serial_number.')';
+
+                if ($unit->status === ProductUnit::STATUS_MAINTENANCE) {
+                    $lines[] = $label.' — in maintenance';
+
+                    continue;
+                }
+
+                $others = $this->conflictingRentalsFor($unit);
+                if ($others->isNotEmpty()) {
+                    $who = $others->map(fn ($r) => $r['code'].($r['customer'] ? " ({$r['customer']})" : ''))->implode(', ');
+                    $lines[] = '<strong>'.e($label).'</strong> — held by '.e($who);
+                } else {
+                    $lines[] = '<strong>'.e($label).'</strong> — currently '.e(strtoupper($unit->status));
+                }
+            }
+
             Notification::make()
                 ->title('Cannot Validate Pickup')
-                ->body('There are unresolved scheduling conflicts or unavailable units. Resolve them before validating.')
+                ->body($lines
+                    ? 'Conflicting units:<br>'.implode('<br>', $lines)
+                    : 'There are unresolved scheduling conflicts or unavailable units. Resolve them before validating.')
                 ->danger()
+                ->persistent()
                 ->send();
 
             return;

@@ -565,6 +565,8 @@
       background: var(--danger-bg); border: 1px solid var(--danger-bd);
       padding: 1px 8px; border-radius: 999px; font-size: 11px; white-space: nowrap;
     }
+    .cb-link { color: var(--accent-700); text-decoration: none; border-bottom: 1px dashed currentColor; }
+    .cb-link:hover { color: var(--accent); }
     .cb-swap { flex: none; }
 
     /* ---------- Scan bar ---------- */
@@ -1455,13 +1457,28 @@
                     </div>
                     <div class="cb-list">
                         @foreach ($unavailableItems as $it)
-                            @php $unit = $it->rentalItem->productUnit; @endphp
+                            @php
+                                $unit = $it->rentalItem->productUnit;
+                                $heldBy = $unit->status === \App\Models\ProductUnit::STATUS_MAINTENANCE
+                                    ? collect()
+                                    : $this->conflictingRentalsFor($unit);
+                            @endphp
                             <div class="cb-row" wire:key="conflict-{{ $it->id }}">
                                 <div class="cb-info">
                                     <div class="cb-name">{{ $unit->product->name ?? 'Unit' }}<span class="mono">{{ $unit->serial_number }}</span></div>
                                     <div class="cb-detail">
                                         <span class="cb-status">{{ strtoupper($unit->status) }}</span>
-                                        <span>this unit is currently unavailable</span>
+                                        @if ($heldBy->isNotEmpty())
+                                            <span>held by
+                                                @foreach ($heldBy as $r)
+                                                    <a href="{{ $r['url'] }}" target="_blank" class="cb-link"><strong>{{ $r['code'] }}</strong></a>@if ($r['customer']) ({{ $r['customer'] }})@endif{{ $r['start'] ? ' · '.$r['start'].'–'.$r['end'] : '' }}@if (! $loop->last), @endif
+                                                @endforeach
+                                            </span>
+                                        @elseif ($unit->status === \App\Models\ProductUnit::STATUS_MAINTENANCE)
+                                            <span>this unit is in maintenance</span>
+                                        @else
+                                            <span>this unit is currently unavailable</span>
+                                        @endif
                                     </div>
                                 </div>
                                 <button class="btn btn-sm btn-primary cb-swap" wire:click="openSwap({{ $it->id }})">{!! $icon('swap') !!}Swap</button>
