@@ -23,11 +23,32 @@ const DPI = 203;
 const PARAMS = new URLSearchParams(location.search);
 // dataUrl boleh datang dari query (?dataUrl=) atau di-inject host via window global.
 const SYS_URL = PARAMS.get('dataUrl') || (typeof window !== 'undefined' && window.LUCKPRINTER_DATA_URL) || '';
+// Antrian unit yang sudah di-resolve server-side (dari klik "Print Label" / bulk).
+// Tiap item: { serial, name, payload, type }. Dipakai untuk prefill + cetak massal.
+const QUEUE = (typeof window !== 'undefined' && Array.isArray(window.LUCKPRINTER_QUEUE)) ? window.LUCKPRINTER_QUEUE : [];
+// Logo terdaftar di sistem (settings + brand). Tiap item: { name, url }.
+const LOGOS = (typeof window !== 'undefined' && Array.isArray(window.LUCKPRINTER_LOGOS)) ? window.LUCKPRINTER_LOGOS : [];
+
+// Elemen yang "terikat data" (bind) akan otomatis berganti isi per item antrian:
+//   bind:'payload' → QR/Barcode .data (atau teks) = item.payload (PREFIX:serial)
+//   bind:'name'    → teks = item.name
+//   bind:'serial'  → teks = item.serial
+function bindElement(el, item) {
+  if (!el.bind || !item) return el;
+  const copy = { ...el, _cache: null, _cacheKey: null };
+  if (el.bind === 'payload') {
+    if (el.type === 'qr' || el.type === 'barcode') copy.data = item.payload;
+    else copy.text = item.payload;
+  } else if (el.bind === 'name') copy.text = item.name;
+  else if (el.bind === 'serial') copy.text = item.serial;
+  return copy;
+}
 
 // ---------------- State ----------------
 const state = {
   label: { kind: 'normal', lengthMm: 40, widthMm: 14, printWidthDots: 96, cable: null },
   orientation: 'rot90',          // rot90 | rot270
+  calib: { x: 0, y: 0 },         // kalibrasi geser cetak (mm): x=panjang/feed, y=lebar/head
   elements: [],
   selectedId: null,
   zoom: 4,
@@ -74,7 +95,9 @@ function makeElement(type) {
     case 'barcode':
       return { ...base, w: Math.min(200, W - base.x - 4), h: 50, data: '012345678905', format: 'code128', showText: true };
     case 'image':
-      return { ...base, w: 64, h: 64, src: null, img: null, fit: 'contain', dither: true, invert: false };
+      // Dithering default OFF: logo/line-art tampak pecah (noise) bila di-dither di
+      // resolusi dots yang kecil. Untuk foto, user bisa nyalakan via properti.
+      return { ...base, w: 64, h: 64, src: null, img: null, fit: 'contain', dither: false, invert: false };
     case 'line':
       return { ...base, x: 8, y: Math.round(H / 2), w: W - 16, h: 3, rotation: 0 };
     case 'rect':
@@ -85,11 +108,11 @@ function makeElement(type) {
 }
 
 // ---------------- Rendering ----------------
-function renderToCtx(ctx) {
+function renderToCtx(ctx, elements = state.elements) {
   const W = designW(), H = designH();
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, W, H);
-  for (const el of state.elements) drawElement(ctx, el);
+  for (const el of elements) drawElement(ctx, el);
 }
 
 function drawElement(ctx, el) {
@@ -252,20 +275,21 @@ function syncOverlay() {
   });
 }
 
-// rotasi → kanvas cetak (lebar = head printer)
-function makePrintCanvas() {
+// rotasi → kanvas cetak (lebar = head printer). `elements` opsional (untuk cetak antrian).
+function makePrintCanvas(elements = state.elements) {
   const W = designW(), full = designH(), head = state.label.printWidthDots;
   // 1) render desain ukuran label penuh
   const design = document.createElement('canvas');
   design.width = W; design.height = full;
-  renderToCtx(design.getContext('2d', { willReadFrequently: true }));
+  renderToCtx(design.getContext('2d', { willReadFrequently: true }), elements);
 
   // 2) ambil hanya strip selebar head (di tengah label) → crop W × head
   const crop = document.createElement('canvas');
   crop.width = W; crop.height = head;
   const cctx = crop.getContext('2d');
   cctx.fillStyle = '#fff'; cctx.fillRect(0, 0, W, head);
-  cctx.drawImage(design, 0, -vMargin()); // geser agar strip cetak jatuh di 0..head
+  // geser strip cetak ke 0..head; tambah kalibrasi posisi (mm) untuk koreksi offset fisik printer.
+  cctx.drawImage(design, mmToDots(state.calib.x, DPI), -vMargin() + mmToDots(state.calib.y, DPI));
 
   // 3) putar 90° → lebar kanvas = head printer
   const out = document.createElement('canvas');
@@ -594,25 +618,93 @@ function openSystemPicker(onPick) {
   searchEl.focus();
 }
 
-// Isi data sebuah elemen QR/barcode dengan payload sistem (PREFIX:serial).
+// Isi data sebuah elemen QR/barcode dengan payload sistem (PREFIX:serial) + tandai bind.
 function applyUnitToElement(el, item) {
   el.data = item.payload;
   if (el.type === 'barcode') el.format = 'code128'; // payload alfanumerik → CODE128
+  el.bind = 'payload';                              // ikut berganti saat cetak massal
   buildProps(); render(); pushHistory();
   log(`📥 ${item.name} (${item.serial}) diterapkan ke ${typeLabel(el.type)}.`);
 }
 
 // Bangun label unit lengkap (nama + serial + QR berisi payload) menggantikan desain.
+// Elemen ditandai `bind` agar bisa dipakai ulang untuk semua item antrian (cetak massal).
 function insertUnitLabel(item) {
   const W = designW(), H = designH();
   state.elements = [
-    { ...makeElement('text'), id: nextId(), x: 6, y: 6, w: W - 78, h: 24, text: item.name, fontSize: 18, bold: true, align: 'left' },
-    { ...makeElement('text'), id: nextId(), x: 6, y: 32, w: W - 78, h: 18, text: item.serial, fontSize: 12, bold: false, align: 'left' },
-    { ...makeElement('qr'), id: nextId(), x: W - 70, y: Math.round((H - 64) / 2), w: 64, h: 64, data: item.payload, ecLevel: 'M' },
+    { ...makeElement('text'), id: nextId(), x: 6, y: 6, w: W - 78, h: 24, text: item.name, fontSize: 18, bold: true, align: 'left', bind: 'name' },
+    { ...makeElement('text'), id: nextId(), x: 6, y: 32, w: W - 78, h: 18, text: item.serial, fontSize: 12, bold: false, align: 'left', bind: 'serial' },
+    { ...makeElement('qr'), id: nextId(), x: W - 70, y: Math.round((H - 64) / 2), w: 64, h: 64, data: item.payload, ecLevel: 'M', bind: 'payload' },
   ];
   state.selectedId = null;
   pushHistory(); buildProps(); render();
   log(`📥 Label unit disisipkan: ${item.name} (${item.serial}).`);
+}
+
+// ---------------- Antrian cetak (bulk) ----------------
+function renderQueuePanel() {
+  const sec = $('queueSec'); if (!sec) return;
+  if (!QUEUE.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  $('queueCount').textContent = QUEUE.length;
+  const list = $('queueList');
+  list.innerHTML = QUEUE.map((it) =>
+    `<div class="queue-item"><span class="nm">${escapeHtml(it.name)}${it.type === 'kit' ? ' <em>· kit</em>' : ''}</span><span class="sr">${escapeHtml(it.serial)}</span></div>`
+  ).join('');
+}
+
+async function printQueue() {
+  if (!printer || !QUEUE.length) return;
+  $('btnPrintQueue').disabled = true; $('btnPrint').disabled = true;
+  try {
+    const density = +document.querySelector('input[name=d]:checked').value;
+    await printer.cmdDensity(density);
+    const copies = +$('copies').value;
+    for (let i = 0; i < QUEUE.length; i++) {
+      const item = QUEUE[i];
+      const els = state.elements.map((e) => bindElement(e, item));
+      const raster = buildRaster(makePrintCanvas(els), { threshold: 128 });
+      await printer.printRaster(raster, { copies, mode: 'label' });
+      log(`✅ ${i + 1}/${QUEUE.length}: ${item.name} (${item.serial})`);
+    }
+    log('✅ Semua antrian selesai dicetak.');
+  } catch (err) { log('❌ ' + err.message); }
+  $('btnPrintQueue').disabled = false; $('btnPrint').disabled = false;
+}
+
+// ---------------- Logo dari sistem ----------------
+function addLogoElement(logo) {
+  const el = makeElement('image');
+  el.src = logo.url;
+  el.dither = false; // logo: ambang bersih, bukan dithering
+  el.w = 80; el.h = 64;
+  state.elements.push(el);
+  loadElImage(el, logo.url);
+  selectElement(el.id);
+  pushHistory();
+  log(`🖼 Logo "${logo.name}" ditambahkan.`);
+}
+
+function openLogoPicker() {
+  if (!LOGOS.length) { log('Tidak ada logo terdaftar di sistem.'); return; }
+  if (LOGOS.length === 1) { addLogoElement(LOGOS[0]); return; }
+  const back = document.createElement('div');
+  back.className = 'syspick-back';
+  back.innerHTML =
+    '<div class="syspick">'
+    + '<div class="syspick-head"><strong>Pilih logo sistem</strong><button class="x" data-close>✕</button></div>'
+    + '<div class="syspick-list logo-grid"></div></div>';
+  document.body.appendChild(back);
+  const list = back.querySelector('.syspick-list');
+  const close = () => back.remove();
+  back.addEventListener('click', (e) => { if (e.target === back || e.target.hasAttribute('data-close')) close(); });
+  for (const lg of LOGOS) {
+    const b = document.createElement('button');
+    b.className = 'logo-pick';
+    b.innerHTML = `<img src="${lg.url}" alt=""><span>${escapeHtml(lg.name)}</span>`;
+    b.addEventListener('click', () => { addLogoElement(lg); close(); });
+    list.appendChild(b);
+  }
 }
 
 // ---------------- Templates ----------------
@@ -662,6 +754,7 @@ function setConnected(on) {
   $('connPill').textContent = on ? 'Terhubung' : 'Belum terhubung';
   $('connPill').className = 'pill ' + (on ? 'ok' : '');
   $('btnPrint').disabled = !on; $('btnDisconnect').disabled = !on; $('btnStatus').disabled = !on;
+  const pq = $('btnPrintQueue'); if (pq) pq.disabled = !on || !QUEUE.length;
 }
 function log(msg) { const l = $('log'); l.textContent += msg + '\n'; l.scrollTop = l.scrollHeight; }
 
@@ -758,6 +851,10 @@ function init() {
   document.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => addElement(b.dataset.add)));
   document.querySelectorAll('[data-tpl]').forEach((b) => b.addEventListener('click', () => loadTemplate(b.dataset.tpl)));
 
+  // tombol logo sistem (hanya tampil bila ada logo terdaftar)
+  const logoBtn = $('btnLogo');
+  if (logoBtn && LOGOS.length) { logoBtn.style.display = ''; logoBtn.addEventListener('click', openLogoPicker); }
+
   // overlay pointer
   overlay.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove);
@@ -814,6 +911,18 @@ function init() {
   $('zoom').addEventListener('input', () => { state.zoom = +$('zoom').value; $('zoomLabel').textContent = state.zoom + '×'; render(); });
   $('btnFit').addEventListener('click', fitToPage);
 
+  // kalibrasi posisi cetak (tersimpan di browser, koreksi offset fisik printer)
+  const CALIB_KEY = 'luckjingle_print_calib';
+  try { const c = JSON.parse(localStorage.getItem(CALIB_KEY) || 'null'); if (c) state.calib = { x: +c.x || 0, y: +c.y || 0 }; } catch (_) {}
+  $('calibX').value = state.calib.x; $('calibY').value = state.calib.y;
+  const onCalib = () => {
+    state.calib = { x: +$('calibX').value || 0, y: +$('calibY').value || 0 };
+    localStorage.setItem(CALIB_KEY, JSON.stringify(state.calib));
+    renderPrintPreview();
+  };
+  $('calibX').addEventListener('input', onCalib);
+  $('calibY').addEventListener('input', onCalib);
+
   // undo/redo & clear
   $('btnUndo').addEventListener('click', undo);
   $('btnRedo').addEventListener('click', redo);
@@ -836,6 +945,7 @@ function init() {
   $('btnDisconnect').addEventListener('click', () => printer?.disconnect());
   $('btnPrint').addEventListener('click', print);
   $('btnStatus').addEventListener('click', () => printer?.requestStatus());
+  $('btnPrintQueue')?.addEventListener('click', printQueue);
 
   // import dari sistem (hanya aktif bila host memberi ?dataUrl=…)
   if (SYS_URL) {
@@ -856,16 +966,11 @@ function init() {
   buildProps();
   requestAnimationFrame(fitToPage); // pas-kan label ke layar saat pertama muat
 
-  // deep-link: ?unit={id} atau ?units=1,2,3 → tarik dari sistem & sisipkan label unit pertama
-  if (SYS_URL) {
-    const ids = PARAMS.get('units') || PARAMS.get('unit');
-    if (ids) {
-      fetchUnits({ ids }).then((rows) => {
-        if (!rows.length) { log('ℹ Tidak ada unit ditemukan untuk tautan ini.'); return; }
-        insertUnitLabel(rows[0]);
-        if (rows.length > 1) log(`ℹ ${rows.length} item dari sistem tersedia. Pakai "Ambil data unit…" untuk yang lain.`);
-      }).catch((err) => log('❌ ' + err.message));
-    }
+  // prefill dari antrian yang sudah di-resolve server-side (klik Print Label / bulk)
+  if (QUEUE.length) {
+    insertUnitLabel(QUEUE[0]);
+    renderQueuePanel();
+    if (QUEUE.length > 1) log(`ℹ ${QUEUE.length} item di antrian. Desain di kiri dipakai untuk semua — klik "Cetak semua antrian".`);
   }
 }
 

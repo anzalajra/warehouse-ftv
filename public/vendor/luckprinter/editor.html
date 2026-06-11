@@ -126,6 +126,21 @@
   .syspick-item .nm em{ font-style:normal; color:var(--muted); font-weight:400; font-size:11px; }
   .syspick-item .sr{ font-size:11px; color:var(--muted); font-family:ui-monospace,Consolas,monospace; }
 
+  /* daftar antrian cetak */
+  #queueList{ max-height:160px; overflow:auto; display:flex; flex-direction:column; gap:4px; }
+  .queue-item{ display:flex; flex-direction:column; gap:1px; background:#f8fafc; border:1px solid var(--line); border-radius:7px; padding:6px 8px; }
+  .queue-item .nm{ font-size:12px; font-weight:600; color:#0f172a; }
+  .queue-item .nm em{ font-style:normal; color:var(--muted); font-weight:400; font-size:11px; }
+  .queue-item .sr{ font-size:11px; color:var(--muted); font-family:ui-monospace,Consolas,monospace; }
+
+  /* picker logo sistem */
+  .logo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .logo-pick{ display:flex; flex-direction:column; align-items:center; gap:6px; border:1px solid var(--line); background:#f8fafc;
+        border-radius:8px; padding:10px; cursor:pointer; }
+  .logo-pick:hover{ background:#e2e8f0; }
+  .logo-pick img{ width:100%; height:64px; object-fit:contain; background:#fff; border-radius:4px; }
+  .logo-pick span{ font-size:11px; color:#0f172a; text-align:center; word-break:break-word; }
+
   /* responsive: stack untuk layar kecil (Android) — diletakkan paling akhir agar menang */
   @media (max-width:900px){
     body{ overflow:auto; height:auto; }
@@ -177,6 +192,8 @@
       <svg viewBox="0 0 24 24"><path d="M4 5v14M7 5v14M9.5 5v14M13 5v14M15.5 5v14M18 5v14M20.5 5v14" stroke-width="1.6"/></svg><small>Barcode</small></button>
     <button data-add="image" title="Tambah gambar">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg><small>Gambar</small></button>
+    <button id="btnLogo" title="Tambah logo dari sistem" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M12 3l7 4v6c0 4-3 6.5-7 8-4-1.5-7-4-7-8V7l7-4z"/><path d="M9 12l2 2 4-4"/></svg><small>Logo</small></button>
     <button data-add="line" title="Tambah garis">
       <svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><path d="M6.5 17.5L17.5 6.5"/></svg><small>Garis</small></button>
     <button data-add="rect" title="Tambah kotak">
@@ -243,6 +260,22 @@
         <canvas id="printPreview"></canvas>
         <div class="muted small">Inilah bitmap yang dikirim ke printer (lebar = head 96 dot). Hitam = tercetak.<br>Ubah <b>Orientasi</b> di atas bila terbalik.</div>
       </div>
+    </div>
+
+    <div class="sec">
+      <h2>Kalibrasi Posisi Cetak</h2>
+      <div class="grid2">
+        <label class="pf"><span>Geser panjang (mm)</span><input type="number" id="calibX" value="0" step="0.5" min="-20" max="20"></label>
+        <label class="pf"><span>Geser lebar (mm)</span><input type="number" id="calibY" value="0" step="0.5" min="-10" max="10"></label>
+      </div>
+      <div class="muted small" style="margin-top:6px">Printer label punya jarak sensor-gap ke kepala cetak, jadi hasil bisa bergeser dari kertas (mis. ~5 mm). Geser di sini untuk koreksi — lihat efeknya di <b>Pratinjau Cetak</b>. Tersimpan di browser & berlaku untuk semua ukuran.</div>
+    </div>
+
+    <div class="sec" id="queueSec" style="display:none">
+      <h2>Antrian Cetak (<span id="queueCount">0</span>)</h2>
+      <div id="queueList" class="small"></div>
+      <button class="btn pri" id="btnPrintQueue" style="width:100%;margin-top:8px" disabled>🖨️ Cetak semua antrian</button>
+      <div class="muted small" style="margin-top:6px">Desain di kiri dipakai untuk semua item; teks/QR yang terhubung data unit (nama·serial·QR) otomatis berganti tiap item.</div>
     </div>
 
     <div class="sec">

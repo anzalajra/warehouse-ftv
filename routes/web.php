@@ -249,13 +249,83 @@ if (!$isInstalled) {
         // editor ships its own global CSS/layout that would clash with the panel.
         // The system-data feed URL is injected so the editor's "import from system"
         // works; ?unit / ?units in the query are read client-side from location.
-        Route::get('/admin/print-label', function () {
+        Route::get('/admin/print-label', function (\Illuminate\Http\Request $request) {
             $path = public_path('vendor/luckprinter/editor.html');
             abort_unless(is_file($path), 404);
 
+            $codes = app(\App\Services\UnitCodeService::class);
+
+            // Resolve ?unit / ?units into an ordered print queue server-side (DB +
+            // auth are available here) so the editor prefills + bulk-prints without
+            // a client fetch round-trip. Each row carries the closed-system payload.
+            $ids = [];
+            if (filled($single = $request->query('unit'))) {
+                $ids[] = (int) $single;
+            }
+            if (filled($many = $request->query('units'))) {
+                foreach (explode(',', (string) $many) as $part) {
+                    if (($id = (int) trim($part)) > 0) {
+                        $ids[] = $id;
+                    }
+                }
+            }
+            $ids = array_values(array_unique(array_filter($ids)));
+
+            $queue = [];
+            if ($ids) {
+                $units = \App\Models\ProductUnit::with(['product', 'kits'])
+                    ->whereIn('id', $ids)->get()
+                    ->sortBy(fn ($u) => array_search($u->id, $ids))->values();
+
+                foreach ($units as $unit) {
+                    if (filled($unit->serial_number)) {
+                        $queue[] = [
+                            'serial' => $unit->serial_number,
+                            'name' => $unit->product->name ?? 'Unit',
+                            'payload' => $codes->encode($unit->serial_number),
+                            'type' => 'unit',
+                        ];
+                    }
+                    foreach ($unit->kits as $kit) {
+                        if (filled($kit->serial_number)) {
+                            $queue[] = [
+                                'serial' => $kit->serial_number,
+                                'name' => $kit->name,
+                                'payload' => $codes->encode($kit->serial_number),
+                                'type' => 'kit',
+                            ];
+                        }
+                    }
+                }
+            }
+
+            // System logos (settings + brand logos) the editor can drop onto a label.
+            $logos = [];
+            $seen = [];
+            $addLogo = function (string $name, $value) use (&$logos, &$seen) {
+                if (blank($value)) {
+                    return;
+                }
+                $url = \Illuminate\Support\Facades\Storage::url($value);
+                if (isset($seen[$url])) {
+                    return;
+                }
+                $seen[$url] = true;
+                $logos[] = ['name' => $name, 'url' => $url];
+            };
+            $addLogo('Logo Situs', \App\Models\Setting::get('site_logo'));
+            $addLogo('Logo Admin', \App\Models\Setting::get('logo'));
+            $addLogo('Logo Dokumen', \App\Models\Setting::get('doc_logo'));
+            $addLogo('Ikon Aplikasi', \App\Models\Setting::get('pwa_admin_icon'));
+            foreach (\App\Models\Brand::whereNotNull('logo')->orderBy('name')->get() as $brand) {
+                $addLogo('Brand: '.$brand->name, $brand->logo);
+            }
+
             $html = (string) file_get_contents($path);
             $dataUrl = route('admin.label-printer.units', [], false);
-            $inject = '<script>window.LUCKPRINTER_DATA_URL='.json_encode($dataUrl).';</script>';
+            $inject = '<script>window.LUCKPRINTER_DATA_URL='.json_encode($dataUrl)
+                .';window.LUCKPRINTER_QUEUE='.json_encode($queue)
+                .';window.LUCKPRINTER_LOGOS='.json_encode($logos).';</script>';
             $html = str_replace('</head>', $inject."\n</head>", $html);
 
             return response($html)->header('Content-Type', 'text/html; charset=UTF-8');
