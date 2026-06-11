@@ -6,7 +6,7 @@ use App\Filament\Resources\Products\ProductResource;
 use App\Models\Category;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
-use Filament\Resources\Pages\ListRecords\Tab;
+use Filament\Schemas\Components\Tabs\Tab;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListProducts extends ListRecords
