@@ -193,6 +193,55 @@ if (!$isInstalled) {
                 ['Content-Type' => 'image/png']
             );
         })->where('serial', '[^/]+')->name('admin.unit-label');
+
+        // Unit data feed for the Bluetooth label editor (Print Label page). The
+        // editor iframe fetches this same-origin (session cookie) to import unit
+        // serials without typing — each row carries the closed-system payload
+        // (PREFIX:serial) used for both QR and barcode.
+        Route::get('/admin/label-printer/units', function (\Illuminate\Http\Request $request) {
+            $codes = app(\App\Services\UnitCodeService::class);
+
+            $query = \App\Models\ProductUnit::query()->with(['product', 'kits']);
+
+            if (filled($ids = $request->query('ids'))) {
+                $idList = collect(explode(',', (string) $ids))
+                    ->map(fn ($i) => (int) trim($i))
+                    ->filter()
+                    ->all();
+                $query->whereIn('id', $idList);
+            } elseif (strlen($q = trim((string) $request->query('q', ''))) >= 1) {
+                $query->where(function ($w) use ($q) {
+                    $w->where('serial_number', 'like', "%{$q}%")
+                        ->orWhereHas('product', fn ($p) => $p->where('name', 'like', "%{$q}%"));
+                })->limit(30);
+            } else {
+                $query->limit(20);
+            }
+
+            $rows = [];
+            foreach ($query->get() as $unit) {
+                if (filled($unit->serial_number)) {
+                    $rows[] = [
+                        'serial' => $unit->serial_number,
+                        'name' => $unit->product->name ?? 'Unit',
+                        'payload' => $codes->encode($unit->serial_number),
+                        'type' => 'unit',
+                    ];
+                }
+                foreach ($unit->kits as $kit) {
+                    if (filled($kit->serial_number)) {
+                        $rows[] = [
+                            'serial' => $kit->serial_number,
+                            'name' => $kit->name,
+                            'payload' => $codes->encode($kit->serial_number),
+                            'type' => 'kit',
+                        ];
+                    }
+                }
+            }
+
+            return response()->json(['data' => $rows]);
+        })->name('admin.label-printer.units');
     });
 
     // User Impersonation (admin -> customer)

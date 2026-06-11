@@ -5,6 +5,7 @@
  * Koordinat & ukuran dalam DOTS (1 dot = 1 px canvas). 203 dpi = 8 dots/mm.
  */
 import qrcode from './vendor/qrcode-generator.js';
+import { encodeBarcode } from './vendor/barcode.js';
 import { mmToDots } from './devices.js';
 
 /**
@@ -102,6 +103,59 @@ export function drawQR(ctx, text, opts = {}) {
     }
   }
   return { size: sizePx };
+}
+
+/**
+ * Gambar barcode 1D (CODE128 / EAN-13) ke dalam area [x,y,w,h].
+ * Modul dibulatkan agar bar = bilangan bulat px (tajam saat dicetak).
+ * @returns {{ok:boolean, error?:string, width:number}}
+ */
+export function drawBarcode(ctx, text, opts = {}) {
+  const x = opts.x ?? 0;
+  const y = opts.y ?? 0;
+  const w = opts.w ?? 200;
+  const h = opts.h ?? 60;
+  const format = opts.format ?? 'code128';
+  const showText = opts.showText ?? true;
+  const enc = encodeBarcode(String(text || ''), format);
+
+  // area teks di bawah
+  const textH = showText ? Math.max(10, Math.round(h * 0.22)) : 0;
+  const barsH = h - textH;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#000';
+
+  if (!enc.ok || !enc.bits) {
+    // tampilkan pesan error sederhana
+    ctx.font = `${Math.max(8, Math.round(h * 0.3))}px monospace`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ ' + (enc.error || 'invalid'), x + w / 2, y + h / 2);
+    ctx.textAlign = 'left';
+    return { ok: false, error: enc.error, width: w };
+  }
+
+  const n = enc.bits.length;
+  let mod = Math.max(1, Math.floor(w / n));
+  let drawW = mod * n;
+  // bila terlalu kecil (mod=1 tapi w<n) tetap render sebisanya
+  const ox = x + Math.floor((w - drawW) / 2);
+
+  for (let i = 0; i < n; i++) {
+    if (enc.bits[i] === '1') ctx.fillRect(ox + i * mod, y, mod, barsH);
+  }
+
+  if (showText) {
+    ctx.fillStyle = '#000';
+    ctx.font = `${Math.max(8, textH - 2)}px monospace`;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'center';
+    ctx.fillText(enc.text, x + w / 2, y + barsH + 1, w);
+    ctx.textAlign = 'left';
+  }
+  return { ok: true, width: drawW };
 }
 
 /**

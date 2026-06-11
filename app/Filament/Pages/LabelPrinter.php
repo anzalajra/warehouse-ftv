@@ -2,25 +2,24 @@
 
 namespace App\Filament\Pages;
 
-use App\Models\ProductUnit;
-use App\Services\UnitCodeService;
 use BackedEnum;
 use Filament\Pages\Page;
+use Illuminate\Support\Arr;
 use UnitEnum;
 
 /**
- * Bluetooth label print studio. Wraps the standalone LuckPrinter ES modules
- * (public/vendor/luckprinter/) in a Filament page: design a label (text + QR +
- * image) and print it to a Luck Jingle Bluetooth printer via Web Bluetooth.
+ * Bluetooth label print studio. Hosts the standalone LuckPrinter WYSIWYG editor
+ * (public/vendor/luckprinter/editor.html + editor-app.js) inside a same-origin
+ * iframe so the editor runs exactly 1:1 as designed — free-form canvas with
+ * text/QR/barcode/image/line/rect, drag-resize-rotate, templates, undo/redo and
+ * Web Bluetooth printing (Web Bluetooth is permitted in same-origin frames).
  *
- * Can be opened standalone (manual designer) or deep-linked from a product unit
- * with a prefilled print queue:
- *   ?unit={id}        single unit + its serial-bearing kits
- *   ?units=1,2,3      bulk: many units merged into one queue
- *
- * QR payloads are encoded server-side as PREFIX:serial (UnitCodeService) so the
- * printed labels read identically to the server PNGs and stay compatible with
- * the Pickup/Return unit scanner.
+ * Two bridges into the warehouse system:
+ *   - `?dataUrl=` points the editor at `admin.label-printer.units` (JSON feed) so
+ *     it can import unit serials + closed-system payloads (PREFIX:serial) without
+ *     manual typing — used by the QR/Barcode "Ambil dari sistem" buttons.
+ *   - `?unit={id}` / `?units=1,2,3` deep-link prefills a unit label on open
+ *     (from the product-unit Label modal and the "Print Labels" bulk action).
  */
 class LabelPrinter extends Page
 {
@@ -38,67 +37,21 @@ class LabelPrinter extends Page
 
     protected string $view = 'filament.pages.label-printer';
 
-    /** Prefilled print queue: list of { serial, name, payload }. */
-    public array $queue = [];
+    /** Fully-built `editor.html` URL (with dataUrl + optional unit/units forwarded). */
+    public string $editorUrl = '';
 
     public function mount(): void
     {
-        $codes = app(UnitCodeService::class);
+        // Relative path (no host) so the iframe fetch stays same-origin and carries
+        // the session cookie regardless of forced HTTPS / proxy host.
+        $params = ['dataUrl' => route('admin.label-printer.units', [], false)];
 
-        $ids = $this->resolveUnitIds();
-
-        if (empty($ids)) {
-            return;
-        }
-
-        $units = ProductUnit::with(['kits', 'product'])
-            ->whereIn('id', $ids)
-            ->get();
-
-        // Preserve the order the ids arrived in (so bulk selection prints in order).
-        $units = $units->sortBy(fn ($u) => array_search($u->id, $ids))->values();
-
-        foreach ($units as $unit) {
-            $this->pushQueueItem($codes, $unit->serial_number, $unit->product->name ?? 'Unit');
-
-            foreach ($unit->kits as $kit) {
-                if (filled($kit->serial_number)) {
-                    $this->pushQueueItem($codes, $kit->serial_number, $kit->name);
-                }
-            }
-        }
-    }
-
-    /** Parse ?unit= (single) and ?units= (comma-separated) into a unique id list. */
-    protected function resolveUnitIds(): array
-    {
-        $ids = [];
-
-        if (filled($single = request()->query('unit'))) {
-            $ids[] = (int) $single;
-        }
-
-        if (filled($many = request()->query('units'))) {
-            foreach (explode(',', (string) $many) as $part) {
-                if (($id = (int) trim($part)) > 0) {
-                    $ids[] = $id;
-                }
+        foreach (['unit', 'units'] as $key) {
+            if (filled($value = request()->query($key))) {
+                $params[$key] = is_array($value) ? Arr::first($value) : $value;
             }
         }
 
-        return array_values(array_unique(array_filter($ids)));
-    }
-
-    protected function pushQueueItem(UnitCodeService $codes, ?string $serial, string $name): void
-    {
-        if (blank($serial)) {
-            return;
-        }
-
-        $this->queue[] = [
-            'serial' => $serial,
-            'name' => $name,
-            'payload' => $codes->encode($serial),
-        ];
+        $this->editorUrl = '/vendor/luckprinter/editor.html?'.http_build_query($params);
     }
 }

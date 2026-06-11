@@ -9,13 +9,13 @@ import {
   SUPPORTED_MODELS, SUPPORTED_PREFIXES, LABEL_SERIES_PREFIXES,
   matchModel, parseLabelSize, mmToDots,
 } from './devices.js';
-import { renderLabel, createLabelCanvas, drawText, drawQR, drawImage, ditherCanvas, loadImage } from './label.js';
+import { renderLabel, createLabelCanvas, drawText, drawQR, drawBarcode, drawImage, ditherCanvas, loadImage } from './label.js';
 
 export {
   LuckPrinter, buildRaster, isSupported,
   SUPPORTED_MODELS, SUPPORTED_PREFIXES, LABEL_SERIES_PREFIXES,
   matchModel, parseLabelSize, mmToDots,
-  renderLabel, createLabelCanvas, drawText, drawQR, drawImage, ditherCanvas, loadImage,
+  renderLabel, createLabelCanvas, drawText, drawQR, drawBarcode, drawImage, ditherCanvas, loadImage,
 };
 
 /**
