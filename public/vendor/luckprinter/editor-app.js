@@ -21,7 +21,8 @@ const DPI = 203;
 // editor bisa menarik data unit (serial + payload PREFIX:serial) tanpa diketik.
 // Tanpa dataUrl, fitur ini tidak aktif (editor tetap berfungsi standalone).
 const PARAMS = new URLSearchParams(location.search);
-const SYS_URL = PARAMS.get('dataUrl') || '';
+// dataUrl boleh datang dari query (?dataUrl=) atau di-inject host via window global.
+const SYS_URL = PARAMS.get('dataUrl') || (typeof window !== 'undefined' && window.LUCKPRINTER_DATA_URL) || '';
 
 // ---------------- State ----------------
 const state = {

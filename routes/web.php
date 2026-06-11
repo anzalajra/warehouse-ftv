@@ -242,6 +242,24 @@ if (!$isInstalled) {
 
             return response()->json(['data' => $rows]);
         })->name('admin.label-printer.units');
+
+        // Dedicated full-screen Bluetooth label editor (Print Label). Serves the
+        // standalone LuckPrinter editor (public/vendor/luckprinter/editor.html) as
+        // its own HTML document — NOT inside the Filament chrome, because the
+        // editor ships its own global CSS/layout that would clash with the panel.
+        // The system-data feed URL is injected so the editor's "import from system"
+        // works; ?unit / ?units in the query are read client-side from location.
+        Route::get('/admin/print-label', function () {
+            $path = public_path('vendor/luckprinter/editor.html');
+            abort_unless(is_file($path), 404);
+
+            $html = (string) file_get_contents($path);
+            $dataUrl = route('admin.label-printer.units', [], false);
+            $inject = '<script>window.LUCKPRINTER_DATA_URL='.json_encode($dataUrl).';</script>';
+            $html = str_replace('</head>', $inject."\n</head>", $html);
+
+            return response($html)->header('Content-Type', 'text/html; charset=UTF-8');
+        })->name('admin.print-label');
     });
 
     // User Impersonation (admin -> customer)

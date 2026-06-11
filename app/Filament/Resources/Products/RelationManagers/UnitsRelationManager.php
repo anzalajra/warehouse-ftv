@@ -364,7 +364,7 @@ class UnitsRelationManager extends RelationManager
                         ->icon('heroicon-o-printer')
                         ->color('gray')
                         ->action(fn (\Illuminate\Database\Eloquent\Collection $records) => redirect()->to(
-                            \App\Filament\Pages\LabelPrinter::getUrl(['units' => $records->pluck('id')->implode(',')])
+                            route('admin.print-label', ['units' => $records->pluck('id')->implode(',')])
                         ))
                         ->deselectRecordsAfterCompletion(),
                     DeleteBulkAction::make()
