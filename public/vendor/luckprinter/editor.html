@@ -265,10 +265,16 @@
     <div class="sec">
       <h2>Kalibrasi Posisi Cetak</h2>
       <div class="grid2">
-        <label class="pf"><span>Geser panjang (mm)</span><input type="number" id="calibX" value="0" step="0.5" min="-20" max="20"></label>
-        <label class="pf"><span>Geser lebar (mm)</span><input type="number" id="calibY" value="0" step="0.5" min="-10" max="10"></label>
+        <label class="pf"><span>Geser panjang (feed, mm)</span><input type="number" id="calibX" value="0" step="0.5" min="-20" max="20"></label>
+        <label class="pf"><span>Geser lebar (head, mm)</span><input type="number" id="calibY" value="0" step="0.5" min="-10" max="10"></label>
       </div>
-      <div class="muted small" style="margin-top:6px">Printer label punya jarak sensor-gap ke kepala cetak, jadi hasil bisa bergeser dari kertas (mis. ~5 mm). Geser di sini untuk koreksi — lihat efeknya di <b>Pratinjau Cetak</b>. Tersimpan di browser & berlaku untuk semua ukuran.</div>
+      <div class="muted small" style="margin-top:6px">
+        Printer punya jarak fisik sensor-gap ke kepala cetak (~5–7 mm), sehingga konten tercetak biasanya geser ke ujung belakang label.<br>
+        <b>Geser panjang (feed):</b> nilai <b>negatif</b> = tarik konten ke depan (paling umum dibutuhkan, coba <b>−5</b> s/d <b>−7</b> untuk L12).
+        Nilai positif = dorong konten ke belakang.<br>
+        <b>Geser lebar (head):</b> koreksi bila konten melenceng ke atas/bawah label.<br>
+        Lihat efeknya di <b>Pratinjau Cetak</b>. Tersimpan di browser &amp; berlaku untuk semua ukuran.
+      </div>
     </div>
 
     <div class="sec" id="queueSec" style="display:none">

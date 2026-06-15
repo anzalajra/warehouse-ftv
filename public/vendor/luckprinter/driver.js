@@ -281,7 +281,7 @@ export class LuckPrinter extends EventTarget {
       await this.cmdWakeup();
       await this.sendRaw(rasterBytes);
       if (mode === 'label') await this.cmdPosition();
-      if (i === copies) await this.cmdFeed(feedDots);
+      if (feedDots > 0 && i === copies) await this.cmdFeed(feedDots);
       const ok = await this.cmdStop();
       this._log(`Salinan ${i}/${copies} selesai (ack=${ok}).`);
       this.dispatchEvent(new CustomEvent('progress', { detail: { copy: i, copies } }));

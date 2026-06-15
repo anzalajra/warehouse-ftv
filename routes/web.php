@@ -321,11 +321,20 @@ if (!$isInstalled) {
                 $addLogo('Brand: '.$brand->name, $brand->logo);
             }
 
+            $calib = [
+                'x' => (float) \App\Models\Setting::get('luckprinter_calib_x', 0),
+                'y' => (float) \App\Models\Setting::get('luckprinter_calib_y', 0),
+            ];
+
             $html = (string) file_get_contents($path);
             $dataUrl = route('admin.label-printer.units', [], false);
+            $calibUrl = route('admin.print-label.calib', [], false);
             $inject = '<script>window.LUCKPRINTER_DATA_URL='.json_encode($dataUrl)
                 .';window.LUCKPRINTER_QUEUE='.json_encode($queue)
-                .';window.LUCKPRINTER_LOGOS='.json_encode($logos).';</script>';
+                .';window.LUCKPRINTER_LOGOS='.json_encode($logos)
+                .';window.LUCKPRINTER_CALIB='.json_encode($calib)
+                .';window.LUCKPRINTER_CALIB_URL='.json_encode($calibUrl)
+                .';window.LUCKPRINTER_CSRF='.json_encode(csrf_token()).';</script>';
             $html = str_replace('</head>', $inject."\n</head>", $html);
 
             // Cache-bust the editor module bundle by the file mtimes so a redeploy /
@@ -347,6 +356,15 @@ if (!$isInstalled) {
                 ->header('Content-Type', 'text/html; charset=UTF-8')
                 ->header('Cache-Control', 'no-store, no-cache, must-revalidate');
         })->name('admin.print-label');
+
+        // Save Bluetooth label editor print-position calibration to the database.
+        Route::post('/admin/print-label/calibration', function (\Illuminate\Http\Request $request) {
+            $x = round((float) $request->input('x', 0), 2);
+            $y = round((float) $request->input('y', 0), 2);
+            \App\Models\Setting::set('luckprinter_calib_x', (string) $x);
+            \App\Models\Setting::set('luckprinter_calib_y', (string) $y);
+            return response()->json(['ok' => true, 'x' => $x, 'y' => $y]);
+        })->name('admin.print-label.calib');
     });
 
     // User Impersonation (admin -> customer)

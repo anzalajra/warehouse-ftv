@@ -662,9 +662,12 @@ async function printQueue() {
     const copies = +$('copies').value;
     for (let i = 0; i < QUEUE.length; i++) {
       const item = QUEUE[i];
+      const isLast = i === QUEUE.length - 1;
       const els = state.elements.map((e) => bindElement(e, item));
       const raster = buildRaster(makePrintCanvas(els), { threshold: 128 });
-      await printer.printRaster(raster, { copies, mode: 'label' });
+      // feedDots=0 untuk item non-terakhir: GS FF sudah posisikan ke label berikutnya,
+      // extra feed hanya dibutuhkan setelah label terakhir (agar mudah diambil).
+      await printer.printRaster(raster, { copies, mode: 'label', feedDots: isLast ? 40 : 0 });
       log(`✅ ${i + 1}/${QUEUE.length}: ${item.name} (${item.serial})`);
     }
     log('✅ Semua antrian selesai dicetak.');
@@ -911,13 +914,35 @@ function init() {
   $('zoom').addEventListener('input', () => { state.zoom = +$('zoom').value; $('zoomLabel').textContent = state.zoom + '×'; render(); });
   $('btnFit').addEventListener('click', fitToPage);
 
-  // kalibrasi posisi cetak (tersimpan di browser, koreksi offset fisik printer)
+  // kalibrasi posisi cetak — server (DB) adalah sumber utama, localStorage sebagai fallback.
   const CALIB_KEY = 'luckjingle_print_calib';
-  try { const c = JSON.parse(localStorage.getItem(CALIB_KEY) || 'null'); if (c) state.calib = { x: +c.x || 0, y: +c.y || 0 }; } catch (_) {}
+  const serverCalib = (window.LUCKPRINTER_CALIB && (window.LUCKPRINTER_CALIB.x || window.LUCKPRINTER_CALIB.y))
+    ? { x: +window.LUCKPRINTER_CALIB.x || 0, y: +window.LUCKPRINTER_CALIB.y || 0 }
+    : null;
+  try {
+    const c = serverCalib || JSON.parse(localStorage.getItem(CALIB_KEY) || 'null');
+    if (c) state.calib = { x: +c.x || 0, y: +c.y || 0 };
+  } catch (_) {}
   $('calibX').value = state.calib.x; $('calibY').value = state.calib.y;
+
+  let _calibSaveTimer = null;
+  function saveCalibToServer(calib) {
+    const url = window.LUCKPRINTER_CALIB_URL;
+    if (!url) return;
+    clearTimeout(_calibSaveTimer);
+    _calibSaveTimer = setTimeout(() => {
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': window.LUCKPRINTER_CSRF || '' },
+        body: JSON.stringify(calib),
+      }).catch(() => {});
+    }, 800);
+  }
+
   const onCalib = () => {
     state.calib = { x: +$('calibX').value || 0, y: +$('calibY').value || 0 };
     localStorage.setItem(CALIB_KEY, JSON.stringify(state.calib));
+    saveCalibToServer(state.calib);
     renderPrintPreview();
   };
   $('calibX').addEventListener('input', onCalib);
