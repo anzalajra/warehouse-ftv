@@ -1708,7 +1708,7 @@
                     <div class="modal-foot">
                         <span style="flex:1"></span>
                         <button class="btn" @click="showValidate=false">Cancel</button>
-                        <button class="btn btn-success" @click="showValidate=false" wire:click="validatePickup" @disabled(! $canValidate)>{!! $icon('checkCircle') !!}Yes, confirm pickup</button>
+                        <button class="btn btn-success" @click="$wire.validatePickup(); showValidate=false">{!! $icon('checkCircle') !!}Yes, confirm pickup</button>
                     </div>
                 </div>
             </div>
