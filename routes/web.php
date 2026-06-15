@@ -431,6 +431,42 @@ if (!$isInstalled) {
 
             return response()->json(['ok' => true]);
         })->name('admin.print-label.templates.destroy');
+
+        // Resolve a scanned unit/kit code (PREFIX:serial) from the global admin QR
+        // scanner into the product's catalog edit page — same decode contract as the
+        // Pickup/Return scanner (UnitCodeService). Accepts a bare serial as fallback.
+        Route::get('/admin/scan-resolve', function (\Illuminate\Http\Request $request) {
+            $codes = app(\App\Services\UnitCodeService::class);
+            $raw = trim((string) $request->query('code', ''));
+            if ($raw === '') {
+                return response()->json(['ok' => false, 'message' => 'Kode kosong.'], 422);
+            }
+
+            // Closed-system code first; fall back to treating the scan as a raw serial.
+            $serial = $codes->decode($raw) ?? $raw;
+
+            $unit = \App\Models\ProductUnit::where('serial_number', $serial)->first();
+            if (! $unit) {
+                $kit = \App\Models\UnitKit::where('serial_number', $serial)->first();
+                $unit = $kit ? \App\Models\ProductUnit::find($kit->unit_id) : null;
+            }
+
+            $product = $unit?->product;
+            if (! $product) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Serial tidak ditemukan: '.$serial,
+                ], 404);
+            }
+
+            // Build the admin catalog edit URL directly — Filament's getUrl() needs the
+            // panel context which isn't bootstrapped inside this plain web route.
+            return response()->json([
+                'ok' => true,
+                'url' => url('/admin/products/'.$product->getKey().'/edit'),
+                'label' => trim(($product->name ?? 'Produk').' · '.$serial),
+            ]);
+        })->name('admin.scan-resolve');
     });
 
     // User Impersonation (admin -> customer)
