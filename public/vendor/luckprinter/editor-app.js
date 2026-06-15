@@ -675,6 +675,21 @@ function renderQueuePanel() {
   list.querySelectorAll('[data-qjump]').forEach((d) => d.addEventListener('click', () => previewQueueItem(+d.dataset.qjump)));
 }
 
+// Jika template default tidak punya satu pun elemen "Data terikat", tebak otomatis
+// agar QR/teks tetap berganti per unit (mencegah semua label identik). QR/Barcode
+// pertama → payload (kode unit), teks pertama → nama, teks kedua → serial.
+function ensureQueueBindings() {
+  if (state.elements.some((e) => e.bind)) return; // penulis template sudah mengatur
+  const code = state.elements.find((e) => e.type === 'qr' || e.type === 'barcode');
+  if (code) code.bind = 'payload';
+  const texts = state.elements.filter((e) => e.type === 'text');
+  if (texts[0]) texts[0].bind = 'name';
+  if (texts[1]) texts[1].bind = 'serial';
+  if (code || texts.length) {
+    log('ℹ Template belum punya "Data terikat" — otomatis dipasang (QR=kode unit, teks=nama/serial). Atur manual di panel properti bila perlu.');
+  }
+}
+
 // ---- navigasi pratinjau antrian (bar ‹ i/N › di bawah kanvas) ----
 let queueIdx = 0;
 function updateQueueNav() {
@@ -1124,6 +1139,7 @@ function init() {
       // gambar dari src + ukuran kertas template.
       deserialize(DEFAULT_TEMPLATE);
       fitToPage();
+      ensureQueueBindings(); // jaga-jaga bila penulis template lupa set "Data terikat"
       log('📄 Template default dipakai untuk antrian.');
     } else {
       // Tidak ada template default → layout bawaan (nama + serial + QR).
