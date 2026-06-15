@@ -104,8 +104,8 @@
   .btn:disabled{ opacity:.5; cursor:not-allowed; }
   .btnrow{ display:flex; gap:8px; } .btnrow>*{ flex:1; }
 
-  .ppwrap{ display:flex; gap:12px; align-items:center; }
-  #printPreview{ image-rendering:pixelated; background:#fff; border:1px solid var(--line); border-radius:4px; }
+  .ppwrap{ display:flex; flex-direction:column; gap:8px; align-items:stretch; }
+  #printPreview{ image-rendering:pixelated; background:#fff; border:1px solid var(--line); border-radius:4px; display:block; margin:0 auto; }
   .log{ font-family:ui-monospace,Consolas,monospace; font-size:11px; background:#0b1220; color:#a5f3fc; border-radius:8px;
         padding:8px; height:110px; overflow:auto; white-space:pre-wrap; }
   .seg{ display:flex; gap:6px; } .seg label{ flex:1; } .seg input{ display:none; }
@@ -132,6 +132,19 @@
   .queue-item .nm{ font-size:12px; font-weight:600; color:#0f172a; }
   .queue-item .nm em{ font-style:normal; color:var(--muted); font-weight:400; font-size:11px; }
   .queue-item .sr{ font-size:11px; color:var(--muted); font-family:ui-monospace,Consolas,monospace; }
+  .tpl-size{ font-style:normal; color:#2563eb; font-weight:500; font-size:10px; background:#eff6ff; border-radius:4px; padding:0 5px; margin-left:6px; }
+
+  /* navigasi pratinjau antrian (di bawah kanvas) */
+  #queueNav{ position:sticky; bottom:12px; z-index:50; width:fit-content; margin:0 auto; display:none;
+        align-items:center; gap:10px; background:#0f172a; color:#fff; border-radius:999px; padding:7px 14px;
+        box-shadow:0 6px 20px rgba(0,0,0,.28); font-size:13px; }
+  #queueNav button{ width:30px; height:30px; border-radius:50%; border:0; cursor:pointer; background:#334155; color:#fff;
+        font-size:15px; line-height:1; display:flex; align-items:center; justify-content:center; }
+  #queueNav button:hover{ background:#475569; }
+  #queueNav button:disabled{ opacity:.4; cursor:not-allowed; }
+  #queueNav .qn-info{ min-width:120px; text-align:center; }
+  #queueNav .qn-info b{ font-weight:700; }
+  #queueNav .qn-info span{ display:block; font-size:10px; color:#94a3b8; font-family:ui-monospace,Consolas,monospace; }
 
   /* picker logo sistem */
   .logo-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -215,6 +228,12 @@
         <div id="overlay"></div>
       </div>
     </div>
+    <!-- navigasi pratinjau antrian cetak (muncul saat ada antrian) -->
+    <div id="queueNav">
+      <button id="qnPrev" title="Sebelumnya" type="button">‹</button>
+      <div class="qn-info"><b id="qnPos">1 / 1</b><span id="qnName">—</span></div>
+      <button id="qnNext" title="Berikutnya" type="button">›</button>
+    </div>
   </div>
 
   <!-- RIGHT: properti + cetak -->
@@ -228,16 +247,6 @@
       <h2>Data Sistem (Unit)</h2>
       <button class="btn pri sm" id="btnSysImport" style="width:100%">📥 Ambil data unit…</button>
       <div class="muted small" style="margin-top:6px">Sisipkan label unit (nama + serial + QR) langsung dari inventaris — tanpa mengetik data QR/barcode manual. Pilih elemen QR/Barcode lebih dulu untuk mengisi datanya saja.</div>
-    </div>
-
-    <div class="sec">
-      <h2>Template</h2>
-      <div class="rowbtn">
-        <button class="btn ghost sm" data-tpl="teks-qr">Teks + QR</button>
-        <button class="btn ghost sm" data-tpl="barcode">Barcode</button>
-        <button class="btn ghost sm" data-tpl="harga">Harga</button>
-        <button class="btn ghost sm" data-tpl="alamat">Alamat</button>
-      </div>
     </div>
 
     <div class="sec" id="srvTplSec">

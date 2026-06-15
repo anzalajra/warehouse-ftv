@@ -229,8 +229,12 @@ function syncOverlay() {
   overlay.innerHTML = '';
 
   // --- panduan area cetak (tidak ikut tercetak) ---
-  const vm = Math.max(0, vMargin());            // strip tak tercetak atas/bawah
-  const headTop = vm, headH = H - 2 * vm;       // area yang dilewati head
+  // Kalibrasi posisi cetak (mm→dots) digeser ke panduan ini juga, agar area aman
+  // di editor PERSIS mencerminkan apa yang tercetak (lihat makePrintCanvas).
+  const cx = Math.round(mmToDots(state.calib.x, DPI)); // geser feed (panjang)
+  const cy = Math.round(mmToDots(state.calib.y, DPI)); // geser head (lebar)
+  const headTop = vMargin() - cy;               // posisi pita head setelah kalibrasi
+  const headH = state.label.printWidthDots;     // tinggi pita = lebar head printer
   const addDiv = (cls, x, y, w, h) => {
     const d = document.createElement('div');
     d.className = cls;
@@ -238,17 +242,16 @@ function syncOverlay() {
     d.style.width = w * z + 'px'; d.style.height = h * z + 'px';
     overlay.appendChild(d); return d;
   };
-  if (vm > 0) {                                 // arsir bagian tak tercetak (atas/bawah head)
-    addDiv('nonprint', 0, 0, W, vm);
-    addDiv('nonprint', 0, H - vm, W, vm);
-  }
+  // arsir bagian tak tercetak (di luar pita head, mengikuti kalibrasi)
+  if (headTop > 0) addDiv('nonprint', 0, 0, W, Math.min(H, headTop));
+  if (headTop + headH < H) addDiv('nonprint', 0, headTop + headH, W, H - (headTop + headH));
   const sx = SAFE_X(), sy = SAFE_Y();           // zona aman (dash)
   const addSafe = (x0, x1, label) => {
-    const d = addDiv('safezone', x0 + sx, headTop + sy, Math.max(1, (x1 - x0) - 2 * sx), Math.max(1, headH - 2 * sy));
+    const d = addDiv('safezone', x0 - cx + sx, headTop + sy, Math.max(1, (x1 - x0) - 2 * sx), Math.max(1, headH - 2 * sy));
     d.innerHTML = `<span class="safelbl">${label}</span>`;
   };
   const addDead = (x0, x1, label) => {
-    const d = addDiv('deadzone', x0, 0, x1 - x0, H);
+    const d = addDiv('deadzone', x0 - cx, 0, x1 - x0, H);
     d.innerHTML = `<span class="deadlbl">${label}</span>`;
   };
   if (state.label.kind === 'cable' && state.label.cable) {
@@ -310,7 +313,12 @@ function makePrintCanvas(elements = state.elements) {
 function renderPrintPreview() {
   const c = makePrintCanvas();
   const pv = $('printPreview');
-  const scale = Math.min(4, Math.max(1, Math.floor(120 / c.width)));
+  // Skalakan agar mengisi lebar panel (bukan menempel kiri), lalu dipusatkan via CSS.
+  const wrap = pv.closest('.ppwrap');
+  const availW = Math.max(96, (wrap ? wrap.clientWidth : 200));
+  let scale = Math.max(1, Math.floor(availW / Math.max(1, c.width)));
+  const maxH = Math.max(260, availW * 2.6);     // batasi tinggi label panjang
+  while (scale > 1 && c.height * scale > maxH) scale--;
   pv.width = c.width * scale; pv.height = c.height * scale;
   const ctx = pv.getContext('2d');
   ctx.imageSmoothingEnabled = false;
@@ -661,9 +669,34 @@ function renderQueuePanel() {
   sec.style.display = 'block';
   $('queueCount').textContent = QUEUE.length;
   const list = $('queueList');
-  list.innerHTML = QUEUE.map((it) =>
-    `<div class="queue-item"><span class="nm">${escapeHtml(it.name)}${it.type === 'kit' ? ' <em>· kit</em>' : ''}</span><span class="sr">${escapeHtml(it.serial)}</span></div>`
+  list.innerHTML = QUEUE.map((it, i) =>
+    `<div class="queue-item" data-qjump="${i}" style="cursor:pointer"><span class="nm">${escapeHtml(it.name)}${it.type === 'kit' ? ' <em>· kit</em>' : ''}</span><span class="sr">${escapeHtml(it.serial)}</span></div>`
   ).join('');
+  list.querySelectorAll('[data-qjump]').forEach((d) => d.addEventListener('click', () => previewQueueItem(+d.dataset.qjump)));
+}
+
+// ---- navigasi pratinjau antrian (bar ‹ i/N › di bawah kanvas) ----
+let queueIdx = 0;
+function updateQueueNav() {
+  const nav = $('queueNav'); if (!nav) return;
+  nav.style.display = QUEUE.length ? 'flex' : 'none';
+  if (!QUEUE.length) return;
+  const it = QUEUE[queueIdx];
+  $('qnPos').textContent = `${queueIdx + 1} / ${QUEUE.length}`;
+  $('qnName').textContent = it ? `${it.name} · ${it.serial}` : '—';
+  $('qnPrev').disabled = queueIdx <= 0;
+  $('qnNext').disabled = queueIdx >= QUEUE.length - 1;
+}
+// Tampilkan label antrian ke-i di kanvas: elemen ber-bind diisi data unit tsb,
+// elemen statis (logo/teks tetap) tidak berubah. bindElement idempoten terhadap
+// peran bind, jadi maju-mundur aman dan printQueue tetap konsisten.
+function previewQueueItem(i) {
+  if (!QUEUE.length) return;
+  queueIdx = clamp(i, 0, QUEUE.length - 1);
+  state.elements = state.elements.map((e) => bindElement(e, QUEUE[queueIdx]));
+  state.selectedId = null;
+  buildProps(); render();
+  updateQueueNav();
 }
 
 async function printQueue() {
@@ -723,32 +756,6 @@ function openLogoPicker() {
   }
 }
 
-// ---------------- Templates ----------------
-const TEMPLATES = {
-  'teks-qr': () => ([
-    { ...makeElement('text'), x: 6, y: 6, w: designW() - 80, h: 30, text: 'Nama Produk', fontSize: 22, bold: true, align: 'left' },
-    { ...makeElement('text'), x: 6, y: 40, w: designW() - 80, h: 44, text: 'Rak A-12\nQty 24', fontSize: 16, bold: false },
-    { ...makeElement('qr'), x: designW() - 70, y: (designH() - 64) / 2, w: 64, h: 64, data: 'https://contoh.id/A-12' },
-  ]),
-  'barcode': () => ([
-    { ...makeElement('text'), x: 6, y: 4, w: designW() - 12, h: 24, text: 'KODE BARANG', fontSize: 18, bold: true, align: 'center' },
-    { ...makeElement('barcode'), x: 10, y: 30, w: designW() - 20, h: 56, data: '012345678905', format: 'code128' },
-  ]),
-  'harga': () => ([
-    { ...makeElement('text'), x: 6, y: 4, w: designW() - 12, h: 24, text: 'Nama Item', fontSize: 18, bold: true, align: 'center' },
-    { ...makeElement('text'), x: 6, y: 30, w: designW() - 12, h: 40, text: 'Rp 25.000', fontSize: 32, bold: true, align: 'center' },
-  ]),
-  'alamat': () => ([
-    { ...makeElement('text'), x: 6, y: 6, w: designW() - 12, h: designH() - 12, text: 'Kepada:\nNama Penerima\nJl. Contoh No. 1', fontSize: 16, bold: false, align: 'left' },
-  ]),
-};
-function loadTemplate(key) {
-  const f = TEMPLATES[key]; if (!f) return;
-  state.elements = f().map((e) => ({ ...e, id: nextId() }));
-  state.selectedId = null;
-  pushHistory(); buildProps(); render();
-}
-
 // ---------------- Save / Load ----------------
 const LS_KEY = 'luckjingle_label_design';
 function serialize() {
@@ -767,6 +774,12 @@ function deserialize(obj) {
 
 // ---------------- Template tersimpan di server ----------------
 // CRUD meniru saveCalibToServer: fetch + X-CSRF-TOKEN dari window.LUCKPRINTER_CSRF.
+// Ukuran kertas template (label) ditampilkan agar beda layout = beda template jelas.
+function tplSizeLabel(design) {
+  const L = design && design.label;
+  if (!L || !L.lengthMm || !L.widthMm) return '';
+  return (L.kind === 'cable' ? 'kabel ' : '') + `${L.lengthMm}×${L.widthMm}mm`;
+}
 function renderServerTemplatePanel() {
   const list = $('srvTplList'); if (!list) return;
   if (!TPL_URL) { const sec = $('srvTplSec'); if (sec) sec.style.display = 'none'; return; }
@@ -776,7 +789,7 @@ function renderServerTemplatePanel() {
   }
   list.innerHTML = SRV_TEMPLATES.map((t) =>
     `<div class="queue-item" style="flex-wrap:wrap;gap:6px">
-       <span class="nm">${escapeHtml(t.name)}${t.is_default ? ' <em>· default</em>' : ''}</span>
+       <span class="nm">${escapeHtml(t.name)}<span class="tpl-size">${tplSizeLabel(t.design)}</span>${t.is_default ? ' <em>· default</em>' : ''}</span>
        <span style="display:flex;gap:6px;width:100%;margin-top:4px">
          <button class="btn ghost sm" data-tpl-load="${t.id}">Muat</button>
          <button class="btn ghost sm" data-tpl-default="${t.id}" ${t.is_default ? 'disabled' : ''}>Jadikan Default</button>
@@ -812,8 +825,9 @@ async function postTemplate(body) {
 
 function applyServerTemplate(id) {
   const t = SRV_TEMPLATES.find((x) => x.id === id); if (!t) return;
-  deserialize(t.design);
-  log(`📂 Template "${t.name}" dimuat.`);
+  deserialize(t.design);       // memuat elemen + ukuran kertas template
+  fitToPage();                 // sesuaikan zoom ke ukuran kertas template
+  log(`📂 Template "${t.name}" dimuat (${tplSizeLabel(t.design) || 'ukuran kustom'}).`);
 }
 
 async function saveServerTemplate({ id = null, name } = {}) {
@@ -949,7 +963,6 @@ function init() {
 
   // toolbar tambah elemen
   document.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => addElement(b.dataset.add)));
-  document.querySelectorAll('[data-tpl]').forEach((b) => b.addEventListener('click', () => loadTemplate(b.dataset.tpl)));
 
   // tombol logo sistem (hanya tampil bila ada logo terdaftar)
   const logoBtn = $('btnLogo');
@@ -1040,7 +1053,7 @@ function init() {
     state.calib = { x: +$('calibX').value || 0, y: +$('calibY').value || 0 };
     localStorage.setItem(CALIB_KEY, JSON.stringify(state.calib));
     saveCalibToServer(state.calib);
-    renderPrintPreview();
+    render(); // perbarui panduan area aman di editor + pratinjau sekaligus
   };
   $('calibX').addEventListener('input', onCalib);
   $('calibY').addEventListener('input', onCalib);
@@ -1080,6 +1093,10 @@ function init() {
   $('btnStatus').addEventListener('click', () => printer?.requestStatus());
   $('btnPrintQueue')?.addEventListener('click', printQueue);
 
+  // navigasi pratinjau antrian
+  $('qnPrev')?.addEventListener('click', () => previewQueueItem(queueIdx - 1));
+  $('qnNext')?.addEventListener('click', () => previewQueueItem(queueIdx + 1));
+
   // import dari sistem (hanya aktif bila host memberi ?dataUrl=…)
   if (SYS_URL) {
     const sysSec = $('sysSec'); if (sysSec) sysSec.style.display = 'block';
@@ -1093,9 +1110,10 @@ function init() {
     });
   }
 
-  // mulai dengan template default
+  // mulai dengan kanvas kosong (template bawaan dihapus — pakai Template Tersimpan)
   syncLabelControls();
-  loadTemplate('teks-qr');
+  state.elements = [];
+  pushHistory();
   buildProps();
   requestAnimationFrame(fitToPage); // pas-kan label ke layar saat pertama muat
 
@@ -1103,18 +1121,19 @@ function init() {
   if (QUEUE.length) {
     if (DEFAULT_TEMPLATE && Array.isArray(DEFAULT_TEMPLATE.elements)) {
       // Pakai template default (logo + elemen terikat). deserialize() memuat ulang
-      // gambar dari src, lalu elemen ber-bind diisi data unit pertama untuk pratinjau.
+      // gambar dari src + ukuran kertas template.
       deserialize(DEFAULT_TEMPLATE);
-      state.elements = state.elements.map((e) => bindElement(e, QUEUE[0]));
-      state.selectedId = null;
-      buildProps(); render();
+      fitToPage();
       log('📄 Template default dipakai untuk antrian.');
     } else {
       // Tidak ada template default → layout bawaan (nama + serial + QR).
       insertUnitLabel(QUEUE[0]);
     }
     renderQueuePanel();
-    if (QUEUE.length > 1) log(`ℹ ${QUEUE.length} item di antrian. Desain di kiri dipakai untuk semua — klik "Cetak semua antrian".`);
+    previewQueueItem(0); // isi kanvas dengan item pertama + munculkan navigasi ‹ ›
+    if (QUEUE.length > 1) log(`ℹ ${QUEUE.length} item di antrian. Pakai ‹ › di bawah kanvas untuk pratinjau tiap label, atau klik item di "Antrian Cetak". Klik "Cetak semua antrian" untuk mencetak semuanya.`);
+  } else {
+    updateQueueNav(); // pastikan bar navigasi tersembunyi
   }
 }
 
