@@ -69,9 +69,10 @@
         $allChecked = $remaining === 0;
         $uncheckedCount = $remaining;
 
+        // "Issues" chip = fair/poor/broken/lost. The Maintenance confirmation banner only
+        // counts broken/lost and is fetched live via $wire->maintenanceSummary() in the modal.
         $isIssue = fn ($it) => $it->condition && in_array($it->condition, $issueConditions);
         $issuesCount = $items->filter($isIssue)->count();
-        $damagedItems = $items->filter($isIssue);
 
         $fin = $this->settlementData();
         $waUrl = $this->whatsappReminderUrl();
@@ -1575,18 +1576,20 @@
                         deposit: {{ (float) $fin['deposit'] }},
                         depAction: 'refund',
                         refund: {{ (float) $fin['deposit'] }},
+                        maintCount: 0,
                         fmt(n){ return 'Rp ' + (Number(n)||0).toLocaleString('id-ID'); },
                         get depositOut(){ return this.depAction==='refund' ? this.deposit : (this.depAction==='partial' ? Number(this.refund) : 0); },
                         get net(){ return this.depositOut - Number(this.lateFee); }
-                     }">
+                     }"
+                     x-init="$wire.maintenanceSummary().then(r => { maintCount = r.count; })">
                     <div class="modal-head">
                         <h3>{!! $icon('cash') !!}Confirm return &amp; settlement</h3>
                         <p>Recognize revenue, settle the late fee and security deposit, then complete the rental.</p>
                     </div>
                     <div class="modal-body">
-                        @if ($damagedItems->count())
-                            <div class="banner banner-danger">{!! $icon('alert') !!}<div class="body"><strong>{{ $damagedItems->count() }} item(s) returned with damage.</strong> Affected units auto-move to Maintenance.</div></div>
-                        @endif
+                        <template x-if="maintCount > 0">
+                            <div class="banner banner-danger">{!! $icon('alert') !!}<div class="body"><strong x-text="maintCount + (maintCount === 1 ? ' item' : ' items') + ' returned broken/lost.'"></strong> Affected units auto-moved to Maintenance.</div></div>
+                        </template>
 
                         <div>
                             <span class="field-label" style="display:block;margin-bottom:6px;">Late fee</span>

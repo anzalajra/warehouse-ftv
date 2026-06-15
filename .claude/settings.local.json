@@ -21,7 +21,10 @@
       "Bash(grep -nE 'fillable|protected.*\\\\$casts' 'd:/6. Kints/Projects/warehouse-ftv/app/Models/Rental.php')",
       "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" artisan migrate --force)",
       "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" -l \"routes\\\\web.php\")",
-      "Bash(C:/xampp/php/php.exe -r ' *)"
+      "Bash(C:/xampp/php/php.exe -r ' *)",
+      "Bash(C:/xampp/php/php.exe vendor/bin/pint --dirty)",
+      "Bash(C:/xampp/php/php.exe vendor/bin/pint app/Filament/Resources/Maintenances/Pages/ManageMaintenances.php app/Filament/Resources/Maintenances/Widgets/MaintenanceStatsOverview.php app/Filament/Clusters/Settings/Pages/MaintenanceSettings.php app/Console/Commands/FlagMaintenanceDueCommand.php app/Notifications/MaintenanceDueNotification.php \"database/migrations/2026_06_16_000001_extend_maintenance_records.php\")",
+      "Bash(C:/xampp/php/php.exe artisan *)"
     ]
   }
 }

@@ -793,17 +793,37 @@ class PickupOperation extends Page
                 ? $record->rentalItemKit->unitKit->notes
                 : $record->rentalItem->productUnit->notes;
             $updates['notes'] = $baseNotes."\n[AUTO] Marked as {$condition} during Pickup.";
-
-            if (! $record->rentalItemKit) {
-                $updates['status'] = ProductUnit::STATUS_MAINTENANCE;
-            }
         }
 
+        $customer = $this->rental->customer?->name ?? 'Unknown';
+
         if ($record->rentalItemKit) {
+            $kit = $record->rentalItemKit->unitKit;
             $record->rentalItemKit->update(['condition_out' => $condition]);
-            $record->rentalItemKit->unitKit->update($updates);
+            $kit->update($updates);
+
+            if ($isMaintenance) {
+                $kit->unit?->sendToMaintenance(
+                    "Auto: kit {$kit->name} {$condition} saat Pickup {$this->rental->rental_code} (customer: {$customer})",
+                    \App\Models\MaintenanceRecord::TYPE_CORRECTIVE,
+                    $kit->id,
+                    null,
+                    $this->rental->id,
+                );
+            }
         } else {
-            $record->rentalItem->productUnit->update($updates);
+            $unit = $record->rentalItem->productUnit;
+            $unit->update($updates);
+
+            if ($isMaintenance) {
+                $unit->sendToMaintenance(
+                    "Auto: {$condition} saat Pickup {$this->rental->rental_code} (customer: {$customer})",
+                    \App\Models\MaintenanceRecord::TYPE_CORRECTIVE,
+                    null,
+                    null,
+                    $this->rental->id,
+                );
+            }
         }
     }
 }

@@ -5,7 +5,6 @@ namespace App\Filament\Resources\Rentals\Pages;
 use App\Filament\Resources\Rentals\RentalResource;
 use App\Models\Delivery;
 use App\Models\DeliveryItem;
-use App\Models\ProductUnit;
 use App\Models\Rental;
 use App\Services\JournalService;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -494,7 +493,14 @@ class ProcessReturn extends Page
             }
             if ($item->rentalItem && $item->rentalItem->productUnit) {
                 if (in_array($item->condition, DeliveryItem::getMaintenanceConditions())) {
-                    $item->rentalItem->productUnit->update(['status' => ProductUnit::STATUS_MAINTENANCE]);
+                    // Idempotent: reuses the ticket already opened at check time.
+                    $item->rentalItem->productUnit->sendToMaintenance(
+                        "Auto: {$item->condition} saat Partial Return {$this->rental->rental_code} (customer: ".($this->rental->customer?->name ?? 'Unknown').')',
+                        \App\Models\MaintenanceRecord::TYPE_CORRECTIVE,
+                        null,
+                        null,
+                        $this->rental->id,
+                    );
                 } else {
                     $item->rentalItem->productUnit->refreshStatus();
                 }
@@ -587,17 +593,61 @@ class ProcessReturn extends Page
                 ? $record->rentalItemKit->unitKit->notes
                 : $record->rentalItem->productUnit->notes;
             $updates['notes'] = $baseNotes."\n[AUTO] Marked as {$condition} during Return.";
-
-            if (! $record->rentalItemKit) {
-                $updates['status'] = ProductUnit::STATUS_MAINTENANCE;
-            }
         }
+
+        $customer = $this->rental->customer?->name ?? 'Unknown';
 
         if ($record->rentalItemKit) {
+            $kit = $record->rentalItemKit->unitKit;
             $record->rentalItemKit->update(['condition_in' => $condition, 'is_returned' => true]);
-            $record->rentalItemKit->unitKit->update($updates);
+            $kit->update($updates);
+
+            // Kit damage opens a kit-level ticket (tracked + costable) but does not
+            // pull the parent unit out of availability — see ProductUnit::refreshStatus().
+            if ($isMaintenance) {
+                $kit->unit?->sendToMaintenance(
+                    "Auto: kit {$kit->name} {$condition} saat Return {$this->rental->rental_code} (customer: {$customer})",
+                    \App\Models\MaintenanceRecord::TYPE_CORRECTIVE,
+                    $kit->id,
+                    null,
+                    $this->rental->id,
+                );
+            }
         } else {
-            $record->rentalItem->productUnit->update($updates);
+            $unit = $record->rentalItem->productUnit;
+            $unit->update($updates);
+
+            // Condition is persisted first so refreshStatus() (inside sendToMaintenance)
+            // sees broken/lost and lands the unit in MAINTENANCE with an open ticket.
+            if ($isMaintenance) {
+                $unit->sendToMaintenance(
+                    "Auto: {$condition} saat Return {$this->rental->rental_code} (customer: {$customer})",
+                    \App\Models\MaintenanceRecord::TYPE_CORRECTIVE,
+                    null,
+                    null,
+                    $this->rental->id,
+                );
+            }
         }
+    }
+
+    /**
+     * Units flagged for maintenance based on the conditions recorded so far
+     * (broken/lost). Pulled fresh by the Validate modal so the confirmation
+     * banner is accurate the moment it opens — no page refresh required.
+     *
+     * @return array{count:int, labels:array<int,string>}
+     */
+    public function maintenanceSummary(): array
+    {
+        $maintenanceConditions = DeliveryItem::getMaintenanceConditions();
+
+        $affected = $this->getDeliveryItems()
+            ->filter(fn (DeliveryItem $it) => $it->condition && in_array($it->condition, $maintenanceConditions));
+
+        return [
+            'count' => $affected->count(),
+            'labels' => $affected->map(fn (DeliveryItem $it) => $this->itemLabel($it))->values()->all(),
+        ];
     }
 }

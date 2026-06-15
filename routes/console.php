@@ -42,3 +42,9 @@ Schedule::command('computer-bookings:process')
     ->withoutOverlapping()
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/computer-bookings.log'));
+
+Schedule::command('maintenance:flag-due')
+    ->dailyAt('08:00')
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/maintenance-due.log'));
