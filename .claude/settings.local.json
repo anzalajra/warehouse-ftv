@@ -20,7 +20,8 @@
       "Bash(grep -nE 'Schema::\\(create|table\\).*products|\\\\$table->string\\\\\\('\\\\''sku'\\\\''' 'd:/6. Kints/Projects/warehouse-ftv/database/migrations/*products*')",
       "Bash(grep -nE 'fillable|protected.*\\\\$casts' 'd:/6. Kints/Projects/warehouse-ftv/app/Models/Rental.php')",
       "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" artisan migrate --force)",
-      "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" -l \"routes\\\\web.php\")"
+      "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" -l \"routes\\\\web.php\")",
+      "Bash(C:/xampp/php/php.exe -r ' *)"
     ]
   }
 }

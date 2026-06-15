@@ -1379,6 +1379,10 @@
                     </div>
                 </div>
             </div>
+
+            @if($record && $record->exists)
+                @include('filament.resources.rentals.partials.activity-log', ['rental' => $record])
+            @endif
         </div>
     </div>
 
@@ -1976,6 +1980,12 @@
                 </div>
             </div>
         </div>
+
+        @if($record && $record->exists)
+            <div style="padding: 0 14px 16px;">
+                @include('filament.resources.rentals.partials.activity-log', ['rental' => $record])
+            </div>
+        @endif
 
         {{-- Edit action bar (Opsi B) — Tambah produk + Simpan. Batal via ← di header --}}
         <div class="editbar">

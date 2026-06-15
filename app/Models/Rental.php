@@ -37,6 +37,7 @@ class Rental extends Model
         'down_payment_amount',
         'down_payment_status',
         'notes',
+        'activity_log',
         'tax_base',
         'ppn_rate',
         'tax_name',
@@ -69,6 +70,7 @@ class Rental extends Model
         'is_taxable' => 'boolean',
         'checklist_downloaded_at' => 'datetime',
         'permit_template_clicked_at' => 'datetime',
+        'activity_log' => 'array',
     ];
 
     public const STATUS_QUOTATION = 'quotation';
@@ -88,6 +90,31 @@ class Rental extends Model
                 $rental->rental_code = self::generateRentalCode();
             }
         });
+    }
+
+    /**
+     * Append a structured entry to the rental's activity log.
+     *
+     * Stored separately from `notes` so the operator's free-text notes stay clean.
+     * Each entry: { at: ISO8601, type, message, user }. Written with updateQuietly()
+     * so it never re-triggers RentalObserver::updated (no total recalc on a log write).
+     */
+    public function logActivity(string $message, string $type = 'general', ?string $user = null): void
+    {
+        $log = $this->activity_log ?? [];
+
+        $log[] = [
+            'at' => now()->toIso8601String(),
+            'type' => $type,
+            'message' => $message,
+            'user' => $user ?? (auth()->user()?->email ?? 'system'),
+        ];
+
+        $this->activity_log = $log;
+
+        if ($this->exists) {
+            $this->updateQuietly(['activity_log' => $log]);
+        }
     }
 
     public static function generateRentalCode(): string

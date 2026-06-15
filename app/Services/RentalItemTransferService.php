@@ -112,8 +112,8 @@ class RentalItemTransferService
                 );
             }
 
-            $this->appendNote($sourceRental, "MOVE unit {$serial} → {$targetCode}");
-            $this->appendNote($targetRental, "MOVE unit {$serial} ← {$sourceCode}");
+            $sourceRental->logActivity("MOVE unit {$serial} → {$targetCode}", 'move');
+            $targetRental->logActivity("MOVE unit {$serial} ← {$sourceCode}", 'move');
 
             Log::info('RentalItem MOVE', [
                 'source_item_id' => $sourceItem->id,
@@ -206,8 +206,8 @@ class RentalItemTransferService
                 );
             }
 
-            $this->appendNote($rentalA, "SWAP {$serialA} ↔ {$serialB} dengan {$codeB}");
-            $this->appendNote($rentalB, "SWAP {$serialB} ↔ {$serialA} dengan {$codeA}");
+            $rentalA->logActivity("SWAP {$serialA} ↔ {$serialB} dengan {$codeB}", 'swap');
+            $rentalB->logActivity("SWAP {$serialB} ↔ {$serialA} dengan {$codeA}", 'swap');
 
             Log::info('RentalItem SWAP', [
                 'item_a_id' => $itemA->id,
@@ -287,17 +287,5 @@ class RentalItemTransferService
             ->diffInDays(Carbon::parse($rental->end_date)->startOfDay());
 
         return max(1, (int) $days);
-    }
-
-    private function appendNote(Rental $rental, string $message): void
-    {
-        $stamp = now()->format('Y-m-d H:i');
-        $user = Auth::user()?->email ?? 'system';
-        $line = "[{$stamp}] {$message} oleh {$user}";
-
-        $newNotes = trim(($rental->notes ? $rental->notes . "\n" : '') . $line);
-        // updateQuietly so we don't re-trigger RentalObserver::updated (which already ran
-        // when items moved). Notes change shouldn't recalc totals.
-        $rental->updateQuietly(['notes' => $newNotes]);
     }
 }

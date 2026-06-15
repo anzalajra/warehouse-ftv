@@ -666,6 +666,9 @@
             </div>
         </div>
 
+        {{-- ===================== Activity Log ===================== --}}
+        @include('filament.resources.rentals.partials.activity-log', ['rental' => $rental])
+
         {{-- ===================== Mobile sticky action bar ===================== --}}
         <div class="rv-mobilebar">
             <div class="ab-row">

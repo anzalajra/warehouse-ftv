@@ -27,6 +27,15 @@ class RentalObserver
         $this->recalculateTotals($rental);
 
         if ($rental->isDirty('status')) {
+            // Record the status transition in the activity log (separate from notes).
+            $from = $rental->getOriginal('status');
+            if ($from && $from !== $rental->status) {
+                $rental->logActivity(
+                    'Status: '.Rental::getStatusLabel($from).' → '.Rental::getStatusLabel($rental->status),
+                    'status'
+                );
+            }
+
             // Notify Customer if status changed to confirmed
             if ($rental->status === Rental::STATUS_CONFIRMED && $rental->customer) {
                 $rental->customer->notify(new BookingConfirmedNotification($rental));
