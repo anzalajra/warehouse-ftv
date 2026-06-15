@@ -215,6 +215,34 @@ class PickupOperation extends Page
             ]);
     }
 
+    /**
+     * Rentals that currently hold this unit OUT — i.e. why its status is RENTED —
+     * regardless of whether their period overlaps this rental's window. Used as a
+     * fallback when conflictingRentalsFor() finds no date-overlap match but the unit
+     * is still physically rented, so the operator is told exactly where it is.
+     *
+     * @return \Illuminate\Support\Collection<int, array{code:string, status:string, customer:?string, start:?string, end:?string, url:string}>
+     */
+    public function holdingRentalsFor(ProductUnit $unit): \Illuminate\Support\Collection
+    {
+        return Rental::whereHas('items', fn ($q) => $q->where('product_unit_id', $unit->id))
+            ->where('id', '!=', $this->rental->id)
+            ->whereIn('status', [
+                Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN, Rental::STATUS_PARTIAL_RETURN,
+            ])
+            ->with('customer')
+            ->orderBy('start_date')
+            ->get()
+            ->map(fn (Rental $r) => [
+                'code' => $r->rental_code,
+                'status' => $r->status,
+                'customer' => $r->customer?->name,
+                'start' => $r->start_date ? \Carbon\Carbon::parse($r->start_date)->format('d M Y') : null,
+                'end' => $r->end_date ? \Carbon\Carbon::parse($r->end_date)->format('d M Y') : null,
+                'url' => RentalResource::getUrl('edit', ['record' => $r->id]),
+            ]);
+    }
+
     public function allItemsChecked(): bool
     {
         return $this->delivery->items->where('is_checked', false)->count() === 0;
@@ -645,6 +673,9 @@ class PickupOperation extends Page
                 }
 
                 $others = $this->conflictingRentalsFor($unit);
+                if ($others->isEmpty() && $unit->status === ProductUnit::STATUS_RENTED) {
+                    $others = $this->holdingRentalsFor($unit);
+                }
                 if ($others->isNotEmpty()) {
                     $who = $others->map(fn ($r) => $r['code'].($r['customer'] ? " ({$r['customer']})" : ''))->implode(', ');
                     $lines[] = '<strong>'.e($label).'</strong> — held by '.e($who);

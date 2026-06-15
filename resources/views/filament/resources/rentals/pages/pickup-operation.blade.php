@@ -1462,6 +1462,11 @@
                                 $heldBy = $unit->status === \App\Models\ProductUnit::STATUS_MAINTENANCE
                                     ? collect()
                                     : $this->conflictingRentalsFor($unit);
+                                // No date-overlap match but the unit is physically rented:
+                                // show which rental currently has it out.
+                                if ($heldBy->isEmpty() && $unit->status === \App\Models\ProductUnit::STATUS_RENTED) {
+                                    $heldBy = $this->holdingRentalsFor($unit);
+                                }
                             @endphp
                             <div class="cb-row" wire:key="conflict-{{ $it->id }}">
                                 <div class="cb-info">
