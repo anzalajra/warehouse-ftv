@@ -169,6 +169,61 @@ class RentalEditor extends Component
                 'unit_ids' => json_decode($g['unit_ids'], true) ?: [],
             ];
         }
+
+        $this->dropUnrentableAssignments();
+    }
+
+    /**
+     * Drop already-assigned units that are no longer rentable (retired / maintenance /
+     * broken / lost). Such units pass through the availability queries (which exclude
+     * them) yet still sit on existing RentalItems, so the slot LOOKED filled in the
+     * editor but Pickup would reject the unit and force a swap. By un-assigning them
+     * here the slot becomes a visible empty "kosong" slot the admin can refill via
+     * Transfer / reassignment before pickup. Quantity is preserved.
+     */
+    protected function dropUnrentableAssignments(): void
+    {
+        $allIds = collect($this->items)->flatMap(fn ($it) => $it['unit_ids'])->filter()->unique()->all();
+        if (empty($allIds)) {
+            return;
+        }
+
+        $unrentable = ProductUnit::query()
+            ->whereIn('id', $allIds)
+            ->where(function ($q) {
+                $q->whereIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
+                    ->orWhereIn('condition', ['broken', 'lost']);
+            })
+            ->get(['id', 'serial_number', 'status', 'condition']);
+
+        if ($unrentable->isEmpty()) {
+            return;
+        }
+
+        $badIds = $unrentable->pluck('id')->all();
+
+        foreach ($this->items as &$it) {
+            $it['unit_ids'] = array_values(array_filter(
+                $it['unit_ids'],
+                fn ($id) => ! in_array($id, $badIds, true)
+            ));
+        }
+        unset($it);
+
+        $labels = $unrentable->map(function ($u) {
+            $reason = in_array($u->condition, ['broken', 'lost'], true)
+                ? $u->condition
+                : $u->status;
+
+            return "{$u->serial_number} ({$reason})";
+        })->implode(', ');
+
+        Notification::make()
+            ->title('Unit tidak tersedia dilepas dari assignment')
+            ->body("Unit berikut sudah retired/maintenance/rusak/hilang dan dikosongkan dari rental ini: {$labels}. Gunakan tombol Transfer (Move / Swap) atau pilih ulang serial sebelum pickup.")
+            ->warning()
+            ->persistent()
+            ->send();
     }
 
     // ─── Derived ───
