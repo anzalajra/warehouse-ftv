@@ -710,7 +710,7 @@ class PickupOperation extends Page
             ->success()
             ->send();
 
-        $this->redirect(RentalResource::getUrl('index'));
+        $this->redirect(RentalResource::getUrl('view', ['record' => $this->rental]));
     }
 
     /* ============================================================
