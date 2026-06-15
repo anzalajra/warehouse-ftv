@@ -326,14 +326,32 @@ if (!$isInstalled) {
                 'y' => (float) \App\Models\Setting::get('luckprinter_calib_y', 0),
             ];
 
+            // Server-saved label designs. The whole collection is injected so the
+            // editor can list them without a fetch; the default design auto-fills
+            // an incoming print queue (logo + bound name/serial/QR per unit).
+            $templates = \App\Models\LabelTemplate::orderByDesc('is_default')
+                ->orderBy('name')
+                ->get()
+                ->map(fn ($t) => [
+                    'id' => $t->id,
+                    'name' => $t->name,
+                    'is_default' => $t->is_default,
+                    'design' => $t->design,
+                ])->values();
+            $defaultTemplate = optional($templates->firstWhere('is_default', true))['design'] ?? null;
+
             $html = (string) file_get_contents($path);
             $dataUrl = route('admin.label-printer.units', [], false);
             $calibUrl = route('admin.print-label.calib', [], false);
+            $templatesUrl = route('admin.print-label.templates.index', [], false);
             $inject = '<script>window.LUCKPRINTER_DATA_URL='.json_encode($dataUrl)
                 .';window.LUCKPRINTER_QUEUE='.json_encode($queue)
                 .';window.LUCKPRINTER_LOGOS='.json_encode($logos)
                 .';window.LUCKPRINTER_CALIB='.json_encode($calib)
                 .';window.LUCKPRINTER_CALIB_URL='.json_encode($calibUrl)
+                .';window.LUCKPRINTER_TEMPLATES='.json_encode($templates)
+                .';window.LUCKPRINTER_TEMPLATES_URL='.json_encode($templatesUrl)
+                .';window.LUCKPRINTER_DEFAULT_TEMPLATE='.json_encode($defaultTemplate)
                 .';window.LUCKPRINTER_CSRF='.json_encode(csrf_token()).';</script>';
             $html = str_replace('</head>', $inject."\n</head>", $html);
 
@@ -365,6 +383,54 @@ if (!$isInstalled) {
             \App\Models\Setting::set('luckprinter_calib_y', (string) $y);
             return response()->json(['ok' => true, 'x' => $x, 'y' => $y]);
         })->name('admin.print-label.calib');
+
+        // ---- Server-saved label templates (CRUD for the Bluetooth editor) ----
+        // Mirrors the calib endpoint: auth-gated, CSRF via window.LUCKPRINTER_CSRF.
+        Route::get('/admin/print-label/templates', function () {
+            $rows = \App\Models\LabelTemplate::orderByDesc('is_default')
+                ->orderBy('name')
+                ->get(['id', 'name', 'design', 'is_default']);
+
+            return response()->json(['data' => $rows]);
+        })->name('admin.print-label.templates.index');
+
+        Route::post('/admin/print-label/templates', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate([
+                'id' => ['nullable', 'integer', 'exists:label_templates,id'],
+                'name' => ['required', 'string', 'max:120'],
+                'design' => ['required', 'array'],
+                'is_default' => ['sometimes', 'boolean'],
+            ]);
+
+            $template = filled($data['id'] ?? null)
+                ? \App\Models\LabelTemplate::findOrFail($data['id'])
+                : new \App\Models\LabelTemplate;
+
+            $template->fill([
+                'name' => $data['name'],
+                'design' => $data['design'],
+            ]);
+            // Avoid clobbering an existing default flag when not provided.
+            if ($request->boolean('is_default')) {
+                $template->is_default = true;
+            }
+            $template->save();
+
+            if ($request->boolean('is_default')) {
+                $template->setAsDefault();
+            }
+
+            return response()->json([
+                'ok' => true,
+                'template' => $template->only(['id', 'name', 'design', 'is_default']),
+            ]);
+        })->name('admin.print-label.templates.store');
+
+        Route::delete('/admin/print-label/templates/{template}', function (\App\Models\LabelTemplate $template) {
+            $template->delete();
+
+            return response()->json(['ok' => true]);
+        })->name('admin.print-label.templates.destroy');
     });
 
     // User Impersonation (admin -> customer)

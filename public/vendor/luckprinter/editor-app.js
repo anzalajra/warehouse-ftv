@@ -28,6 +28,11 @@ const SYS_URL = PARAMS.get('dataUrl') || (typeof window !== 'undefined' && windo
 const QUEUE = (typeof window !== 'undefined' && Array.isArray(window.LUCKPRINTER_QUEUE)) ? window.LUCKPRINTER_QUEUE : [];
 // Logo terdaftar di sistem (settings + brand). Tiap item: { name, url }.
 const LOGOS = (typeof window !== 'undefined' && Array.isArray(window.LUCKPRINTER_LOGOS)) ? window.LUCKPRINTER_LOGOS : [];
+// Template desain tersimpan di server. Tiap item: { id, name, is_default, design }.
+let SRV_TEMPLATES = (typeof window !== 'undefined' && Array.isArray(window.LUCKPRINTER_TEMPLATES)) ? window.LUCKPRINTER_TEMPLATES : [];
+const TPL_URL = (typeof window !== 'undefined' && window.LUCKPRINTER_TEMPLATES_URL) || '';
+// Desain default (serialize() dari template is_default) untuk auto-fill antrian.
+const DEFAULT_TEMPLATE = (typeof window !== 'undefined' && window.LUCKPRINTER_DEFAULT_TEMPLATE) || null;
 
 // Elemen yang "terikat data" (bind) akan otomatis berganti isi per item antrian:
 //   bind:'payload' → QR/Barcode .data (atau teks) = item.payload (PREFIX:serial)
@@ -423,6 +428,11 @@ function buildProps() {
   let html = `<div class="prop-head">${typeLabel(el.type)} <button class="x" data-act="del" title="Hapus">🗑</button></div>`;
 
   // tipe-spesifik
+  // Pilihan "Data terikat" — saat dipakai sebagai template antrian, isi elemen
+  // ini otomatis berganti per unit (lihat bindElement). Kosong = isi statis.
+  const bindField = (opts) => field('Data terikat',
+    `<select data-k="bind">${opts.map(([v, t]) => `<option value="${v}" ${(el.bind || '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`);
+
   if (el.type === 'text') {
     html += field('Teks', `<textarea data-k="text" rows="2">${escapeHtml(el.text)}</textarea>`);
     html += `<div class="grid2">`
@@ -437,15 +447,18 @@ function buildProps() {
       + `<label><input type="checkbox" data-k="bold" ${el.bold?'checked':''}> Tebal</label>`
       + `<label><input type="checkbox" data-k="italic" ${el.italic?'checked':''}> Miring</label>`
       + `</div>`;
+    html += bindField([['', '— Statis —'], ['name', 'Nama unit'], ['serial', 'Serial']]);
   } else if (el.type === 'qr') {
     html += field('Isi data', `<textarea data-k="data" rows="2">${escapeHtml(el.data)}</textarea>`);
     if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">📥 Ambil dari sistem</button>`;
     html += field('Koreksi error', `<select data-k="ecLevel">${['L','M','Q','H'].map(l=>`<option ${l===el.ecLevel?'selected':''}>${l}</option>`).join('')}</select>`);
+    html += bindField([['', '— Statis —'], ['payload', 'Kode unit (PREFIX:serial)']]);
   } else if (el.type === 'barcode') {
     html += field('Isi data', `<input type="text" data-k="data" value="${escapeHtml(el.data)}">`);
     if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">📥 Ambil dari sistem</button>`;
     html += field('Format', `<select data-k="format">${[['code128','CODE 128'],['ean13','EAN-13']].map(([v,t])=>`<option value="${v}" ${v===el.format?'selected':''}>${t}</option>`).join('')}</select>`);
     html += `<label class="chk"><input type="checkbox" data-k="showText" ${el.showText?'checked':''}> Tampilkan teks</label>`;
+    html += bindField([['', '— Statis —'], ['payload', 'Kode unit (PREFIX:serial)']]);
   } else if (el.type === 'image') {
     html += field('Ganti gambar', `<button class="btn ghost sm" data-act="reimg">📁 Pilih file…</button>`);
     html += field('Mode', `<select data-k="fit">${[['contain','Muat (contain)'],['cover','Penuh (cover)'],['fill','Regang (fill)']].map(([v,t])=>`<option value="${v}" ${v===el.fit?'selected':''}>${t}</option>`).join('')}</select>`);
@@ -752,6 +765,90 @@ function deserialize(obj) {
   pushHistory(); buildProps(); render();
 }
 
+// ---------------- Template tersimpan di server ----------------
+// CRUD meniru saveCalibToServer: fetch + X-CSRF-TOKEN dari window.LUCKPRINTER_CSRF.
+function renderServerTemplatePanel() {
+  const list = $('srvTplList'); if (!list) return;
+  if (!TPL_URL) { const sec = $('srvTplSec'); if (sec) sec.style.display = 'none'; return; }
+  if (!SRV_TEMPLATES.length) {
+    list.innerHTML = '<div class="muted small">Belum ada template tersimpan.</div>';
+    return;
+  }
+  list.innerHTML = SRV_TEMPLATES.map((t) =>
+    `<div class="queue-item" style="flex-wrap:wrap;gap:6px">
+       <span class="nm">${escapeHtml(t.name)}${t.is_default ? ' <em>· default</em>' : ''}</span>
+       <span style="display:flex;gap:6px;width:100%;margin-top:4px">
+         <button class="btn ghost sm" data-tpl-load="${t.id}">Muat</button>
+         <button class="btn ghost sm" data-tpl-default="${t.id}" ${t.is_default ? 'disabled' : ''}>Jadikan Default</button>
+         <button class="btn ghost sm" data-tpl-del="${t.id}">Hapus</button>
+       </span>
+     </div>`
+  ).join('');
+  list.querySelectorAll('[data-tpl-load]').forEach((b) => b.addEventListener('click', () => applyServerTemplate(+b.dataset.tplLoad)));
+  list.querySelectorAll('[data-tpl-default]').forEach((b) => b.addEventListener('click', () => setDefaultServerTemplate(+b.dataset.tplDefault)));
+  list.querySelectorAll('[data-tpl-del]').forEach((b) => b.addEventListener('click', () => deleteServerTemplate(+b.dataset.tplDel)));
+}
+
+async function refreshServerTemplates() {
+  if (!TPL_URL) return;
+  try {
+    const res = await fetch(TPL_URL, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+    const json = await res.json();
+    SRV_TEMPLATES = Array.isArray(json.data) ? json.data : [];
+    renderServerTemplatePanel();
+  } catch (_) { /* biarkan daftar lama */ }
+}
+
+async function postTemplate(body) {
+  const res = await fetch(TPL_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': window.LUCKPRINTER_CSRF || '' },
+    credentials: 'same-origin',
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+function applyServerTemplate(id) {
+  const t = SRV_TEMPLATES.find((x) => x.id === id); if (!t) return;
+  deserialize(t.design);
+  log(`📂 Template "${t.name}" dimuat.`);
+}
+
+async function saveServerTemplate({ id = null, name } = {}) {
+  if (!TPL_URL) return;
+  try {
+    const json = await postTemplate({ id, name, design: serialize() });
+    log(`💾 Template "${json.template?.name || name}" disimpan ke server.`);
+    await refreshServerTemplates();
+  } catch (e) { log('❌ Gagal simpan template: ' + e.message); }
+}
+
+async function setDefaultServerTemplate(id) {
+  const t = SRV_TEMPLATES.find((x) => x.id === id); if (!t) return;
+  try {
+    await postTemplate({ id, name: t.name, design: t.design, is_default: true });
+    log(`⭐ "${t.name}" jadi template default.`);
+    await refreshServerTemplates();
+  } catch (e) { log('❌ Gagal set default: ' + e.message); }
+}
+
+async function deleteServerTemplate(id) {
+  const t = SRV_TEMPLATES.find((x) => x.id === id); if (!t) return;
+  if (!confirm(`Hapus template "${t.name}"?`)) return;
+  try {
+    const res = await fetch(TPL_URL + '/' + id, {
+      method: 'DELETE',
+      headers: { Accept: 'application/json', 'X-CSRF-TOKEN': window.LUCKPRINTER_CSRF || '' },
+      credentials: 'same-origin',
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    log(`🗑 Template "${t.name}" dihapus.`);
+    await refreshServerTemplates();
+  } catch (e) { log('❌ Gagal hapus template: ' + e.message); }
+}
+
 // ---------------- Printing ----------------
 function setConnected(on) {
   $('connPill').textContent = on ? 'Terhubung' : 'Belum terhubung';
@@ -965,6 +1062,17 @@ function init() {
     const r = new FileReader(); r.onload = () => { try { deserialize(JSON.parse(r.result)); } catch { log('❌ File tidak valid.'); } }; r.readAsText(f);
   });
 
+  // template tersimpan di server
+  if (TPL_URL) {
+    renderServerTemplatePanel();
+    $('btnTplSaveNew')?.addEventListener('click', () => {
+      const name = (prompt('Nama template:') || '').trim();
+      if (name) saveServerTemplate({ name });
+    });
+  } else {
+    const sec = $('srvTplSec'); if (sec) sec.style.display = 'none';
+  }
+
   // koneksi & cetak
   $('btnConnect').addEventListener('click', connect);
   $('btnDisconnect').addEventListener('click', () => printer?.disconnect());
@@ -993,7 +1101,18 @@ function init() {
 
   // prefill dari antrian yang sudah di-resolve server-side (klik Print Label / bulk)
   if (QUEUE.length) {
-    insertUnitLabel(QUEUE[0]);
+    if (DEFAULT_TEMPLATE && Array.isArray(DEFAULT_TEMPLATE.elements)) {
+      // Pakai template default (logo + elemen terikat). deserialize() memuat ulang
+      // gambar dari src, lalu elemen ber-bind diisi data unit pertama untuk pratinjau.
+      deserialize(DEFAULT_TEMPLATE);
+      state.elements = state.elements.map((e) => bindElement(e, QUEUE[0]));
+      state.selectedId = null;
+      buildProps(); render();
+      log('📄 Template default dipakai untuk antrian.');
+    } else {
+      // Tidak ada template default → layout bawaan (nama + serial + QR).
+      insertUnitLabel(QUEUE[0]);
+    }
     renderQueuePanel();
     if (QUEUE.length > 1) log(`ℹ ${QUEUE.length} item di antrian. Desain di kiri dipakai untuk semua — klik "Cetak semua antrian".`);
   }
