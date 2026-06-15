@@ -328,7 +328,24 @@ if (!$isInstalled) {
                 .';window.LUCKPRINTER_LOGOS='.json_encode($logos).';</script>';
             $html = str_replace('</head>', $inject."\n</head>", $html);
 
-            return response($html)->header('Content-Type', 'text/html; charset=UTF-8');
+            // Cache-bust the editor module bundle by the file mtimes so a redeploy /
+            // file change is always picked up by the browser (no stale JS).
+            $ver = 0;
+            foreach (['editor-app.js', 'label.js', 'driver.js', 'devices.js'] as $f) {
+                $fp = public_path('vendor/luckprinter/'.$f);
+                if (is_file($fp)) {
+                    $ver = max($ver, (int) filemtime($fp));
+                }
+            }
+            $html = str_replace(
+                '/vendor/luckprinter/editor-app.js',
+                '/vendor/luckprinter/editor-app.js?v='.$ver,
+                $html
+            );
+
+            return response($html)
+                ->header('Content-Type', 'text/html; charset=UTF-8')
+                ->header('Cache-Control', 'no-store, no-cache, must-revalidate');
         })->name('admin.print-label');
     });
 
