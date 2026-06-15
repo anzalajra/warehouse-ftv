@@ -44,11 +44,11 @@
 
 @include('filament.scanner-styles')
 
-<div class="scn-host"
-     x-data="globalScanner({ resolveUrl: @js(route('admin.scan-resolve')) })"
-     x-cloak>
+<div class="scn-host flex items-center"
+     x-data="globalScanner({ resolveUrl: @js(route('admin.scan-resolve')) })">
 
-    {{-- Topbar trigger --}}
+    {{-- Topbar trigger (always visible — no x-cloak so it stays clickable even
+         before Alpine/asset init; the modal itself is gated by x-if below). --}}
     <button
         @click="openScanner()"
         type="button"
