@@ -119,13 +119,18 @@ class PickupOperation extends Page
 
     public function getAvailabilityStatus(): array
     {
+        // $this->rental is a Livewire public model property: between requests its
+        // `items` / `productUnit` relations are rehydrated from the dehydrated SNAPSHOT,
+        // not re-queried. Without forcing a fresh load here the availability is computed
+        // against stale relations, so the Validate button could stay disabled until a
+        // full page reload re-ran mount(). load() always re-queries.
+        $this->rental->load(['items.productUnit.kits']);
+
         $conflicts = $this->rental->checkAvailability();
 
         $unavailableUnits = [];
         foreach ($this->rental->items as $item) {
             if ($item->productUnit) {
-                $item->productUnit->refresh();
-
                 // 1. Direct unit status
                 if (in_array($item->productUnit->status, [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE])) {
                     $unavailableUnits[] = $item->productUnit;
