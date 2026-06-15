@@ -10,7 +10,6 @@ export default defineConfig({
                 'resources/css/app.css',
                 'resources/js/app.js',
                 'resources/js/unit-scanner.js',
-                'resources/js/global-scanner.js',
                 'resources/css/filament/admin/theme.css'
             ],
             refresh: true,

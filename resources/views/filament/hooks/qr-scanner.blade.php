@@ -1,9 +1,10 @@
 {{--
-    Global admin QR / barcode scanner (Filament topbar button).
+    Global admin QR / barcode scanner (Filament topbar / sidebar-footer button).
     Same look & feel as the Pickup/Return unit scanner — shares the .scn-* styles
-    (filament.scanner-styles) and the ZXing camera machinery (global-scanner.js).
-    Single-shot: decode → /admin/scan-resolve → open the product's catalog edit
-    page (or a same-origin document URL directly).
+    (filament.scanner-styles). Decoding uses html5-qrcode loaded from CDN (no Vite
+    build needed), wrapped in an inline Alpine component. Single-shot: decode →
+    /admin/scan-resolve → open the product's catalog edit page (or a same-origin
+    document URL directly).
 --}}
 @php
     // Inline icon helper (same glyph set as the operation blades).
@@ -30,25 +31,173 @@
     };
 @endphp
 
-@once
-    {{-- Guarded so a not-yet-built manifest (before `npm run build`) degrades the
-         scanner gracefully instead of fataling every admin page. --}}
-    @php
-        try {
-            echo app(\Illuminate\Foundation\Vite::class)('resources/js/global-scanner.js');
-        } catch (\Throwable $e) {
-            // Assets not built yet — the topbar scanner button stays inert until built.
-        }
-    @endphp
-@endonce
-
 @include('filament.scanner-styles')
+
+<style>
+    /* html5-qrcode injects a <video> into #scn-reader; make it fill the .scn-cam
+       stage and hide the library's own scan-region overlay so only our finder shows. */
+    .scn-cam #scn-reader { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    .scn-cam #scn-reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; display: block; }
+    .scn-cam #scn-reader img { display: none !important; }
+</style>
+
+@once
+<script>
+(() => {
+    const factory = (cfg) => ({
+        resolveUrl: (cfg && cfg.resolveUrl) || '',
+        open: false,
+        phase: 'prompt',          // prompt | requesting | live | denied | blocked | nocamera | manual
+        detectedName: null,
+        errorHint: null,
+        flash: false,
+        torch: false,
+        torchSupported: false,
+        manualVal: '',
+        manualErr: '',
+        busy: false,
+        h5: null,
+        lastCode: null,
+        lastAt: 0,
+        _hintTimer: null,
+
+        init() { this.$watch('open', (v) => { if (!v) this.stopCam(); }); },
+
+        openScanner() {
+            this.detectedName = null; this.errorHint = null;
+            this.manualVal = ''; this.manualErr = ''; this.busy = false;
+            this.phase = 'prompt'; this.open = true;
+        },
+        close() { this.stopCam(); this.open = false; this.phase = 'prompt'; this.detectedName = null; this.errorHint = null; },
+
+        loadLib() {
+            return new Promise((resolve, reject) => {
+                if (window.Html5Qrcode) return resolve();
+                const s = document.createElement('script');
+                s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js';
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('lib'));
+                document.head.appendChild(s);
+            });
+        },
+
+        async requestCamera() {
+            this.phase = 'requesting';
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { this.phase = 'nocamera'; return; }
+            try { await this.loadLib(); } catch (e) { this.phase = 'denied'; return; }
+            this.phase = 'live';
+            this.$nextTick(async () => {
+                try {
+                    const fmts = window.Html5QrcodeSupportedFormats
+                        ? [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128]
+                        : undefined;
+                    this.h5 = new Html5Qrcode('scn-reader', fmts ? { verbose: false, formatsToSupport: fmts } : { verbose: false });
+                    await this.h5.start(
+                        { facingMode: { ideal: 'environment' } },
+                        { fps: 10, videoConstraints: {
+                            facingMode: { ideal: 'environment' },
+                            width: { ideal: 1920 }, height: { ideal: 1080 },
+                            focusMode: 'continuous', advanced: [{ focusMode: 'continuous' }],
+                        } },
+                        (txt) => this.onDecode(txt),
+                        () => {}
+                    );
+                    try { const caps = this.h5.getRunningTrackCapabilities(); this.torchSupported = !!(caps && caps.torch); } catch (e) {}
+                } catch (e) {
+                    const n = ((e && e.name) || '') + ' ' + ((e && e.message) || '');
+                    const low = n.toLowerCase();
+                    if (low.includes('notfound') || low.includes('no camera') || low.includes('overconstrained')) this.phase = 'nocamera';
+                    else if (low.includes('notallowed') || low.includes('permission') || low.includes('denied') || low.includes('security')) this.phase = (await this.probeBlocked()) ? 'blocked' : 'denied';
+                    else this.phase = 'denied';
+                }
+            });
+        },
+        async probeBlocked() {
+            try { if (navigator.permissions && navigator.permissions.query) { const st = await navigator.permissions.query({ name: 'camera' }); return st.state === 'denied'; } } catch (e) {}
+            return false;
+        },
+        async stopCam() {
+            if (this.h5) { try { await this.h5.stop(); } catch (e) {} try { this.h5.clear(); } catch (e) {} this.h5 = null; }
+            this.torch = false; this.torchSupported = false;
+        },
+        async toggleTorch() {
+            if (!this.h5) return;
+            this.torch = !this.torch;
+            try { await this.h5.applyVideoConstraints({ advanced: [{ torch: this.torch }] }); } catch (e) { this.torch = false; }
+        },
+        goManual() { this.stopCam(); this.manualErr = ''; this.phase = 'manual'; this.$nextTick(() => { if (this.$refs.manualInput) this.$refs.manualInput.focus(); }); },
+        backToCamera() { this.requestCamera(); },
+
+        onDecode(text) {
+            if (!text || this.busy) return;
+            const now = Date.now();
+            if (text === this.lastCode && now - this.lastAt < 2500) return;
+            this.lastCode = text; this.lastAt = now;
+            try {
+                const url = new URL(text);
+                if (url.protocol === 'http:' || url.protocol === 'https:') {
+                    if (url.origin === window.location.origin) this.succeed('Membuka dokumen…', text);
+                    else this.showError('QR dari sistem lain (origin berbeda).');
+                    return;
+                }
+            } catch (e) { /* not a URL → unit code */ }
+            this.resolveCode(text);
+        },
+        resolveCode(code) {
+            if (!this.resolveUrl) { this.showError('Resolver tidak tersedia.'); return; }
+            this.busy = true;
+            fetch(this.resolveUrl + '?code=' + encodeURIComponent(code), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+                .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+                .then(({ ok, data }) => {
+                    if (ok && data.ok && data.url) this.succeed(data.label || 'Membuka produk…', data.url);
+                    else { this.busy = false; this.showError((data && data.message) || 'QR tidak dikenali.'); }
+                })
+                .catch(() => { this.busy = false; this.showError('Gagal menghubungi server.'); });
+        },
+        succeed(label, href) {
+            this.busy = true; this.errorHint = null; this.detectedName = label;
+            this.flash = true; setTimeout(() => { this.flash = false; }, 420);
+            setTimeout(() => { window.location.href = href; }, 750);
+        },
+        showError(msg) { clearTimeout(this._hintTimer); this.errorHint = msg; this._hintTimer = setTimeout(() => { this.errorHint = null; }, 2200); },
+        submitManual() {
+            const q = (this.manualVal || '').trim();
+            if (!q || this.busy) return;
+            if (!this.resolveUrl) { this.manualErr = 'Resolver tidak tersedia.'; return; }
+            this.busy = true; this.manualErr = '';
+            try {
+                const url = new URL(q);
+                if (url.protocol === 'http:' || url.protocol === 'https:') {
+                    if (url.origin === window.location.origin) { window.location.href = q; return; }
+                    this.busy = false; this.manualErr = 'URL dari sistem lain.'; return;
+                }
+            } catch (e) { /* not a URL */ }
+            fetch(this.resolveUrl + '?code=' + encodeURIComponent(q), { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+                .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+                .then(({ ok, data }) => {
+                    if (ok && data.ok && data.url) window.location.href = data.url;
+                    else { this.busy = false; this.manualErr = (data && data.message) || 'Tidak ditemukan.'; }
+                })
+                .catch(() => { this.busy = false; this.manualErr = 'Gagal menghubungi server.'; });
+        },
+    });
+
+    const register = () => {
+        if (window.Alpine && !window.__globalScannerRegistered) {
+            window.__globalScannerRegistered = true;
+            window.Alpine.data('globalScanner', factory);
+        }
+    };
+    document.addEventListener('alpine:init', register);
+    register();
+})();
+</script>
+@endonce
 
 <div class="scn-host flex items-center"
      x-data="globalScanner({ resolveUrl: @js(route('admin.scan-resolve')) })">
 
-    {{-- Topbar trigger (always visible — no x-cloak so it stays clickable even
-         before Alpine/asset init; the modal itself is gated by x-if below). --}}
+    {{-- Trigger (always visible; modal is gated by x-if so no x-cloak needed here) --}}
     <button
         @click="openScanner()"
         type="button"
@@ -79,7 +228,7 @@
 
                     {{-- Live camera --}}
                     <div class="scn-cam" x-show="phase==='live'" x-cloak>
-                        <video x-ref="video" class="scn-video" playsinline muted autoplay></video>
+                        <div id="scn-reader"></div>
 
                         <div class="scn-live-chips">
                             <span class="scn-chip"><span class="live-dot"></span>AUTO</span>
