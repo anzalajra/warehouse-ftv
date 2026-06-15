@@ -260,7 +260,7 @@ function syncOverlay() {
     const fx = mmToDots(c.front, DPI), bEnd = mmToDots(c.front + c.back, DPI);
     addSafe(0, fx, 'Depan');
     addSafe(fx, bEnd, 'Belakang');
-    addDead(bEnd, W, '↻ Lilit kabel · tak dicetak');
+    addDead(bEnd, W, 'Lilit kabel · tak dicetak');
   } else {
     addSafe(0, W, 'area aman cetak');
   }
@@ -433,7 +433,7 @@ function buildProps() {
   const el = getSelected();
   const p = $('propPanel');
   if (!el) { p.innerHTML = '<div class="muted small">Pilih elemen di kanvas, atau tambah dari toolbar kiri.</div>'; return; }
-  let html = `<div class="prop-head">${typeLabel(el.type)} <button class="x" data-act="del" title="Hapus">🗑</button></div>`;
+  let html = `<div class="prop-head"><span class="prop-ttl">${ic(el.type)} ${typeLabel(el.type)}</span> <button class="x" data-act="del" title="Hapus">${ic('trash')}</button></div>`;
 
   // tipe-spesifik
   // Pilihan "Data terikat" — saat dipakai sebagai template antrian, isi elemen
@@ -458,17 +458,17 @@ function buildProps() {
     html += bindField([['', '— Statis —'], ['name', 'Nama unit'], ['serial', 'Serial']]);
   } else if (el.type === 'qr') {
     html += field('Isi data', `<textarea data-k="data" rows="2">${escapeHtml(el.data)}</textarea>`);
-    if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">📥 Ambil dari sistem</button>`;
+    if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">${ic('download')} Ambil dari sistem</button>`;
     html += field('Koreksi error', `<select data-k="ecLevel">${['L','M','Q','H'].map(l=>`<option ${l===el.ecLevel?'selected':''}>${l}</option>`).join('')}</select>`);
     html += bindField([['', '— Statis —'], ['payload', 'Kode unit (PREFIX:serial)']]);
   } else if (el.type === 'barcode') {
     html += field('Isi data', `<input type="text" data-k="data" value="${escapeHtml(el.data)}">`);
-    if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">📥 Ambil dari sistem</button>`;
+    if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">${ic('download')} Ambil dari sistem</button>`;
     html += field('Format', `<select data-k="format">${[['code128','CODE 128'],['ean13','EAN-13']].map(([v,t])=>`<option value="${v}" ${v===el.format?'selected':''}>${t}</option>`).join('')}</select>`);
     html += `<label class="chk"><input type="checkbox" data-k="showText" ${el.showText?'checked':''}> Tampilkan teks</label>`;
     html += bindField([['', '— Statis —'], ['payload', 'Kode unit (PREFIX:serial)']]);
   } else if (el.type === 'image') {
-    html += field('Ganti gambar', `<button class="btn ghost sm" data-act="reimg">📁 Pilih file…</button>`);
+    html += field('Ganti gambar', `<button class="btn ghost sm" data-act="reimg">${ic('image')} Pilih file…</button>`);
     html += field('Mode', `<select data-k="fit">${[['contain','Muat (contain)'],['cover','Penuh (cover)'],['fill','Regang (fill)']].map(([v,t])=>`<option value="${v}" ${v===el.fit?'selected':''}>${t}</option>`).join('')}</select>`);
     html += `<div class="seg2">`
       + `<label><input type="checkbox" data-k="dither" ${el.dither?'checked':''}> Dithering</label>`
@@ -491,10 +491,10 @@ function buildProps() {
   html += field('Rotasi (°)', `<input type="number" data-k="rotation" value="${el.rotation}" step="1">`);
   html += `<div class="quickrot">${[0,90,180,270].map(d=>`<button class="btn ghost sm" data-rot="${d}">${d}°</button>`).join('')}</div>`;
   html += `<div class="rowbtn">`
-    + `<button class="btn ghost sm" data-act="dup">⧉ Duplikat</button>`
-    + `<button class="btn ghost sm" data-act="front">⬆ Depan</button>`
-    + `<button class="btn ghost sm" data-act="back">⬇ Belakang</button>`
-    + `<label class="chk"><input type="checkbox" data-k="locked" ${el.locked?'checked':''}> 🔒 Kunci</label>`
+    + `<button class="btn ghost sm" data-act="dup">${ic('copy')} Duplikat</button>`
+    + `<button class="btn ghost sm" data-act="front">${ic('arrowUp')} Depan</button>`
+    + `<button class="btn ghost sm" data-act="back">${ic('arrowDown')} Belakang</button>`
+    + `<label class="chk"><input type="checkbox" data-k="locked" ${el.locked?'checked':''}> ${ic('lock')} Kunci</label>`
     + `</div>`;
 
   p.innerHTML = html;
@@ -605,7 +605,7 @@ function openSystemPicker(onPick) {
   back.className = 'syspick-back';
   back.innerHTML =
     '<div class="syspick">'
-    + '<div class="syspick-head"><strong>Import data unit dari sistem</strong><button class="x" data-close>✕</button></div>'
+    + '<div class="syspick-head"><strong>Import data unit dari sistem</strong><button class="x" data-close>' + ic('x') + '</button></div>'
     + '<input type="text" class="syspick-search" placeholder="Cari serial / nama produk…">'
     + '<div class="syspick-list"><div class="muted small" style="padding:10px">Memuat…</div></div>'
     + '</div>';
@@ -762,7 +762,7 @@ function openLogoPicker() {
   back.className = 'syspick-back';
   back.innerHTML =
     '<div class="syspick">'
-    + '<div class="syspick-head"><strong>Pilih logo sistem</strong><button class="x" data-close>✕</button></div>'
+    + '<div class="syspick-head"><strong>Pilih logo sistem</strong><button class="x" data-close>' + ic('x') + '</button></div>'
     + '<div class="syspick-list logo-grid"></div></div>';
   document.body.appendChild(back);
   const list = back.querySelector('.syspick-list');
@@ -966,7 +966,28 @@ function syncLabelControls() {
 
 // ---------------- Util ----------------
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-function typeLabel(t) { return ({ text: '🅣 Teks', qr: '🔳 QR Code', barcode: '▏▎ Barcode', image: '🖼 Gambar', line: '— Garis', rect: '▭ Kotak' })[t] || t; }
+function typeLabel(t) { return ({ text: 'Teks', qr: 'QR Code', barcode: 'Barcode', image: 'Gambar', line: 'Garis', rect: 'Kotak' })[t] || t; }
+// Inline SVG icon (stroke style) — replaces emoji glyphs across the UI.
+const IC_PATHS = {
+  trash: 'M5 7h14M9 7V5h6v2M6 7l1 13h10l1-13',
+  x: 'M6 6l12 12M18 6L6 18',
+  lock: 'M5 11h14v9H5zM8 11V8a4 4 0 018 0v3',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  arrowUp: 'M12 19V5M6 11l6-6 6 6',
+  arrowDown: 'M12 5v14M6 13l6 6 6-6',
+  download: 'M12 3v12M8 11l4 4 4-4M5 21h14',
+  text: 'M5 6V4h14v2M12 4v16M9 20h6',
+  qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h3v3h-3zM19 14v3M14 19h3M19 19v.01',
+  barcode: 'M4 5v14M7 5v14M9.5 5v14M13 5v14M15.5 5v14M18 5v14M20.5 5v14',
+  image: 'M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zM8 11a2 2 0 100-4 2 2 0 000 4zM3 16l5-4 4 3 4-4 5 5',
+  line: 'M5 19L19 5',
+  rect: 'M4 6h16v12H4z',
+};
+function ic(name, cls = '') {
+  const d = IC_PATHS[name] || IC_PATHS.rect;
+  const segs = d.split('M').filter(Boolean).map((s) => 'M' + s);
+  return `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${segs.map((s) => `<path d="${s}"></path>`).join('')}</svg>`;
+}
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 // ---------------- Wiring ----------------
