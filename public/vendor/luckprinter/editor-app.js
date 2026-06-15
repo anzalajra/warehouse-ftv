@@ -229,12 +229,11 @@ function syncOverlay() {
   overlay.innerHTML = '';
 
   // --- panduan area cetak (tidak ikut tercetak) ---
-  // Kalibrasi posisi cetak (mm→dots) digeser ke panduan ini juga, agar area aman
-  // di editor PERSIS mencerminkan apa yang tercetak (lihat makePrintCanvas).
-  const cx = Math.round(mmToDots(state.calib.x, DPI)); // geser feed (panjang)
-  const cy = Math.round(mmToDots(state.calib.y, DPI)); // geser head (lebar)
-  const headTop = vMargin() - cy;               // posisi pita head setelah kalibrasi
-  const headH = state.label.printWidthDots;     // tinggi pita = lebar head printer
+  // Panduan ini mewakili pita cetak printer pada label (selalu di dalam kanvas).
+  // Efek kalibrasi posisi cetak ditampilkan di "Pratinjau Cetak", bukan di sini,
+  // agar kotak area aman tidak meleset keluar dari area edit.
+  const vm = Math.max(0, vMargin());            // strip tak tercetak atas/bawah
+  const headTop = vm, headH = H - 2 * vm;       // area yang dilewati head
   const addDiv = (cls, x, y, w, h) => {
     const d = document.createElement('div');
     d.className = cls;
@@ -242,16 +241,17 @@ function syncOverlay() {
     d.style.width = w * z + 'px'; d.style.height = h * z + 'px';
     overlay.appendChild(d); return d;
   };
-  // arsir bagian tak tercetak (di luar pita head, mengikuti kalibrasi)
-  if (headTop > 0) addDiv('nonprint', 0, 0, W, Math.min(H, headTop));
-  if (headTop + headH < H) addDiv('nonprint', 0, headTop + headH, W, H - (headTop + headH));
+  if (vm > 0) {                                 // arsir bagian tak tercetak (atas/bawah head)
+    addDiv('nonprint', 0, 0, W, vm);
+    addDiv('nonprint', 0, H - vm, W, vm);
+  }
   const sx = SAFE_X(), sy = SAFE_Y();           // zona aman (dash)
   const addSafe = (x0, x1, label) => {
-    const d = addDiv('safezone', x0 - cx + sx, headTop + sy, Math.max(1, (x1 - x0) - 2 * sx), Math.max(1, headH - 2 * sy));
+    const d = addDiv('safezone', x0 + sx, headTop + sy, Math.max(1, (x1 - x0) - 2 * sx), Math.max(1, headH - 2 * sy));
     d.innerHTML = `<span class="safelbl">${label}</span>`;
   };
   const addDead = (x0, x1, label) => {
-    const d = addDiv('deadzone', x0 - cx, 0, x1 - x0, H);
+    const d = addDiv('deadzone', x0, 0, x1 - x0, H);
     d.innerHTML = `<span class="deadlbl">${label}</span>`;
   };
   if (state.label.kind === 'cable' && state.label.cable) {
@@ -675,18 +675,24 @@ function renderQueuePanel() {
   list.querySelectorAll('[data-qjump]').forEach((d) => d.addEventListener('click', () => previewQueueItem(+d.dataset.qjump)));
 }
 
-// Jika template default tidak punya satu pun elemen "Data terikat", tebak otomatis
-// agar QR/teks tetap berganti per unit (mencegah semua label identik). QR/Barcode
-// pertama → payload (kode unit), teks pertama → nama, teks kedua → serial.
+// Pastikan template antrian punya elemen terikat agar isinya berganti per unit
+// (mencegah semua label identik). Diperiksa PER PERAN — jadi kalau penulis sudah
+// mengikat teks nama tapi LUPA QR, QR-nya tetap diikat otomatis ke payload.
 function ensureQueueBindings() {
-  if (state.elements.some((e) => e.bind)) return; // penulis template sudah mengatur
-  const code = state.elements.find((e) => e.type === 'qr' || e.type === 'barcode');
-  if (code) code.bind = 'payload';
-  const texts = state.elements.filter((e) => e.type === 'text');
-  if (texts[0]) texts[0].bind = 'name';
-  if (texts[1]) texts[1].bind = 'serial';
-  if (code || texts.length) {
-    log('ℹ Template belum punya "Data terikat" — otomatis dipasang (QR=kode unit, teks=nama/serial). Atur manual di panel properti bila perlu.');
+  const notes = [];
+  // QR/Barcode → kode unit (payload). Ini sumber masalah "semua QR sama".
+  if (!state.elements.some((e) => e.bind === 'payload')) {
+    const code = state.elements.find((e) => e.type === 'qr' || e.type === 'barcode');
+    if (code) { code.bind = 'payload'; notes.push('QR/Barcode → kode unit'); }
+  }
+  // Teks → nama / serial, hanya bila belum ada teks terikat sama sekali.
+  if (!state.elements.some((e) => e.bind === 'name' || e.bind === 'serial')) {
+    const texts = state.elements.filter((e) => e.type === 'text');
+    if (texts[0]) { texts[0].bind = 'name'; notes.push('teks pertama → nama'); }
+    if (texts[1]) { texts[1].bind = 'serial'; notes.push('teks kedua → serial'); }
+  }
+  if (notes.length) {
+    log('ℹ Data terikat otomatis dipasang (' + notes.join(', ') + '). Atur manual di panel properti & simpan ulang template bila perlu.');
   }
 }
 

@@ -88,20 +88,29 @@ export function drawQR(ctx, text, opts = {}) {
   const count = qr.getModuleCount();
   const quiet = opts.quietZone ?? 2; // modul margin
   const total = count + quiet * 2;
-  const cell = Math.max(1, Math.floor(target / total));
-  const sizePx = cell * total;
 
-  // latar putih (quiet zone)
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(x, y, sizePx, sizePx);
-  ctx.fillStyle = '#000';
+  // Render modul tajam ke kanvas offscreen (1 px = 1 modul, termasuk quiet zone),
+  // lalu skalakan NEAREST-NEIGHBOR agar QR mengisi PERSIS ukuran kotak (target).
+  // Dulu ukuran di-snap ke kelipatan jumlah modul (cell*total) sehingga "loncat"
+  // saat di-resize; cara ini membuat ukuran dinamis tapi tepinya tetap tajam
+  // (tanpa abu-abu anti-alias) sehingga aman untuk cetak termal & tetap terbaca.
+  const off = document.createElement('canvas');
+  off.width = total; off.height = total;
+  const octx = off.getContext('2d');
+  octx.fillStyle = '#fff';
+  octx.fillRect(0, 0, total, total);
+  octx.fillStyle = '#000';
   for (let r = 0; r < count; r++) {
     for (let c = 0; c < count; c++) {
-      if (qr.isDark(r, c)) {
-        ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, cell, cell);
-      }
+      if (qr.isDark(r, c)) octx.fillRect(c + quiet, r + quiet, 1, 1);
     }
   }
+
+  const sizePx = Math.max(1, Math.round(target));
+  const prevSmooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, x, y, sizePx, sizePx);
+  ctx.imageSmoothingEnabled = prevSmooth;
   return { size: sizePx };
 }
 
