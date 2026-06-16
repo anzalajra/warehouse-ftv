@@ -1263,9 +1263,11 @@
                                 <span class="lbl">Subtotal ({{ count($items) }} item × {{ $days }} hari)</span>
                                 <span class="val">Rp {{ number_format($totals['subtotal'], 0, ',', '.') }}</span>
                             </div>
-                            @php($_dailyOpts = $this->dailyDiscountOptions)
-                            @php($_dateOpts = $this->datePromotionOptions)
-                            @php($_couponOpts = $this->couponOptions)
+                            @php
+                                $_dailyOpts = $this->dailyDiscountOptions;
+                                $_dateOpts = $this->datePromotionOptions;
+                                $_couponOpts = $this->couponOptions;
+                            @endphp
                             @if(count($_dailyOpts) || count($_dateOpts) || count($_couponOpts))
                                 <div class="totals-row" style="flex-direction:column; align-items:stretch; gap:6px; padding-bottom:10px;">
                                     <span class="lbl" style="font-weight:600;">Diskon dari Promosi</span>
@@ -1948,9 +1950,11 @@
                         <span class="v" style="color: var(--danger-700);">− Rp {{ number_format($line['amount'], 0, ',', '.') }}</span>
                     </div>
                 @endforeach
-                @php($_mDailyOpts = $this->dailyDiscountOptions)
-                @php($_mDateOpts = $this->datePromotionOptions)
-                @php($_mCouponOpts = $this->couponOptions)
+                @php
+                    $_mDailyOpts = $this->dailyDiscountOptions;
+                    $_mDateOpts = $this->datePromotionOptions;
+                    $_mCouponOpts = $this->couponOptions;
+                @endphp
                 @if(count($_mDailyOpts) || count($_mDateOpts) || count($_mCouponOpts))
                     <div style="padding: 8px 14px 12px; display:flex; flex-direction:column; gap:6px;">
                         <span class="k" style="font-weight:600;">Diskon dari Promosi</span>
