@@ -3,10 +3,9 @@
 namespace App\Filament\Resources\Rentals\Pages;
 
 use App\Filament\Resources\Rentals\RentalResource;
-use App\Filament\Resources\Quotations\QuotationResource;
 use App\Helpers\WhatsAppHelper;
-use App\Models\Rental;
 use App\Models\Quotation;
+use App\Models\Rental;
 use App\Models\Setting;
 use App\Services\JournalService;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -39,13 +38,16 @@ class ViewRental extends Page
             'user',
             'items.productUnit.product.category',
             'items.product.category',
-            'items.rentalItemKits.unitKit'
+            'items.rentalItemKits.unitKit',
+            'dailyDiscount',
+            'datePromotion',
+            'discountRelation',
         ])->findOrFail($record);
     }
 
     public function getTitle(): string|Htmlable
     {
-        return 'View Rental - ' . $this->rental->rental_code;
+        return 'View Rental - '.$this->rental->rental_code;
     }
 
     // The page renders its own design topbar (in the Blade view), so we fully
@@ -88,7 +90,8 @@ class ViewRental extends Page
         $itemsList = $rental->items->map(function ($item) {
             $name = $item->productUnit?->product?->name ?? $item->product?->name ?? '-';
             $code = $item->productUnit?->unit_code ?? '-';
-            return "- " . $name . " (" . $code . ")";
+
+            return '- '.$name.' ('.$code.')';
         })->join("\n");
 
         $pdfLink = URL::signedRoute('public-documents.rental.checklist', ['rental' => $rental]);
@@ -166,6 +169,7 @@ class ViewRental extends Page
         if (! $quotation) {
             return false;
         }
+
         return ! $this->rental->updated_at->gt($quotation->created_at->addMinutes(1));
     }
 
@@ -189,8 +193,8 @@ class ViewRental extends Page
                 $pdf = Pdf::loadView('pdf.checklist-form', ['rental' => $this->rental]);
 
                 return response()->streamDownload(
-                    fn () => print($pdf->output()),
-                    'Checklist-' . $this->rental->rental_code . '.pdf'
+                    fn () => print ($pdf->output()),
+                    'Checklist-'.$this->rental->rental_code.'.pdf'
                 );
             });
     }
@@ -206,14 +210,15 @@ class ViewRental extends Page
                         ->title('Quotation not found')
                         ->danger()
                         ->send();
+
                     return;
                 }
 
                 $pdf = Pdf::loadView('pdf.quotation', ['quotation' => $quotation]);
 
                 return response()->streamDownload(
-                    fn () => print($pdf->output()),
-                    'Quotation-' . $quotation->number . '.pdf'
+                    fn () => print ($pdf->output()),
+                    'Quotation-'.$quotation->number.'.pdf'
                 );
             });
     }
@@ -229,14 +234,15 @@ class ViewRental extends Page
                         ->title('Invoice not found')
                         ->danger()
                         ->send();
+
                     return;
                 }
 
                 $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $invoice]);
 
                 return response()->streamDownload(
-                    fn () => print($pdf->output()),
-                    'Invoice-' . $invoice->number . '.pdf'
+                    fn () => print ($pdf->output()),
+                    'Invoice-'.$invoice->number.'.pdf'
                 );
             });
     }
@@ -269,20 +275,20 @@ class ViewRental extends Page
                         });
                     }
                 })
-                ->where('type', \App\Models\FinanceTransaction::TYPE_INCOME)
-                ->sum('amount');
+                    ->where('type', \App\Models\FinanceTransaction::TYPE_INCOME)
+                    ->sum('amount');
 
                 $isPaidEnough = $existingPayment >= $this->rental->down_payment_amount;
 
                 if ($this->rental->down_payment_amount > 0 && $this->rental->down_payment_status !== 'paid') {
                     $form[] = \Filament\Forms\Components\Placeholder::make('dp_info')
                         ->label('Down Payment Amount')
-                        ->content('Rp ' . number_format($this->rental->down_payment_amount, 0, ',', '.'));
+                        ->content('Rp '.number_format($this->rental->down_payment_amount, 0, ',', '.'));
 
                     if ($isPaidEnough) {
                         $form[] = \Filament\Forms\Components\Placeholder::make('payment_detected')
                             ->label('Payment Detected')
-                            ->content('A payment of Rp ' . number_format($existingPayment, 0, ',', '.') . ' has already been recorded. Confirming will mark DP as paid.')
+                            ->content('A payment of Rp '.number_format($existingPayment, 0, ',', '.').' has already been recorded. Confirming will mark DP as paid.')
                             ->extraAttributes(['class' => 'text-success-600 font-bold']);
 
                         $form[] = \Filament\Forms\Components\Hidden::make('payment_already_recorded')->default(true);
@@ -317,7 +323,7 @@ class ViewRental extends Page
                         ->label('Create Invoice?')
                         ->options([
                             'yes' => 'Yes, create invoice',
-                            'no' => 'No, skip invoice'
+                            'no' => 'No, skip invoice',
                         ])
                         ->default('no')
                         ->required();
@@ -338,6 +344,7 @@ class ViewRental extends Page
                             ->body('Down payment must be paid to confirm.')
                             ->danger()
                             ->send();
+
                         return;
                     }
                     $this->rental->update(['down_payment_status' => 'paid']);
@@ -351,7 +358,7 @@ class ViewRental extends Page
                             'amount' => $this->rental->down_payment_amount,
                             'date' => now(),
                             'category' => 'Down Payment',
-                            'description' => 'Down Payment for Rental ' . $this->rental->rental_code,
+                            'description' => 'Down Payment for Rental '.$this->rental->rental_code,
                             'payment_method' => $data['payment_method'],
                         ]);
                         // Initially link to Rental, will update to Invoice if created
@@ -362,7 +369,7 @@ class ViewRental extends Page
                             'RECEIVE_RENTAL_PAYMENT',
                             $this->rental,
                             $this->rental->down_payment_amount,
-                            'Down Payment for Rental ' . $this->rental->rental_code
+                            'Down Payment for Rental '.$this->rental->rental_code
                         );
                     }
                 }
@@ -398,7 +405,7 @@ class ViewRental extends Page
                         'total' => $this->rental->total,
                         'is_taxable' => $this->rental->is_taxable ?? false,
                         'price_includes_tax' => $this->rental->price_includes_tax ?? false,
-                        'notes' => 'Generated from Rental ' . $this->rental->rental_code,
+                        'notes' => 'Generated from Rental '.$this->rental->rental_code,
                     ]);
 
                     // Auto Journal: Rental Invoice Issued
@@ -406,7 +413,7 @@ class ViewRental extends Page
                         'RENTAL_INVOICE_ISSUED',
                         $invoice,
                         $invoice->total,
-                        'Invoice Generated for Rental ' . $this->rental->rental_code
+                        'Invoice Generated for Rental '.$this->rental->rental_code
                     );
 
                     // Move all payments (DP, etc) from Rental/Quotation to Invoice
@@ -421,15 +428,15 @@ class ViewRental extends Page
                             });
                         }
                     })
-                    ->where('type', \App\Models\FinanceTransaction::TYPE_INCOME)
-                    ->get();
+                        ->where('type', \App\Models\FinanceTransaction::TYPE_INCOME)
+                        ->get();
 
                     $totalPaid = 0;
 
                     foreach ($existingTransactions as $transaction) {
                         $transaction->reference()->associate($invoice);
                         if (! str_contains($transaction->description, 'Invoice #')) {
-                            $transaction->description = $transaction->description . ' (Inv #' . $invoice->number . ')';
+                            $transaction->description = $transaction->description.' (Inv #'.$invoice->number.')';
                         }
                         $transaction->save();
 

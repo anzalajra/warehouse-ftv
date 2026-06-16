@@ -117,6 +117,29 @@
                 </div>
             @endforeach
         </div>
+
+        <div class="mt-6 pt-4 border-t space-y-2 text-sm">
+            <div class="flex justify-between">
+                <span class="text-gray-600">Subtotal</span>
+                <span>Rp {{ number_format($rental->subtotal, 0, ',', '.') }}</span>
+            </div>
+            @foreach($rental->discountBreakdown() as $line)
+                <div class="flex justify-between text-green-600">
+                    <span>{{ $line['label'] }}</span>
+                    <span>- Rp {{ number_format($line['amount'], 0, ',', '.') }}</span>
+                </div>
+            @endforeach
+            <div class="flex justify-between font-bold text-base pt-2 border-t">
+                <span>Total</span>
+                <span class="text-primary-600">Rp {{ number_format($rental->total, 0, ',', '.') }}</span>
+            </div>
+            @if($rental->deposit > 0)
+                <div class="flex justify-between text-gray-600">
+                    <span>Deposit</span>
+                    <span>Rp {{ number_format($rental->deposit, 0, ',', '.') }}</span>
+                </div>
+            @endif
+        </div>
     </div>
 </div>
 @endsection

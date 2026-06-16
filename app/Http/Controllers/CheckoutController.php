@@ -2,18 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Discount;
 use App\Models\Rental;
 use App\Models\RentalItem;
-use App\Models\Discount;
-use App\Models\DailyDiscount;
-use App\Models\DatePromotion;
 use App\Models\Setting;
 use App\Services\PromotionService;
 use App\Services\RentalValidationService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 class CheckoutController extends Controller
 {
@@ -28,14 +26,16 @@ class CheckoutController extends Controller
         $customer = Auth::guard('customer')->user();
 
         // Check if customer is verified / not blocked
-        if (!$customer->canRent()) {
+        if (! $customer->canRent()) {
             if ($customer->isBlocked()) {
                 $msg = 'Akun Anda telah diblokir oleh admin dan tidak dapat melakukan checkout.';
                 if ($customer->blocked_reason) {
-                    $msg .= ' Alasan: ' . $customer->blocked_reason;
+                    $msg .= ' Alasan: '.$customer->blocked_reason;
                 }
+
                 return redirect()->route('customer.dashboard')->with('error', $msg);
             }
+
             return redirect()->route('customer.profile')
                 ->with('error', 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout. Silakan lengkapi dokumen yang diperlukan.');
         }
@@ -46,33 +46,33 @@ class CheckoutController extends Controller
             return redirect()->route('cart.index')->with('error', 'Your cart is empty.');
         }
 
-        $subtotal = $cartItems->sum('subtotal');
-        
-        // Calculate Gross Total and Category Discount
-        $grossTotal = 0;
-        $totalDays = 0;
-        $totalDailyRate = 0;
-        foreach ($cartItems as $item) {
-             $unit = $item->productUnit;
-             $originalDailyRate = $unit->variation->daily_rate ?? $unit->product->daily_rate;
-             $grossTotal += $originalDailyRate * $item->days;
-             $totalDays += $item->days;
-             $totalDailyRate += $item->daily_rate;
-        }
-        $categoryDiscountAmount = $grossTotal - $subtotal;
-        $categoryName = $customer->category ? $customer->category->name : null;
+        // Cart prices are stored gross (real) — the category discount is applied as
+        // an explicit layer here, FIRST, then the promo layers stack on the
+        // post-category base so the final total matches what is charged.
+        $grossTotal = $cartItems->sum('subtotal');
+        $subtotal = $grossTotal; // the summary's "Subtotal" line = real product prices
 
-        // Calculate average days and daily rate for promotions
+        $totalDays = $cartItems->sum('days');
+        $totalDailyRate = $cartItems->sum('daily_rate'); // gross rates
+
+        $categoryPercentage = $customer->getCategoryDiscountPercentage();
+        $categoryDiscountAmount = $grossTotal * ($categoryPercentage / 100);
+        $categoryName = $customer->category ? $customer->category->name : null;
+        $baseAfterCategory = $grossTotal - $categoryDiscountAmount;
+
+        // Calculate average days and (post-category) daily rate for promotions so
+        // daily/date/coupon amounts are computed on the same base the customer pays.
         $avgDays = $cartItems->count() > 0 ? (int) round($totalDays / $cartItems->count()) : 0;
-        $avgDailyRate = $cartItems->count() > 0 ? $totalDailyRate / $cartItems->count() : 0;
+        $avgGrossRate = $cartItems->count() > 0 ? $totalDailyRate / $cartItems->count() : 0;
+        $avgDailyRate = $avgGrossRate * (1 - ($categoryPercentage / 100));
         $startDate = $cartItems->min('start_date');
 
-        $deposit = Rental::calculateDeposit($subtotal);
-        
+        $deposit = Rental::calculateDeposit($baseAfterCategory);
+
         // Calculate promotions using PromotionService
         $discountCode = session('checkout_discount_code');
         $promotions = PromotionService::calculatePromotions(
-            $subtotal,
+            $baseAfterCategory,
             $avgDays,
             $avgDailyRate,
             $startDate ? Carbon::parse($startDate) : null,
@@ -86,8 +86,11 @@ class CheckoutController extends Controller
         $discountAmount = $promotions['code_discount_amount'];
         $totalDiscount = $promotions['total_discount'];
 
+        // Final payable (before deposit) = real price − category − promos − coupon.
+        $grandTotal = max(0, $grossTotal - $categoryDiscountAmount - $totalDiscount);
+
         // Clear invalid discount code
-        if ($discountCode && !$promotions['code_discount']) {
+        if ($discountCode && ! $promotions['code_discount']) {
             session()->forget(['checkout_discount_code', 'checkout_discount_amount']);
         }
 
@@ -96,7 +99,7 @@ class CheckoutController extends Controller
 
         return view('frontend.checkout.index', compact(
             'customer', 'cartItems', 'subtotal', 'deposit', 'discountAmount',
-            'categoryDiscountAmount', 'categoryName', 'grossTotal',
+            'categoryDiscountAmount', 'categoryName', 'grossTotal', 'grandTotal',
             'dailyDiscountAmount', 'dailyDiscountName', 'datePromotionAmount', 'datePromotionName',
             'totalDiscount', 'activePromotions'
         ));
@@ -113,7 +116,7 @@ class CheckoutController extends Controller
         $cartItems = $customer->carts;
 
         if ($cartItems->isEmpty()) {
-             return response()->json(['valid' => false, 'message' => 'Cart is empty.']);
+            return response()->json(['valid' => false, 'message' => 'Cart is empty.']);
         }
 
         $discount = Discount::where('code', $code)
@@ -122,7 +125,7 @@ class CheckoutController extends Controller
             ->whereDate('end_date', '>=', now())
             ->first();
 
-        if (!$discount) {
+        if (! $discount) {
             return response()->json(['valid' => false, 'message' => 'Kode diskon tidak valid atau kadaluarsa.']);
         }
 
@@ -130,84 +133,49 @@ class CheckoutController extends Controller
             return response()->json(['valid' => false, 'message' => 'Batas penggunaan kode diskon telah tercapai.']);
         }
 
-        $subtotal = $cartItems->sum('subtotal');
+        // Mirror the checkout summary stacking so the live total stays correct:
+        // category discount first, then daily/date, then this coupon.
+        $grossTotal = $cartItems->sum('subtotal');
+        $categoryPercentage = $customer->getCategoryDiscountPercentage();
+        $categoryDiscountAmount = $grossTotal * ($categoryPercentage / 100);
+        $baseAfterCategory = $grossTotal - $categoryDiscountAmount;
 
-        if ($subtotal < $discount->min_rental_amount) {
-            return response()->json(['valid' => false, 'message' => 'Minimal total belanja Rp ' . number_format($discount->min_rental_amount, 0, ',', '.') . ' belum terpenuhi.']);
+        if ($baseAfterCategory < $discount->min_rental_amount) {
+            return response()->json(['valid' => false, 'message' => 'Minimal total belanja Rp '.number_format($discount->min_rental_amount, 0, ',', '.').' belum terpenuhi.']);
         }
 
-        // Calculate discount
-        $discountAmount = 0;
-        if ($discount->type === 'percentage') {
-            $discountAmount = $subtotal * ($discount->value / 100);
-            if ($discount->max_discount_amount && $discountAmount > $discount->max_discount_amount) {
-                $discountAmount = $discount->max_discount_amount;
-            }
-        } else {
-            $discountAmount = $discount->value;
+        $totalDays = $cartItems->sum('days');
+        $totalDailyRate = $cartItems->sum('daily_rate');
+        $avgDays = $cartItems->count() > 0 ? (int) round($totalDays / $cartItems->count()) : 0;
+        $avgGrossRate = $cartItems->count() > 0 ? $totalDailyRate / $cartItems->count() : 0;
+        $avgDailyRate = $avgGrossRate * (1 - ($categoryPercentage / 100));
+        $startDate = $cartItems->min('start_date');
+
+        $promotions = PromotionService::calculatePromotions(
+            $baseAfterCategory,
+            $avgDays,
+            $avgDailyRate,
+            $startDate ? Carbon::parse($startDate) : null,
+            $code
+        );
+
+        if (! $promotions['code_discount']) {
+            return response()->json(['valid' => false, 'message' => 'Kode diskon tidak dapat digunakan untuk pesanan ini.']);
         }
 
-        if ($discountAmount > $subtotal) {
-            $discountAmount = $subtotal;
-        }
+        $codeDiscountAmount = $promotions['code_discount_amount'];
 
         session(['checkout_discount_code' => $code]);
-        session(['checkout_discount_amount' => $discountAmount]);
+        session(['checkout_discount_amount' => $codeDiscountAmount]);
 
-        $newTotal = $subtotal - $discountAmount;
-        // Recalculate deposit based on new total? 
-        // Existing logic uses subtotal. Let's stick to subtotal for deposit to be safe for now unless user asked.
-        // Actually, if I pay less, maybe deposit should stay same to cover potential damage based on item value.
-        // So deposit stays based on subtotal.
-        $deposit = Rental::calculateDeposit($subtotal); 
+        // Final payable (before deposit) after every discount layer.
+        $grandTotal = max(0, $grossTotal - $categoryDiscountAmount - $promotions['total_discount']);
 
         return response()->json([
             'valid' => true,
             'message' => 'Kode diskon berhasil digunakan!',
-            'discount_amount' => $discountAmount,
-            'new_subtotal' => $subtotal,
-            'new_total' => $newTotal + $deposit, // Total usually includes deposit? 
-            // In index view: Total = Subtotal (actually subtotal seems to be treated as Total to Pay + Deposit?)
-            // View says: Total = Subtotal. 
-            // Wait, view says:
-            // Subtotal: xxx
-            // Deposit: xxx
-            // Total: Subtotal (line 95 in view)
-            // Wait, does user pay Subtotal + Deposit?
-            // Line 95: <span>Rp {{ number_format($subtotal, 0, ',', '.') }}</span>
-            // This is confusing. Usually Total = Subtotal + Deposit or just Subtotal if Deposit is included?
-            // Let's check the view again.
-            // View line 93-95: Total ... $subtotal.
-            // View line 86: If deposit > 0, show deposit.
-            // So currently Total = Subtotal. It seems Deposit is NOT added to the Total shown at bottom? 
-            // Or is it included?
-            // If I look at Controller: 
-            // 'total' => $subtotal,
-            // 'deposit' => $deposit,
-            // It seems Total = Subtotal. Deposit is just informational or separate?
-            // But usually you pay Deposit upfront.
-            // Let's assume Total to Pay = Subtotal + Deposit? 
-            // No, the code says `total` => `$subtotal`.
-            // Let's assume the user pays `$subtotal`.
-            // Wait, if deposit is required, surely it should be added?
-            // Let's look at `CheckoutController::process`:
-            // 'total' => $subtotal,
-            // 'deposit' => $deposit,
-            // It seems `total` in database is `subtotal`.
-            // Maybe `deposit` is just recorded but not charged? Or charged separately?
-            // If I look at the view again:
-            // Subtotal: 100
-            // Deposit: 30
-            // Total: 100
-            // This implies Deposit is included in Subtotal or ignored?
-            // Actually, if `subtotal` is sum of `daily_rate * days`, then it's the rental fee.
-            // Deposit is extra.
-            // If Total is just Subtotal, then user pays Rental Fee. Deposit is... ?
-            // Maybe the view is just showing "Total Rental Cost"?
-            // Let's check `Rental::calculateDeposit`.
-            
-            // I will return what is needed for UI.
-            'new_grand_total' => $newTotal // This is what matters.
+            'discount_amount' => $codeDiscountAmount,
+            'grand_total' => $grandTotal,
         ]);
     }
 
@@ -218,20 +186,23 @@ class CheckoutController extends Controller
             if ($request->expectsJson()) {
                 return response()->json(['message' => $msg, 'rental_disabled' => true], 403);
             }
+
             return redirect()->route('cart.index')->with('error', $msg)->with('rental_disabled', true);
         }
 
         $customer = Auth::guard('customer')->user();
 
         // Check if customer is verified / not blocked
-        if (!$customer->canRent()) {
+        if (! $customer->canRent()) {
             if ($customer->isBlocked()) {
                 $msg = 'Akun Anda telah diblokir oleh admin dan tidak dapat melakukan checkout.';
                 if ($customer->blocked_reason) {
-                    $msg .= ' Alasan: ' . $customer->blocked_reason;
+                    $msg .= ' Alasan: '.$customer->blocked_reason;
                 }
+
                 return redirect()->route('customer.dashboard')->with('error', $msg);
             }
+
             return redirect()->route('customer.profile')
                 ->with('error', 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout.');
         }
@@ -254,26 +225,34 @@ class CheckoutController extends Controller
                 Carbon::parse($item->start_date),
                 Carbon::parse($item->end_date)
             );
-            if (!empty($errs)) {
+            if (! empty($errs)) {
                 return redirect()->route('cart.index')
                     ->withErrors($errs)
                     ->with('error', 'Beberapa item di cart Anda berada di luar jadwal operasional. Silakan perbarui tanggal.');
             }
         }
 
-        // Calculate global totals and averages for promotions
-        $globalSubtotal = $cartItems->sum('subtotal');
+        // Calculate global totals and averages for promotions. Cart prices are
+        // stored gross; the category discount is applied FIRST as its own layer,
+        // then the promo layers stack on the post-category base.
+        $globalGross = $cartItems->sum('subtotal');
+        $categoryPercentage = $customer->getCategoryDiscountPercentage();
+        $globalCategoryDiscount = $globalGross * ($categoryPercentage / 100);
+        $baseAfterCategory = $globalGross - $globalCategoryDiscount;
+        $globalSubtotal = $globalGross; // proportion base for per-rental splits below
+
         $totalDays = $cartItems->sum('days');
-        $totalDailyRate = $cartItems->sum('daily_rate');
+        $totalDailyRate = $cartItems->sum('daily_rate'); // gross rates
         $avgDays = $cartItems->count() > 0 ? (int) round($totalDays / $cartItems->count()) : 0;
-        $avgDailyRate = $cartItems->count() > 0 ? $totalDailyRate / $cartItems->count() : 0;
+        $avgGrossRate = $cartItems->count() > 0 ? $totalDailyRate / $cartItems->count() : 0;
+        $avgDailyRate = $avgGrossRate * (1 - ($categoryPercentage / 100));
         $startDate = $cartItems->min('start_date');
 
         $discountCode = session('checkout_discount_code');
-        
+
         // Calculate all promotions using PromotionService
         $promotions = PromotionService::calculatePromotions(
-            $globalSubtotal,
+            $baseAfterCategory,
             $avgDays,
             $avgDailyRate,
             $startDate ? Carbon::parse($startDate) : null,
@@ -295,7 +274,7 @@ class CheckoutController extends Controller
 
         // Group cart items by date range
         $groupedItems = $cartItems->groupBy(function ($item) {
-            return $item->start_date->format('Y-m-d') . '_' . $item->end_date->format('Y-m-d');
+            return $item->start_date->format('Y-m-d').'_'.$item->end_date->format('Y-m-d');
         });
 
         // PRE-FETCH availability data in batched queries (avoids N+1 in the loop below).
@@ -334,6 +313,7 @@ class CheckoutController extends Controller
                     $blocked[$row->product_unit_id] = true;
                 }
             }
+
             return $blocked;
         };
 
@@ -347,6 +327,9 @@ class CheckoutController extends Controller
                 $firstItem = $items->first();
                 $subtotal = $items->sum('subtotal');
 
+                // Category discount for this rental (gross group × category %).
+                $rentalCategoryDiscount = $subtotal * ($categoryPercentage / 100);
+
                 // Calculate proportional discount for this rental
                 $rentalDiscount = 0;
                 $rentalDailyDiscountAmount = 0;
@@ -358,10 +341,11 @@ class CheckoutController extends Controller
                     $rentalDatePromotionAmount = $globalDatePromotionAmount * $proportion;
                 }
 
-                $rentalTotalDiscount = $rentalDiscount + $rentalDailyDiscountAmount + $rentalDatePromotionAmount;
+                $rentalTotalDiscount = $rentalDiscount + $rentalDailyDiscountAmount + $rentalDatePromotionAmount + $rentalCategoryDiscount;
 
-                // Deposit calculation
-                $deposit = Rental::calculateDeposit($subtotal); // Keeping it based on subtotal as per original logic
+                // Deposit base is the post-category amount (preserves the previous
+                // deposit value, which was computed off the baked-in net price).
+                $deposit = Rental::calculateDeposit($subtotal - $rentalCategoryDiscount);
 
                 // Create Quotation first
                 $quotation = \App\Models\Quotation::create([
@@ -389,6 +373,8 @@ class CheckoutController extends Controller
                     'daily_discount_amount' => $rentalDailyDiscountAmount,
                     'date_promotion_id' => $globalDatePromotionId,
                     'date_promotion_amount' => $rentalDatePromotionAmount,
+                    'category_discount_amount' => $rentalCategoryDiscount,
+                    'category_name' => $customer->category?->name,
                     'total' => $subtotal - $rentalTotalDiscount,
                     'deposit' => $deposit,
                     'notes' => $request->notes,
@@ -405,16 +391,16 @@ class CheckoutController extends Controller
                     $finalUnitId = null;
 
                     if (
-                        !isset($blockedForRange[$cartItem->product_unit_id])
-                        && !in_array($cartItem->product_unit_id, $reservedUnitIds, true)
+                        ! isset($blockedForRange[$cartItem->product_unit_id])
+                        && ! in_array($cartItem->product_unit_id, $reservedUnitIds, true)
                         && $candidateUnits->contains('id', $cartItem->product_unit_id)
                     ) {
                         $finalUnitId = $cartItem->product_unit_id;
                     } else {
                         foreach ($candidateUnits as $unit) {
                             if (
-                                !isset($blockedForRange[$unit->id])
-                                && !in_array($unit->id, $reservedUnitIds, true)
+                                ! isset($blockedForRange[$unit->id])
+                                && ! in_array($unit->id, $reservedUnitIds, true)
                             ) {
                                 $finalUnitId = $unit->id;
                                 break;
@@ -422,7 +408,7 @@ class CheckoutController extends Controller
                         }
                     }
 
-                    if (!$finalUnitId) {
+                    if (! $finalUnitId) {
                         throw new \Exception("Maaf, produk {$product->name} tidak lagi tersedia untuk tanggal yang dipilih (Unit penuh).");
                     }
 
@@ -459,9 +445,13 @@ class CheckoutController extends Controller
                 // (a) Bulk-attach kits for every newly created rental item in ONE insert.
                 $kitInsertRows = [];
                 foreach ($rental->items as $item) {
-                    if (!$item->productUnit) continue;
+                    if (! $item->productUnit) {
+                        continue;
+                    }
                     foreach ($item->productUnit->kits as $kit) {
-                        if (in_array($kit->condition, ['broken', 'lost'], true)) continue;
+                        if (in_array($kit->condition, ['broken', 'lost'], true)) {
+                            continue;
+                        }
                         $kitInsertRows[] = [
                             'rental_item_id' => $item->id,
                             'unit_kit_id' => $kit->id,
@@ -472,7 +462,7 @@ class CheckoutController extends Controller
                         ];
                     }
                 }
-                if (!empty($kitInsertRows)) {
+                if (! empty($kitInsertRows)) {
                     \App\Models\RentalItemKit::insert($kitInsertRows);
                 }
 
@@ -509,8 +499,8 @@ class CheckoutController extends Controller
                 // FINAL AVAILABILITY CHECK
                 // Ensure no conflicts were missed by the query builder logic (kit/unit cross-conflicts).
                 $conflicts = $rental->checkAvailability();
-                if (!empty($conflicts)) {
-                    throw new \Exception("Beberapa item dalam pesanan Anda tidak tersedia karena bentrok dengan penyewaan lain (Kit/Unit Conflict). Silakan pilih tanggal atau unit lain.");
+                if (! empty($conflicts)) {
+                    throw new \Exception('Beberapa item dalam pesanan Anda tidak tersedia karena bentrok dengan penyewaan lain (Kit/Unit Conflict). Silakan pilih tanggal atau unit lain.');
                 }
 
                 $rentals[] = $rental;
@@ -521,7 +511,7 @@ class CheckoutController extends Controller
             // observer would normally trigger — done once for the whole batch instead of N times.
             // For a quotation rental, the status flips from 'available' → 'scheduled'.
             // We only touch units currently 'available' to avoid clobbering 'maintenance'/'rented'/'retired'.
-            if (!empty($reservedUnitIds)) {
+            if (! empty($reservedUnitIds)) {
                 \App\Models\ProductUnit::whereIn('id', $reservedUnitIds)
                     ->where('status', \App\Models\ProductUnit::STATUS_AVAILABLE)
                     ->update(['status' => \App\Models\ProductUnit::STATUS_SCHEDULED]);
@@ -538,7 +528,8 @@ class CheckoutController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            return back()->with('error', 'Something went wrong. Please try again. ' . $e->getMessage());
+
+            return back()->with('error', 'Something went wrong. Please try again. '.$e->getMessage());
         }
     }
 

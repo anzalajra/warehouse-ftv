@@ -4,10 +4,10 @@ namespace App\Observers;
 
 use App\Models\Rental;
 use App\Models\User;
-use App\Services\TaxService;
 use App\Notifications\BookingConfirmedNotification;
 use App\Notifications\NewBookingNotification;
 use App\Notifications\RentalCompletedNotification;
+use App\Services\TaxService;
 use Illuminate\Support\Facades\Notification;
 
 class RentalObserver
@@ -74,12 +74,12 @@ class RentalObserver
         // Don't override subtotal and total to 0 when it's newly created
         // and doesn't have items yet, but already has a valid subtotal
         $subtotal = $rental->items()->sum('subtotal');
-        
-        if ($subtotal == 0 && $rental->subtotal > 0 && !$rental->exists) {
+
+        if ($subtotal == 0 && $rental->subtotal > 0 && ! $rental->exists) {
             // Keep the assigned subtotal
             $subtotal = $rental->subtotal;
         } elseif ($subtotal == 0 && $rental->subtotal > 0 && $rental->items()->count() == 0) {
-             // In case created event fires and items count is 0
+            // In case created event fires and items count is 0
             $subtotal = $rental->subtotal;
         }
 
@@ -89,11 +89,12 @@ class RentalObserver
         } else {
             $discountAmount = $rental->discount ?? 0;
         }
-        
+
         $dailyDiscountAmount = $rental->daily_discount_amount ?? 0;
         $datePromotionAmount = $rental->date_promotion_amount ?? 0;
-        
-        $totalDiscount = $discountAmount + $dailyDiscountAmount + $datePromotionAmount;
+        $categoryDiscountAmount = $rental->category_discount_amount ?? 0;
+
+        $totalDiscount = $discountAmount + $dailyDiscountAmount + $datePromotionAmount + $categoryDiscountAmount;
 
         $taxableAmount = max(0, $subtotal - $totalDiscount);
 
@@ -110,7 +111,7 @@ class RentalObserver
         $taxBase = $taxResult['tax_base'];
 
         if (
-            abs(($rental->subtotal ?? 0) - $subtotal) > 0.01 || 
+            abs(($rental->subtotal ?? 0) - $subtotal) > 0.01 ||
             abs(($rental->total ?? 0) - $total) > 0.01 ||
             abs(($rental->ppn_amount ?? 0) - $ppnAmount) > 0.01
         ) {

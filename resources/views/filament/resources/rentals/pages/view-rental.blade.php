@@ -43,13 +43,6 @@
     $durationDays = (int) $rental->start_date->diffInDays($rental->end_date);
     $totalKits = $rental->items->sum(fn ($it) => $it->rentalItemKits->count());
 
-    // Coupon discount (mirrors old view + edit logic)
-    if ($rental->discount_type === 'percent') {
-        $baseDiscount = ($rental->subtotal ?? 0) * (($rental->discount ?? 0) / 100);
-    } else {
-        $baseDiscount = $rental->discount ?? 0;
-    }
-
     $rp = fn ($n) => 'Rp ' . number_format((float) ($n ?? 0), 0, ',', '.');
 
     // --- Action visibility (mirrors the original getHeaderActions gates) ---
@@ -641,24 +634,12 @@
                     <span class="fl">Subtotal</span>
                     <span class="fv">{{ $rp($rental->subtotal) }}</span>
                 </div>
-                @if($baseDiscount > 0)
+                @foreach($rental->discountBreakdown() as $line)
                     <div class="frow disc">
-                        <span class="fl">Kupon Diskon</span>
-                        <span class="fv">− {{ $rp($baseDiscount) }}</span>
+                        <span class="fl">{{ $line['label'] }}</span>
+                        <span class="fv">− {{ $rp($line['amount']) }}</span>
                     </div>
-                @endif
-                @if($rental->daily_discount_amount > 0)
-                    <div class="frow disc">
-                        <span class="fl">Diskon Promo Harian</span>
-                        <span class="fv">− {{ $rp($rental->daily_discount_amount) }}</span>
-                    </div>
-                @endif
-                @if($rental->date_promotion_amount > 0)
-                    <div class="frow disc">
-                        <span class="fl">Diskon Promo Tanggal</span>
-                        <span class="fv">− {{ $rp($rental->date_promotion_amount) }}</span>
-                    </div>
-                @endif
+                @endforeach
                 <div class="frow grand">
                     <span class="fl">Total</span>
                     <span class="fv">{{ $rp($rental->total) }}</span>

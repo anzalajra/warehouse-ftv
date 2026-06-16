@@ -3,14 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cart;
-use App\Models\ProductUnit;
 use App\Models\Rental;
 use App\Models\Setting;
 use App\Services\RentalValidationService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
-use Carbon\Carbon;
 
 class CartController extends Controller
 {
@@ -23,6 +22,7 @@ class CartController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['message' => $msg, 'rental_disabled' => true], 403);
         }
+
         return back()->with('error', $msg);
     }
 
@@ -30,44 +30,41 @@ class CartController extends Controller
     {
         $customer = Auth::guard('customer')->user();
         $cartItems = $customer->carts()->with(['productUnit.product', 'productUnit.variation'])->get();
-        
-        // Calculate totals
-        $netTotal = $cartItems->sum('subtotal');
-        
-        // Calculate gross total (what it would be without discount)
-        $grossTotal = 0;
-        foreach ($cartItems as $item) {
-            // We need the original daily rate of the product (or variation)
-            $unit = $item->productUnit;
-            $originalDailyRate = $unit->variation->daily_rate ?? $unit->product->daily_rate;
-            $grossTotal += $originalDailyRate * $item->days;
-        }
-        
-        $discountAmount = $grossTotal - $netTotal;
+
+        // Cart prices are now stored gross (no baked-in category discount), so the
+        // item subtotals ARE the gross total. The category discount is applied as
+        // an explicit percentage line here.
+        $grossTotal = $cartItems->sum('subtotal');
+
         $discountPercentage = $customer->getCategoryDiscountPercentage();
         $categoryName = $customer->category ? $customer->category->name : null;
+
+        $discountAmount = $grossTotal * ($discountPercentage / 100);
+        $netTotal = $grossTotal - $discountAmount;
 
         $deposit = Rental::calculateDeposit($netTotal);
         $canCheckout = $customer->canRent();
 
         return view('frontend.cart.index', compact(
-            'cartItems', 'netTotal', 'grossTotal', 'discountAmount', 
+            'cartItems', 'netTotal', 'grossTotal', 'discountAmount',
             'deposit', 'canCheckout', 'discountPercentage', 'categoryName'
         ));
     }
 
     public function add(Request $request)
     {
-        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+        if ($r = $this->rejectIfRentalDisabled($request)) {
+            return $r;
+        }
 
         $customer = Auth::guard('customer')->user();
 
         // Check if customer is verified / not blocked
-        if (!$customer->canRent()) {
+        if (! $customer->canRent()) {
             if ($customer->isBlocked()) {
                 $msg = 'Akun Anda telah diblokir oleh admin dan tidak dapat melakukan rental.';
                 if ($customer->blocked_reason) {
-                    $msg .= ' Alasan: ' . $customer->blocked_reason;
+                    $msg .= ' Alasan: '.$customer->blocked_reason;
                 }
             } else {
                 $msg = 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan rental. Silakan lengkapi dokumen di halaman Profile.';
@@ -75,6 +72,7 @@ class CartController extends Controller
             if ($request->expectsJson()) {
                 return response()->json(['message' => $msg], 403);
             }
+
             return back()->with('error', $msg);
         }
 
@@ -90,9 +88,10 @@ class CartController extends Controller
             if ($request->expectsJson()) {
                 return response()->json([
                     'message' => 'Validasi gagal.',
-                    'errors' => $validator->errors()
+                    'errors' => $validator->errors(),
                 ], 422);
             }
+
             return back()->withErrors($validator)->withInput();
         }
 
@@ -106,9 +105,10 @@ class CartController extends Controller
             if ($request->expectsJson()) {
                 return response()->json([
                     'message' => 'Jadwal tidak sesuai dengan jam operasional.',
-                    'errors'  => $scheduleErrors,
+                    'errors' => $scheduleErrors,
                 ], 422);
             }
+
             return back()->withErrors($scheduleErrors)->withInput();
         }
 
@@ -124,29 +124,31 @@ class CartController extends Controller
                         'message' => $msg,
                         'debug' => [
                             'var_pid' => $variation->product_id,
-                            'req_pid' => $product->id
-                        ]
+                            'req_pid' => $product->id,
+                        ],
                     ], 422);
                 }
+
                 return back()->with('error', $msg);
             }
         }
 
         // Check product visibility for customer
-        if (!$product->isVisibleForCustomer($customer)) {
-            $msg = "Produk ini tidak tersedia untuk kategori akun Anda.";
+        if (! $product->isVisibleForCustomer($customer)) {
+            $msg = 'Produk ini tidak tersedia untuk kategori akun Anda.';
             if ($request->expectsJson()) {
                 return response()->json(['message' => $msg], 403);
             }
+
             return back()->with('error', $msg);
         }
-        
+
         $days = max(1, $startDate->diffInDays($endDate));
 
         // Check for existing cart items and handle date synchronization
         $cartItems = $customer->carts()->with('productUnit.product')->get();
         $firstItem = $cartItems->first();
-        
+
         $updates = [];
         $conflicts = [];
         $needsSync = false;
@@ -155,17 +157,17 @@ class CartController extends Controller
             // Check if dates are different (using timestamp comparison for precision)
             if ($firstItem->start_date->ne($startDate) || $firstItem->end_date->ne($endDate)) {
                 $needsSync = true;
-                
+
                 foreach ($cartItems as $item) {
                     $p = $item->productUnit->product;
                     // Check availability for new dates
                     // We can reuse the current unit if it's available, otherwise find another unit of same product
                     $newUnit = $p->findAvailableUnit($startDate, $endDate);
-                    
+
                     if ($newUnit) {
                         $updates[] = [
                             'cart_item' => $item,
-                            'new_unit_id' => $newUnit->id
+                            'new_unit_id' => $newUnit->id,
                         ];
                     } else {
                         $conflicts[] = $p->name;
@@ -175,15 +177,16 @@ class CartController extends Controller
         }
 
         // Handle Conflicts
-        if (!empty($conflicts)) {
-            if (!$request->boolean('confirm_changes')) {
+        if (! empty($conflicts)) {
+            if (! $request->boolean('confirm_changes')) {
                 if ($request->expectsJson()) {
                     return response()->json([
                         'status' => 'conflict',
                         'conflicts' => $conflicts,
-                        'message' => 'Beberapa item di keranjang tidak tersedia untuk tanggal baru.'
+                        'message' => 'Beberapa item di keranjang tidak tersedia untuk tanggal baru.',
                     ], 409);
                 }
+
                 // Fallback for non-AJAX (though we should prioritize AJAX)
                 return back()->with('error', 'Konflik ketersediaan item di keranjang. Harap gunakan fitur sinkronisasi.');
             }
@@ -225,18 +228,20 @@ class CartController extends Controller
 
         // Check if we have enough units
         if ($availableForAdd->count() < $quantity) {
-            $msg = "Maaf, hanya tersedia " . $availableForAdd->count() . " unit tambahan untuk tanggal yang dipilih.";
+            $msg = 'Maaf, hanya tersedia '.$availableForAdd->count().' unit tambahan untuk tanggal yang dipilih.';
             if ($request->expectsJson()) {
                 return response()->json(['message' => $msg], 422);
             }
+
             return back()->with('error', $msg);
         }
 
         // Add the requested quantity
         $unitsToAdd = $availableForAdd->take($quantity);
 
-        // Calculate discounted daily rate
-        $discountPercentage = $customer->getCategoryDiscountPercentage();
+        // Store the GROSS (real) daily rate — the customer-category discount is no
+        // longer baked into the price here; it is applied as an explicit discount
+        // line at cart/checkout time (see CartController::index + CheckoutController).
         $dailyRate = $product->daily_rate;
 
         if ($request->filled('variation_id')) {
@@ -244,10 +249,6 @@ class CartController extends Controller
             if ($variation && $variation->daily_rate) {
                 $dailyRate = $variation->daily_rate;
             }
-        }
-
-        if ($discountPercentage > 0) {
-            $dailyRate = $dailyRate - ($dailyRate * ($discountPercentage / 100));
         }
 
         foreach ($unitsToAdd as $unit) {
@@ -271,7 +272,9 @@ class CartController extends Controller
 
     public function updateAll(Request $request)
     {
-        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+        if ($r = $this->rejectIfRentalDisabled($request)) {
+            return $r;
+        }
 
         $customer = Auth::guard('customer')->user();
 
@@ -288,9 +291,10 @@ class CartController extends Controller
             if ($request->expectsJson()) {
                 return response()->json([
                     'message' => 'Jadwal tidak sesuai dengan jam operasional.',
-                    'errors'  => $scheduleErrors,
+                    'errors' => $scheduleErrors,
                 ], 422);
             }
+
             return back()->withErrors($scheduleErrors)->withInput();
         }
 
@@ -303,14 +307,15 @@ class CartController extends Controller
 
         foreach ($cartItems as $item) {
             $product = $item->productUnit->product;
-            
+
             // Try to find a unit available for the NEW dates
             // We must exclude units that have already been assigned to other items in this update loop
             $candidates = $product->findAvailableUnits($startDate, $endDate);
             $unit = $candidates->whereNotIn('id', $reservedUnitIds)->first();
 
-            if (!$unit) {
+            if (! $unit) {
                 $errors[] = "Produk {$product->name} tidak tersedia untuk tanggal baru.";
+
                 continue;
             }
 
@@ -328,7 +333,7 @@ class CartController extends Controller
         }
 
         if (count($errors) > 0) {
-            return back()->with('error', implode(' ', $errors) . ' Item lain berhasil diperbarui.');
+            return back()->with('error', implode(' ', $errors).' Item lain berhasil diperbarui.');
         }
 
         return back()->with('success', 'Semua item di keranjang berhasil diperbarui ke tanggal baru.');
@@ -336,7 +341,9 @@ class CartController extends Controller
 
     public function update(Request $request, Cart $cart)
     {
-        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+        if ($r = $this->rejectIfRentalDisabled($request)) {
+            return $r;
+        }
 
         $customer = Auth::guard('customer')->user();
 
@@ -357,9 +364,10 @@ class CartController extends Controller
             if ($request->expectsJson()) {
                 return response()->json([
                     'message' => 'Jadwal tidak sesuai dengan jam operasional.',
-                    'errors'  => $scheduleErrors,
+                    'errors' => $scheduleErrors,
                 ], 422);
             }
+
             return back()->withErrors($scheduleErrors)->withInput();
         }
 
@@ -387,7 +395,9 @@ class CartController extends Controller
 
     public function updateQuantity(Request $request)
     {
-        if ($r = $this->rejectIfRentalDisabled($request)) return $r;
+        if ($r = $this->rejectIfRentalDisabled($request)) {
+            return $r;
+        }
 
         $customer = Auth::guard('customer')->user();
 
@@ -412,7 +422,7 @@ class CartController extends Controller
                 }
             })
             ->get();
-        
+
         $currentQuantity = $cartItems->count();
 
         if ($currentQuantity == $newQuantity) {
@@ -423,6 +433,7 @@ class CartController extends Controller
             // Remove items (LIFO)
             $toRemove = $currentQuantity - $newQuantity;
             $cartItems->sortByDesc('created_at')->take($toRemove)->each->delete();
+
             return back()->with('success', 'Quantity updated.');
         }
 
@@ -430,9 +441,9 @@ class CartController extends Controller
             // Add items
             $toAdd = $newQuantity - $currentQuantity;
             $firstItem = $cartItems->first();
-            
-            if (!$firstItem) {
-                 return back()->with('error', 'Item not found.');
+
+            if (! $firstItem) {
+                return back()->with('error', 'Item not found.');
             }
 
             $product = $firstItem->productUnit->product;
@@ -444,7 +455,7 @@ class CartController extends Controller
             // Find available units excluding current cart items
             $currentCartUnitIds = $customer->carts()->pluck('product_unit_id')->toArray();
             $allAvailableUnits = $product->findAvailableUnits($startDate, $endDate);
-            
+
             // Filter by variation
             if ($variationId) {
                 $allAvailableUnits = $allAvailableUnits->where('product_variation_id', $variationId);
@@ -455,7 +466,7 @@ class CartController extends Controller
             $availableForAdd = $allAvailableUnits->whereNotIn('id', $currentCartUnitIds);
 
             if ($availableForAdd->count() < $toAdd) {
-                return back()->with('error', "Hanya tersedia " . $availableForAdd->count() . " unit tambahan untuk periode ini.");
+                return back()->with('error', 'Hanya tersedia '.$availableForAdd->count().' unit tambahan untuk periode ini.');
             }
 
             $unitsToAdd = $availableForAdd->take($toAdd);
@@ -479,7 +490,7 @@ class CartController extends Controller
     public function removeProduct(Request $request)
     {
         $customer = Auth::guard('customer')->user();
-        
+
         $request->validate([
             'product_id' => 'required|exists:products,id',
         ]);

@@ -166,7 +166,7 @@
                         <hr>
                         <div class="flex justify-between font-bold text-lg">
                             <span>Total</span>
-                            <span class="text-primary-600" id="grand_total">Rp {{ number_format(($subtotal - ($totalDiscount ?? $discountAmount ?? 0)), 0, ',', '.') }}</span>
+                            <span class="text-primary-600" id="grand_total">Rp {{ number_format($grandTotal ?? ($grossTotal - ($categoryDiscountAmount ?? 0) - ($totalDiscount ?? 0)), 0, ',', '.') }}</span>
                         </div>
                     </div>
 
@@ -229,20 +229,10 @@
                 // Update Summary
                 document.getElementById('discount_row').classList.remove('hidden');
                 document.getElementById('discount_amount').textContent = '-Rp ' + new Intl.NumberFormat('id-ID').format(data.discount_amount);
-                
-                // Update Total (Total = Subtotal - Discount)
-                // Note: The controller returns new_total = Subtotal - Discount + Deposit? 
-                // Let's stick to what we decided: Total in view is just Subtotal - Discount.
-                // Or if we follow my controller logic: new_total was Subtotal - Discount. 
-                // Wait, in controller: 'new_total' => $newTotal + $deposit
-                // Let's recalculate in JS to be sure what we display matches the view logic.
-                // View Logic: Total = Subtotal - Discount.
-                
-                const newTotal = data.new_subtotal - data.discount_amount;
-                document.getElementById('grand_total').textContent = 'Rp ' + new Intl.NumberFormat('id-ID').format(newTotal);
-                
-                // If deposit changes
-                // document.getElementById('deposit_amount').textContent = 'Rp ' + new Intl.NumberFormat('id-ID').format(data.new_deposit);
+
+                // The server returns the fully-stacked payable total (real price −
+                // category − promos − coupon), so just display it.
+                document.getElementById('grand_total').textContent = 'Rp ' + new Intl.NumberFormat('id-ID').format(data.grand_total);
             } else {
                 msg.classList.add('text-red-600');
                 msg.classList.remove('text-green-600');

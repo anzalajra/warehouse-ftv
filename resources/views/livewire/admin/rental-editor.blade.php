@@ -1263,37 +1263,88 @@
                                 <span class="lbl">Subtotal ({{ count($items) }} item × {{ $days }} hari)</span>
                                 <span class="val">Rp {{ number_format($totals['subtotal'], 0, ',', '.') }}</span>
                             </div>
-                            <div class="totals-row">
-                                <span class="lbl">
-                                    Diskon Manual
-                                    @if($discount_type === 'percent' && $discount > 0)
-                                        <span style="color: var(--fg-3); font-weight: 400;">({{ rtrim(rtrim(number_format($discount, 2), '0'), '.') }}%)</span>
+                            @php($_dailyOpts = $this->dailyDiscountOptions)
+                            @php($_dateOpts = $this->datePromotionOptions)
+                            @php($_couponOpts = $this->couponOptions)
+                            @if(count($_dailyOpts) || count($_dateOpts) || count($_couponOpts))
+                                <div class="totals-row" style="flex-direction:column; align-items:stretch; gap:6px; padding-bottom:10px;">
+                                    <span class="lbl" style="font-weight:600;">Diskon dari Promosi</span>
+                                    @if(count($_dailyOpts))
+                                        <select wire:model.live="daily_discount_id" style="width:100%; padding:7px 8px; border:1px solid var(--gray-300); border-radius:8px; background:#fff; font-size:13px;">
+                                            <option value="">— Diskon Harian (opsional) —</option>
+                                            @foreach($_dailyOpts as $id => $label)
+                                                <option value="{{ $id }}">{{ $label }}</option>
+                                            @endforeach
+                                        </select>
                                     @endif
-                                </span>
-                                <div style="display:flex; align-items:center; gap:6px;">
-                                    <div class="cell-input-wrap" style="width:130px; background:#fff;">
-                                        <span class="unit">{{ $discount_type === 'percent' ? '%' : 'Rp' }}</span>
-                                        <input type="number" min="0" {{ $discount_type === 'percent' ? 'max=100' : '' }} step="{{ $discount_type === 'percent' ? '0.01' : '1' }}" class="cell-input" wire:model.live.debounce.400ms="discount">
-                                    </div>
-                                    <button type="button"
-                                        class="toggle-type-btn {{ $discount_type === 'percent' ? 'active' : '' }}"
-                                        wire:click="toggleDiscountType"
-                                        title="{{ $discount_type === 'percent' ? 'Ganti ke Fixed (Rp)' : 'Ganti ke Persen (%)' }}">
-                                        @if($discount_type === 'percent')
-                                            {{-- show $ icon, click to switch to fixed --}}
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                                        @else
-                                            {{-- show % icon, click to switch to percent --}}
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
-                                        @endif
-                                    </button>
+                                    @if(count($_dateOpts))
+                                        <select wire:model.live="date_promotion_id" style="width:100%; padding:7px 8px; border:1px solid var(--gray-300); border-radius:8px; background:#fff; font-size:13px;">
+                                            <option value="">— Promo Tanggal (opsional) —</option>
+                                            @foreach($_dateOpts as $id => $label)
+                                                <option value="{{ $id }}">{{ $label }}</option>
+                                            @endforeach
+                                        </select>
+                                    @endif
+                                    @if(count($_couponOpts))
+                                        <select wire:model.live="discount_id" style="width:100%; padding:7px 8px; border:1px solid var(--gray-300); border-radius:8px; background:#fff; font-size:13px;">
+                                            <option value="">— Kupon (opsional, ganti diskon manual) —</option>
+                                            @foreach($_couponOpts as $id => $label)
+                                                <option value="{{ $id }}">{{ $label }}</option>
+                                            @endforeach
+                                        </select>
+                                    @endif
                                 </div>
-                            </div>
-                            @if($totals['discount_amount'] > 0)
+                            @endif
+                            @foreach($this->promoBreakdown as $line)
+                                <div class="totals-row">
+                                    <span class="lbl">{{ $line['label'] }}</span>
+                                    <span class="val neg">− Rp {{ number_format($line['amount'], 0, ',', '.') }}</span>
+                                </div>
+                            @endforeach
+                            @if($discount_id)
+                                <div class="totals-row">
+                                    <span class="lbl">Kupon{{ $discount_code ? ' ('.$discount_code.')' : '' }}</span>
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <span class="val neg">− Rp {{ number_format($this->appliedDiscounts['coupon_amount'], 0, ',', '.') }}</span>
+                                        <button type="button" wire:click="$set('discount_id', null)" title="Hapus kupon"
+                                            style="border:none; background:var(--gray-100); color:var(--fg-2); width:22px; height:22px; border-radius:6px; cursor:pointer; line-height:1;">×</button>
+                                    </div>
+                                </div>
+                            @else
+                                <div class="totals-row">
+                                    <span class="lbl">
+                                        Diskon Manual
+                                        @if($discount_type === 'percent' && $discount > 0)
+                                            <span style="color: var(--fg-3); font-weight: 400;">({{ rtrim(rtrim(number_format($discount, 2), '0'), '.') }}%)</span>
+                                        @endif
+                                    </span>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <div class="cell-input-wrap" style="width:130px; background:#fff;">
+                                            <span class="unit">{{ $discount_type === 'percent' ? '%' : 'Rp' }}</span>
+                                            <input type="number" min="0" {{ $discount_type === 'percent' ? 'max=100' : '' }} step="{{ $discount_type === 'percent' ? '0.01' : '1' }}" class="cell-input" wire:model.live.debounce.400ms="discount">
+                                        </div>
+                                        <button type="button"
+                                            class="toggle-type-btn {{ $discount_type === 'percent' ? 'active' : '' }}"
+                                            wire:click="toggleDiscountType"
+                                            title="{{ $discount_type === 'percent' ? 'Ganti ke Fixed (Rp)' : 'Ganti ke Persen (%)' }}">
+                                            @if($discount_type === 'percent')
+                                                {{-- show $ icon, click to switch to fixed --}}
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                                            @else
+                                                {{-- show % icon, click to switch to percent --}}
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+                                            @endif
+                                        </button>
+                                    </div>
+                                </div>
+                            @endif
+                            @if(! $discount_id && $totals['discount_amount'] > 0)
                                 <div class="totals-row">
                                     <span class="lbl" style="padding-left: 16px; color: var(--fg-3); font-size: 12.5px;">↳ potongan</span>
                                     <span class="val neg">− Rp {{ number_format($totals['discount_amount'], 0, ',', '.') }}</span>
                                 </div>
+                            @endif
+                            @if($totals['net_subtotal'] < $totals['subtotal'])
                                 <div class="totals-row">
                                     <span class="lbl">Setelah diskon</span>
                                     <span class="val">Rp {{ number_format($totals['net_subtotal'], 0, ',', '.') }}</span>
@@ -1891,37 +1942,86 @@
                     <span class="k">Subtotal</span>
                     <span class="v">Rp {{ number_format($totals['subtotal'], 0, ',', '.') }}</span>
                 </div>
-                <div class="inforow" @click="openDiscount = !openDiscount">
-                    <span class="k">Diskon manual</span>
-                    <span class="v {{ $discount > 0 ? '' : 'muted' }}">
-                        @if($discount > 0)
-                            {{ $discount_type === 'percent' ? rtrim(rtrim(number_format($discount, 2), '0'), '.').'%' : 'Rp '.number_format($discount, 0, ',', '.') }}
-                            @if($totals['discount_amount'] > 0 && $discount_type === 'percent')
-                                <span style="color: var(--danger-700); font-weight:600;">(− Rp {{ number_format($totals['discount_amount'], 0, ',', '.') }})</span>
-                            @endif
-                        @else
-                            Tambah diskon
-                        @endif
-                    </span>
-                </div>
-                <div x-show="openDiscount" x-cloak style="padding: 0 14px 12px;">
-                    <div style="display:flex; gap:6px; align-items:stretch;">
-                        <div class="input-prefix-wrap" style="flex:1;">
-                            <span class="prefix">{{ $discount_type === 'percent' ? '%' : 'Rp' }}</span>
-                            <input type="number" min="0" {{ $discount_type === 'percent' ? 'max=100' : '' }} step="{{ $discount_type === 'percent' ? '0.01' : '1' }}" class="input" wire:model.live.debounce.400ms="discount">
-                        </div>
-                        <button type="button"
-                            class="toggle-type-btn {{ $discount_type === 'percent' ? 'active' : '' }}"
-                            style="height: auto; min-height: 40px; width: 40px; flex: 0 0 40px;"
-                            wire:click="toggleDiscountType">
-                            @if($discount_type === 'percent')
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                            @else
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
-                            @endif
-                        </button>
+                @foreach($this->promoBreakdown as $line)
+                    <div class="inforow">
+                        <span class="k">{{ $line['label'] }}</span>
+                        <span class="v" style="color: var(--danger-700);">− Rp {{ number_format($line['amount'], 0, ',', '.') }}</span>
                     </div>
-                </div>
+                @endforeach
+                @php($_mDailyOpts = $this->dailyDiscountOptions)
+                @php($_mDateOpts = $this->datePromotionOptions)
+                @php($_mCouponOpts = $this->couponOptions)
+                @if(count($_mDailyOpts) || count($_mDateOpts) || count($_mCouponOpts))
+                    <div style="padding: 8px 14px 12px; display:flex; flex-direction:column; gap:6px;">
+                        <span class="k" style="font-weight:600;">Diskon dari Promosi</span>
+                        @if(count($_mDailyOpts))
+                            <select wire:model.live="daily_discount_id" class="input">
+                                <option value="">— Diskon Harian (opsional) —</option>
+                                @foreach($_mDailyOpts as $id => $label)
+                                    <option value="{{ $id }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        @endif
+                        @if(count($_mDateOpts))
+                            <select wire:model.live="date_promotion_id" class="input">
+                                <option value="">— Promo Tanggal (opsional) —</option>
+                                @foreach($_mDateOpts as $id => $label)
+                                    <option value="{{ $id }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        @endif
+                        @if(count($_mCouponOpts))
+                            <select wire:model.live="discount_id" class="input">
+                                <option value="">— Kupon (ganti diskon manual) —</option>
+                                @foreach($_mCouponOpts as $id => $label)
+                                    <option value="{{ $id }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        @endif
+                    </div>
+                @endif
+                @if($discount_id)
+                    <div class="inforow">
+                        <span class="k">Kupon{{ $discount_code ? ' ('.$discount_code.')' : '' }}</span>
+                        <span class="v" style="display:flex; align-items:center; gap:8px;">
+                            <span style="color: var(--danger-700);">− Rp {{ number_format($this->appliedDiscounts['coupon_amount'], 0, ',', '.') }}</span>
+                            <button type="button" wire:click="$set('discount_id', null)" title="Hapus kupon"
+                                style="border:none; background:var(--gray-100); color:var(--fg-2); width:24px; height:24px; border-radius:6px; line-height:1;">×</button>
+                        </span>
+                    </div>
+                @else
+                    <div class="inforow" @click="openDiscount = !openDiscount">
+                        <span class="k">Diskon manual</span>
+                        <span class="v {{ $discount > 0 ? '' : 'muted' }}">
+                            @if($discount > 0)
+                                {{ $discount_type === 'percent' ? rtrim(rtrim(number_format($discount, 2), '0'), '.').'%' : 'Rp '.number_format($discount, 0, ',', '.') }}
+                                @if($totals['discount_amount'] > 0 && $discount_type === 'percent')
+                                    <span style="color: var(--danger-700); font-weight:600;">(− Rp {{ number_format($totals['discount_amount'], 0, ',', '.') }})</span>
+                                @endif
+                            @else
+                                Tambah diskon
+                            @endif
+                        </span>
+                    </div>
+                    <div x-show="openDiscount" x-cloak style="padding: 0 14px 12px;">
+                        <div style="display:flex; gap:6px; align-items:stretch;">
+                            <div class="input-prefix-wrap" style="flex:1;">
+                                <span class="prefix">{{ $discount_type === 'percent' ? '%' : 'Rp' }}</span>
+                                <input type="number" min="0" {{ $discount_type === 'percent' ? 'max=100' : '' }} step="{{ $discount_type === 'percent' ? '0.01' : '1' }}" class="input" wire:model.live.debounce.400ms="discount">
+                            </div>
+                            <button type="button"
+                                class="toggle-type-btn {{ $discount_type === 'percent' ? 'active' : '' }}"
+                                style="height: auto; min-height: 40px; width: 40px; flex: 0 0 40px;"
+                                wire:click="toggleDiscountType">
+                                @if($discount_type === 'percent')
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                                @else
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+                                @endif
+                            </button>
+                        </div>
+                    </div>
+                @endif
                 @if($totals['ppn_amount'] > 0)
                     <div class="inforow">
                         <span class="k">PPN ({{ rtrim(rtrim(number_format($totals['ppn_rate'], 2), '0'), '.') }}%)</span>

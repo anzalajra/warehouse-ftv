@@ -4,6 +4,9 @@ namespace App\Livewire\Admin;
 
 use App\Filament\Resources\Rentals\RentalResource;
 use App\Filament\Resources\Rentals\Schemas\RentalForm;
+use App\Models\DailyDiscount;
+use App\Models\DatePromotion;
+use App\Models\Discount;
 use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\ProductUnit;
@@ -27,11 +30,14 @@ class RentalEditor extends Component
 
     // Header / status
     public string $rental_code = 'AUTO';
+
     public string $status = Rental::STATUS_QUOTATION;
 
     // Customer + dates
     public ?int $customer_id = null;
+
     public ?string $start_date = null;
+
     public ?string $end_date = null;
 
     // Items: ordered array; each: composite_id, product_id, variation_id, quantity, daily_rate, discount, unit_ids[], subtotal
@@ -39,10 +45,27 @@ class RentalEditor extends Component
 
     // Money
     public string $discount_type = 'fixed'; // fixed | percent
+
     public float $discount = 0;
+
+    // Promotion-based discounts (picked from the Promotions data). Amounts are
+    // computed live from each promo's own rule against the current subtotal/days
+    // (see appliedDiscounts()). Coupon (discount_id) and the free manual discount
+    // are mutually exclusive — both occupy the `discount` column.
+    public ?int $daily_discount_id = null;
+
+    public ?int $date_promotion_id = null;
+
+    public ?int $discount_id = null; // coupon
+
+    public ?string $discount_code = null;
+
     public string $deposit_type = 'fixed';
+
     public float $deposit = 0;
+
     public float $down_payment_amount = 0;
+
     public ?string $notes = null;
 
     // Search
@@ -50,14 +73,20 @@ class RentalEditor extends Component
 
     // Customer typeahead search
     public string $customerSearch = '';
+
     public bool $newCustomerModalOpen = false;
+
     public string $newCustomerName = '';
+
     public string $newCustomerEmail = '';
+
     public string $newCustomerPhone = '';
 
     // Modals
     public bool $unitModalOpen = false;
+
     public ?string $unitModalKey = null;
+
     public bool $catalogOpen = false;
 
     // True once the user changes anything that isn't yet persisted to the DB.
@@ -68,10 +97,15 @@ class RentalEditor extends Component
 
     // Transfer (Move/Swap) modal
     public bool $transferModalOpen = false;
+
     public string $transferMode = 'move'; // 'move' | 'swap' | 'pull'
+
     public ?int $transferUnitId = null;   // serial unit being transferred (source side)
+
     public ?string $transferItemKey = null; // editor items[] key when opened from a row (limits unit picker)
+
     public ?int $transferTargetRentalId = null;
+
     public ?int $transferTargetItemId = null; // for swap only
 
     protected $listeners = [
@@ -80,8 +114,11 @@ class RentalEditor extends Component
 
     // Per-request caches — cleared in updated() when dates/items change
     protected ?array $availMapCache = null;
+
     protected ?array $catalogRowsCache = null;
+
     protected ?array $bookedUnitIdsCache = null;
+
     protected ?array $totalOwnedMapCache = null;
 
     public function updatedStartDate(): void
@@ -135,6 +172,10 @@ class RentalEditor extends Component
             $this->end_date = $record->end_date?->format('Y-m-d\TH:i');
             $this->discount_type = $record->discount_type ?? 'fixed';
             $this->discount = (float) ($record->discount ?? 0);
+            $this->daily_discount_id = $record->daily_discount_id;
+            $this->date_promotion_id = $record->date_promotion_id;
+            $this->discount_id = $record->discount_id;
+            $this->discount_code = $record->discount_code;
             $this->deposit_type = $record->deposit_type ?? 'fixed';
             $this->deposit = (float) ($record->deposit ?? 0);
             $this->down_payment_amount = (float) ($record->down_payment_amount ?? 0);
@@ -145,6 +186,28 @@ class RentalEditor extends Component
             $this->end_date = now()->addDay()->format('Y-m-d\TH:i');
             $this->status = Rental::STATUS_QUOTATION;
         }
+    }
+
+    /**
+     * Keep discount_code in sync with the picked coupon (and clear it when the
+     * coupon is removed). Selecting a coupon overrides any free manual discount.
+     */
+    public function updatedDiscountId($value): void
+    {
+        $this->discount_id = $value !== '' && $value !== null ? (int) $value : null;
+        $this->discount_code = $this->discount_id
+            ? Discount::find($this->discount_id)?->code
+            : null;
+    }
+
+    public function updatedDailyDiscountId($value): void
+    {
+        $this->daily_discount_id = $value !== '' && $value !== null ? (int) $value : null;
+    }
+
+    public function updatedDatePromotionId($value): void
+    {
+        $this->date_promotion_id = $value !== '' && $value !== null ? (int) $value : null;
     }
 
     protected function loadItemsFromRecord(): void
@@ -289,7 +352,7 @@ class RentalEditor extends Component
         $needle = trim($this->customerSearch);
 
         if ($needle !== '') {
-            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $needle) . '%';
+            $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $needle).'%';
             $q->where(function ($w) use ($like) {
                 $w->where('name', 'like', $like)
                     ->orWhere('email', 'like', $like)
@@ -320,7 +383,7 @@ class RentalEditor extends Component
     {
         // Pre-fill name from current search term if it looks like a name (no @, no digits-only).
         $needle = trim($this->customerSearch);
-        $this->newCustomerName = $needle && !str_contains($needle, '@') && !ctype_digit($needle) ? $needle : '';
+        $this->newCustomerName = $needle && ! str_contains($needle, '@') && ! ctype_digit($needle) ? $needle : '';
         $this->newCustomerEmail = $needle && str_contains($needle, '@') ? $needle : '';
         $this->newCustomerPhone = $needle && ctype_digit(str_replace(['+', ' ', '-'], '', $needle)) ? $needle : '';
         $this->newCustomerModalOpen = true;
@@ -510,7 +573,7 @@ class RentalEditor extends Component
             ->selectRaw('product_id, COALESCE(product_variation_id, 0) as vid, COUNT(*) as c')
             ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
             ->whereNotIn('condition', ['broken', 'lost'])
-            ->when(!empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
+            ->when(! empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
             ->groupBy('product_id', 'vid')
             ->get();
 
@@ -520,6 +583,7 @@ class RentalEditor extends Component
         }
 
         $this->availMapCache = ['_key' => $cacheKey, 'data' => $map];
+
         return $map;
     }
 
@@ -554,7 +618,7 @@ class RentalEditor extends Component
     /** Ceiling of rentable units owned for a product/variation (see totalOwnedMap). */
     public function totalOwnedFor(int $productId, ?int $variationId): int
     {
-        return $this->totalOwnedMap()["{$productId}:" . ($variationId ?: 0)] ?? 0;
+        return $this->totalOwnedMap()["{$productId}:".($variationId ?: 0)] ?? 0;
     }
 
     /**
@@ -563,16 +627,17 @@ class RentalEditor extends Component
      */
     protected function getBookedUnitIdsCached(): array
     {
-        $cacheKey = ($this->start_date ?? '') . '|' . ($this->end_date ?? '') . '|' . ($this->record?->id ?? '');
+        $cacheKey = ($this->start_date ?? '').'|'.($this->end_date ?? '').'|'.($this->record?->id ?? '');
         if ($this->bookedUnitIdsCache !== null && ($this->bookedUnitIdsCache['_key'] ?? null) === $cacheKey) {
             return $this->bookedUnitIdsCache['data'];
         }
         $ids = \Illuminate\Support\Facades\Cache::remember(
-            'booked_units:' . $cacheKey,
+            'booked_units:'.$cacheKey,
             5, // 5 seconds — short TTL since this changes when any rental is saved
             fn () => $this->callPrivateGetBookedUnitIds()
         );
         $this->bookedUnitIdsCache = ['_key' => $cacheKey, 'data' => $ids];
+
         return $ids;
     }
 
@@ -580,7 +645,9 @@ class RentalEditor extends Component
     {
         // RentalForm::getBookedUnitIds is private — replicate the logic here so
         // we can cache. Kept in sync with that method.
-        if (!$this->start_date || !$this->end_date) return [];
+        if (! $this->start_date || ! $this->end_date) {
+            return [];
+        }
 
         $activeStatuses = [
             Rental::STATUS_QUOTATION,
@@ -629,10 +696,11 @@ class RentalEditor extends Component
      * For unfiltered/unlimited catalog, also cached in laravel cache for 60s (shared across users).
      */
     protected ?array $productsLoadCache = null;
+
     protected function loadProductsForCatalog(?string $needle, ?int $limit)
     {
         $isUnfilteredFull = ($needle === null && $limit === null);
-        $cacheKey = 'cat_products|' . ($needle ?? '') . '|' . ($limit ?? 'all');
+        $cacheKey = 'cat_products|'.($needle ?? '').'|'.($limit ?? 'all');
 
         if ($this->productsLoadCache !== null && isset($this->productsLoadCache[$cacheKey])) {
             return $this->productsLoadCache[$cacheKey];
@@ -657,6 +725,7 @@ class RentalEditor extends Component
             if ($limit !== null) {
                 $q->limit($limit);
             }
+
             return $q->get();
         };
 
@@ -666,6 +735,7 @@ class RentalEditor extends Component
             : $loader();
 
         $this->productsLoadCache[$cacheKey] = $products;
+
         return $products;
     }
 
@@ -690,7 +760,7 @@ class RentalEditor extends Component
             ->whereNotIn('condition', ['broken', 'lost'])
             ->where('product_id', $productId)
             ->when($variationId, fn ($q) => $q->where('product_variation_id', $variationId))
-            ->when(!empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
+            ->when(! empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
             ->get();
     }
 
@@ -712,12 +782,13 @@ class RentalEditor extends Component
     public function catalogRows(): array
     {
         // Cache key includes used unit ids so avail counts refresh after add/remove.
-        $cacheKey = md5(($this->start_date ?? '') . '|' . ($this->end_date ?? '') . '|' . ($this->record?->id ?? '') . '|' . implode(',', $this->allUsedUnitIds()));
+        $cacheKey = md5(($this->start_date ?? '').'|'.($this->end_date ?? '').'|'.($this->record?->id ?? '').'|'.implode(',', $this->allUsedUnitIds()));
         if ($this->catalogRowsCache !== null && ($this->catalogRowsCache['_key'] ?? null) === $cacheKey) {
             return $this->catalogRowsCache['data'];
         }
         $rows = $this->productOptions(null, null);
         $this->catalogRowsCache = ['_key' => $cacheKey, 'data' => $rows];
+
         return $rows;
     }
 
@@ -837,7 +908,9 @@ class RentalEditor extends Component
         foreach ($batch as $entry) {
             $cid = (string) ($entry['id'] ?? '');
             $qty = max(1, (int) ($entry['qty'] ?? 1));
-            if ($cid === '') continue;
+            if ($cid === '') {
+                continue;
+            }
             $this->addProduct($cid, $qty);
         }
         $this->searchTerm = '';
@@ -973,10 +1046,12 @@ class RentalEditor extends Component
             $newQty = (int) $it['quantity'] - 1;
             if ($newQty <= 0) {
                 $this->items = array_values(array_filter($this->items, fn ($x) => $x['key'] !== $it['key']));
+
                 return;
             }
             $this->items[$i]['quantity'] = $newQty;
             $this->items[$i]['unit_ids'] = array_slice($it['unit_ids'], 0, $newQty);
+
             return;
         }
     }
@@ -1080,12 +1155,13 @@ class RentalEditor extends Component
 
     protected function beginTransfer(?int $unitId, string $mode, ?string $itemKey): void
     {
-        if (!$this->canTransfer) {
+        if (! $this->canTransfer) {
             Notification::make()
                 ->title('Tidak dapat di-transfer')
                 ->body('Rental harus berstatus quotation, confirmed, atau late_pickup.')
                 ->danger()
                 ->send();
+
             return;
         }
 
@@ -1094,6 +1170,7 @@ class RentalEditor extends Component
             $this->persistInline();
         } catch (\Throwable $e) {
             Notification::make()->title('Gagal menyimpan perubahan')->body($e->getMessage())->danger()->send();
+
             return;
         }
 
@@ -1101,8 +1178,9 @@ class RentalEditor extends Component
             $exists = RentalItem::where('rental_id', $this->record->id)
                 ->where('product_unit_id', $unitId)
                 ->exists();
-            if (!$exists) {
+            if (! $exists) {
                 Notification::make()->title('Unit tidak ditemukan di rental ini')->danger()->send();
+
                 return;
             }
         }
@@ -1141,7 +1219,7 @@ class RentalEditor extends Component
      */
     public function switchTransferMode(string $mode): void
     {
-        if (!$this->transferModalOpen || !in_array($mode, ['move', 'swap', 'pull'], true)) {
+        if (! $this->transferModalOpen || ! in_array($mode, ['move', 'swap', 'pull'], true)) {
             return;
         }
 
@@ -1178,7 +1256,7 @@ class RentalEditor extends Component
     #[Computed]
     public function transferContext(): ?array
     {
-        if (!$this->transferModalOpen || !$this->record?->exists) {
+        if (! $this->transferModalOpen || ! $this->record?->exists) {
             return null;
         }
 
@@ -1186,7 +1264,7 @@ class RentalEditor extends Component
         $pickableUnits = [];
         if ($this->transferItemKey) {
             $row = collect($this->items)->firstWhere('key', $this->transferItemKey);
-            if ($row && !empty($row['unit_ids'])) {
+            if ($row && ! empty($row['unit_ids'])) {
                 $units = ProductUnit::whereIn('id', $row['unit_ids'])->get(['id', 'serial_number']);
                 $pickableUnits = $units->map(fn ($u) => [
                     'id' => $u->id,
@@ -1301,7 +1379,7 @@ class RentalEditor extends Component
                 ->map(fn ($ri) => [
                     'id' => $ri->id,
                     'label' => ($ri->productUnit?->product?->name ?? 'Unknown')
-                        . ' — ' . ($ri->productUnit?->serial_number ?? '#'.$ri->product_unit_id),
+                        .' — '.($ri->productUnit?->serial_number ?? '#'.$ri->product_unit_id),
                 ])
                 ->all();
         }
@@ -1321,8 +1399,9 @@ class RentalEditor extends Component
 
     public function confirmTransfer(): void
     {
-        if (!$this->canTransfer) {
+        if (! $this->canTransfer) {
             Notification::make()->title('Rental tidak dapat di-transfer')->danger()->send();
+
             return;
         }
 
@@ -1331,25 +1410,29 @@ class RentalEditor extends Component
         try {
             if ($this->transferMode === 'pull') {
                 // Pull = MOVE inverted. Source item lives in another rental; target = this rental.
-                if (!$this->transferTargetItemId) {
+                if (! $this->transferTargetItemId) {
                     Notification::make()->title('Pilih unit dari rental lain untuk ditarik')->danger()->send();
+
                     return;
                 }
                 $other = RentalItem::find($this->transferTargetItemId);
-                if (!$other) {
+                if (! $other) {
                     Notification::make()->title('Item sumber tidak ditemukan')->danger()->send();
+
                     return;
                 }
                 $sourceCode = $other->rental->rental_code;
                 $service->move($other, $this->record);
                 $msg = "Unit ditarik dari {$sourceCode}";
             } else {
-                if (!$this->transferUnitId) {
+                if (! $this->transferUnitId) {
                     Notification::make()->title('Pilih unit terlebih dahulu')->danger()->send();
+
                     return;
                 }
-                if (!$this->transferTargetRentalId) {
+                if (! $this->transferTargetRentalId) {
                     Notification::make()->title('Pilih rental tujuan')->danger()->send();
+
                     return;
                 }
 
@@ -1357,27 +1440,31 @@ class RentalEditor extends Component
                     ->where('product_unit_id', $this->transferUnitId)
                     ->first();
 
-                if (!$sourceItem) {
+                if (! $sourceItem) {
                     Notification::make()->title('Item sumber tidak ditemukan')->danger()->send();
+
                     return;
                 }
 
                 if ($this->transferMode === 'move') {
                     $target = Rental::find($this->transferTargetRentalId);
-                    if (!$target) {
+                    if (! $target) {
                         Notification::make()->title('Rental tujuan tidak ditemukan')->danger()->send();
+
                         return;
                     }
                     $service->move($sourceItem, $target);
                     $msg = "Unit dipindahkan ke {$target->rental_code}";
                 } else {
-                    if (!$this->transferTargetItemId) {
+                    if (! $this->transferTargetItemId) {
                         Notification::make()->title('Pilih item untuk di-swap')->danger()->send();
+
                         return;
                     }
                     $other = RentalItem::find($this->transferTargetItemId);
-                    if (!$other) {
+                    if (! $other) {
                         Notification::make()->title('Item tujuan tidak ditemukan')->danger()->send();
+
                         return;
                     }
                     $service->swap($sourceItem, $other);
@@ -1422,8 +1509,7 @@ class RentalEditor extends Component
             'end_date' => $this->end_date,
             'status' => $this->status,
             'subtotal' => $totals['subtotal'],
-            'discount' => $this->discount,
-            'discount_type' => $this->discount_type,
+            ...$this->discountFields(),
             'deposit' => $this->deposit,
             'deposit_type' => $this->deposit_type,
             'down_payment_amount' => $this->down_payment_amount,
@@ -1434,7 +1520,7 @@ class RentalEditor extends Component
             'notes' => $this->notes,
         ];
 
-        if (!$this->record || !$this->record->exists) {
+        if (! $this->record || ! $this->record->exists) {
             $this->record = Rental::create($payload);
         } else {
             $this->record->fill($payload);
@@ -1487,7 +1573,7 @@ class RentalEditor extends Component
             ->whereNotIn('condition', ['broken', 'lost'])
             ->where('product_id', $row['product_id'])
             ->when($row['variation_id'], fn ($q) => $q->where('product_variation_id', $row['variation_id']))
-            ->when(!empty($excluded), fn ($q) => $q->whereNotIn('id', $excluded))
+            ->when(! empty($excluded), fn ($q) => $q->whereNotIn('id', $excluded))
             ->get();
 
         $currentUnits = ProductUnit::whereIn('id', $row['unit_ids'])->get();
@@ -1547,10 +1633,21 @@ class RentalEditor extends Component
     public function totals(): array
     {
         $grossSubtotal = $this->subtotal;
-        $discountAmount = $this->discount_type === 'percent'
-            ? $grossSubtotal * ($this->discount / 100)
-            : $this->discount;
-        $netSubtotal = max(0, $grossSubtotal - $discountAmount);
+        $applied = $this->appliedDiscounts;
+
+        // The manual discount and a picked coupon are mutually exclusive (both use
+        // the `discount` column). Coupon amount is computed from its own rule.
+        $discountAmount = $this->discount_id
+            ? $applied['coupon_amount']
+            : ($this->discount_type === 'percent' ? $grossSubtotal * ($this->discount / 100) : $this->discount);
+
+        // Category stays on the saved record (set by the storefront); daily/date
+        // are live-computed from the picked promos. Mirror RentalObserver so the
+        // displayed Total matches what is persisted on save.
+        $categoryAmount = (float) ($this->record?->category_discount_amount ?? 0);
+        $promoDiscount = $categoryAmount + $applied['daily_amount'] + $applied['date_amount'];
+
+        $netSubtotal = max(0, $grossSubtotal - $discountAmount - $promoDiscount);
 
         $taxEnabled = filter_var(Setting::get('tax_enabled', true), FILTER_VALIDATE_BOOLEAN);
         $isPkp = filter_var(Setting::get('is_pkp', false), FILTER_VALIDATE_BOOLEAN);
@@ -1578,6 +1675,7 @@ class RentalEditor extends Component
         return [
             'subtotal' => $grossSubtotal,
             'discount_amount' => $discountAmount,
+            'promo_discount' => round($promoDiscount, 2),
             'net_subtotal' => $netSubtotal,
             'tax_base' => round($taxBase, 2),
             'ppn_amount' => round($ppnAmount, 2),
@@ -1586,6 +1684,162 @@ class RentalEditor extends Component
             'total' => round($total, 2),
             'tax_enabled' => $taxEnabled && $isPkp && $isTaxable,
         ];
+    }
+
+    /**
+     * Live-computed amounts for the promo layers picked in the ringkasan. Each
+     * promo's own rule is evaluated against the current subtotal/days, stacked in
+     * the same order as PromotionService (daily → date → coupon), on the base
+     * after any category discount carried on the saved record.
+     *
+     * @return array{daily_model: ?DailyDiscount, daily_amount: float, date_model: ?DatePromotion, date_amount: float, coupon_model: ?Discount, coupon_amount: float}
+     */
+    #[Computed]
+    public function appliedDiscounts(): array
+    {
+        $subtotal = $this->subtotal;
+        $days = $this->days;
+
+        $totalQty = 0;
+        $rateSum = 0;
+        foreach ($this->items as $it) {
+            $q = (int) $it['quantity'];
+            $totalQty += $q;
+            $rateSum += (float) $it['daily_rate'] * $q;
+        }
+        $avgRate = $totalQty > 0 ? $rateSum / $totalQty : 0;
+
+        $categoryAmount = (float) ($this->record?->category_discount_amount ?? 0);
+        $base = max(0, $subtotal - $categoryAmount);
+        // Post-category rate (= gross rate for admin rentals where category is 0),
+        // so a daily discount on a storefront rental recomputes to the same value.
+        $effectiveRate = $subtotal > 0 ? $avgRate * ($base / $subtotal) : $avgRate;
+
+        $dailyModel = $this->daily_discount_id ? DailyDiscount::find($this->daily_discount_id) : null;
+        $dailyAmount = $dailyModel ? (float) $dailyModel->calculateDiscount($days, $effectiveRate) : 0;
+
+        $dateModel = $this->date_promotion_id ? DatePromotion::find($this->date_promotion_id) : null;
+        $dateAmount = $dateModel ? (float) $dateModel->calculateDiscount(max(0, $base - $dailyAmount)) : 0;
+
+        $couponModel = $this->discount_id ? Discount::find($this->discount_id) : null;
+        $couponAmount = $couponModel ? (float) $couponModel->calculateDiscount(max(0, $base - $dailyAmount - $dateAmount)) : 0;
+
+        return [
+            'daily_model' => $dailyModel,
+            'daily_amount' => $dailyAmount,
+            'date_model' => $dateModel,
+            'date_amount' => $dateAmount,
+            'coupon_model' => $couponModel,
+            'coupon_amount' => $couponAmount,
+        ];
+    }
+
+    /**
+     * Discount + promo columns shared by save() and persistInline(). A picked
+     * coupon overrides the free manual discount (both occupy the `discount`
+     * column); daily/date amounts are the live-computed promo values.
+     */
+    protected function discountFields(): array
+    {
+        $applied = $this->appliedDiscounts;
+
+        return [
+            'discount' => $this->discount_id ? $applied['coupon_amount'] : $this->discount,
+            'discount_type' => $this->discount_id ? 'fixed' : $this->discount_type,
+            'discount_id' => $this->discount_id ?: null,
+            'discount_code' => $this->discount_id ? $this->discount_code : null,
+            'daily_discount_id' => $this->daily_discount_id ?: null,
+            'daily_discount_amount' => $applied['daily_amount'],
+            'date_promotion_id' => $this->date_promotion_id ?: null,
+            'date_promotion_amount' => $applied['date_amount'],
+        ];
+    }
+
+    /**
+     * Breakdown of the non-manual discount lines (category / daily / date) for the
+     * ringkasan. Category is read from the saved record; daily/date are live from
+     * the picked promos. The manual/coupon line is rendered separately.
+     *
+     * @return array<int, array{key: string, label: string, amount: float}>
+     */
+    #[Computed]
+    public function promoBreakdown(): array
+    {
+        $applied = $this->appliedDiscounts;
+        $lines = [];
+
+        $record = $this->record;
+        $category = (float) ($record?->category_discount_amount ?? 0);
+        if ($category > 0) {
+            $label = 'Diskon Kategori'.($record?->category_name ? ' ('.$record->category_name.')' : '');
+            $lines[] = ['key' => 'category', 'label' => $label, 'amount' => $category];
+        }
+
+        if ($applied['daily_amount'] > 0) {
+            $lines[] = [
+                'key' => 'daily',
+                'label' => $applied['daily_model']?->name ?? 'Diskon Promo Harian',
+                'amount' => $applied['daily_amount'],
+            ];
+        }
+
+        if ($applied['date_amount'] > 0) {
+            $lines[] = [
+                'key' => 'date',
+                'label' => $applied['date_model']?->name ?? 'Diskon Promo Tanggal',
+                'amount' => $applied['date_amount'],
+            ];
+        }
+
+        return $lines;
+    }
+
+    /** Active Daily Discounts for the ringkasan picker: id => label. */
+    #[Computed]
+    public function dailyDiscountOptions(): array
+    {
+        return DailyDiscount::where('is_active', true)
+            ->orderByDesc('priority')
+            ->orderBy('min_days')
+            ->get()
+            ->mapWithKeys(fn ($d) => [
+                $d->id => $d->name.' (min '.$d->min_days.' hari → '.$d->free_days.' hari gratis)',
+            ])
+            ->toArray();
+    }
+
+    /** Active Date Promotions for the ringkasan picker: id => label. */
+    #[Computed]
+    public function datePromotionOptions(): array
+    {
+        return DatePromotion::where('is_active', true)
+            ->orderByDesc('priority')
+            ->get()
+            ->mapWithKeys(function ($d) {
+                $val = $d->type === 'percentage'
+                    ? rtrim(rtrim(number_format($d->value, 2), '0'), '.').'%'
+                    : 'Rp '.number_format($d->value, 0, ',', '.');
+
+                return [$d->id => $d->name.' ('.$val.')'];
+            })
+            ->toArray();
+    }
+
+    /** Active coupon Discounts for the ringkasan picker: id => label. */
+    #[Computed]
+    public function couponOptions(): array
+    {
+        return Discount::where('is_active', true)
+            ->orderBy('code')
+            ->get()
+            ->mapWithKeys(function ($d) {
+                $val = $d->type === 'percentage'
+                    ? rtrim(rtrim(number_format($d->value, 2), '0'), '.').'%'
+                    : 'Rp '.number_format($d->value, 0, ',', '.');
+
+                return [$d->id => $d->code.' — '.$d->name.' ('.$val.')'];
+            })
+            ->toArray();
     }
 
     // ─── Save / Cancel ───
@@ -1612,8 +1866,7 @@ class RentalEditor extends Component
             'end_date' => $this->end_date,
             'status' => $this->status,
             'subtotal' => $totals['subtotal'],
-            'discount' => $this->discount,
-            'discount_type' => $this->discount_type,
+            ...$this->discountFields(),
             'deposit' => $this->deposit,
             'deposit_type' => $this->deposit_type,
             'down_payment_amount' => $this->down_payment_amount,
@@ -1672,6 +1925,7 @@ class RentalEditor extends Component
     {
         if (! $this->record || ! $this->record->exists) {
             Notification::make()->title('Simpan rental dulu sebelum duplikat')->warning()->send();
+
             return null;
         }
 
@@ -1700,6 +1954,7 @@ class RentalEditor extends Component
     {
         if (! $this->record || ! $this->record->exists || ! $this->record->quotation_id) {
             Notification::make()->title('Quotation tidak ditemukan')->danger()->send();
+
             return null;
         }
 
@@ -1708,13 +1963,14 @@ class RentalEditor extends Component
 
         if (! $quotation) {
             Notification::make()->title('Quotation tidak ditemukan')->danger()->send();
+
             return null;
         }
 
         $pdf = Pdf::loadView('pdf.quotation', ['quotation' => $quotation]);
 
         return response()->streamDownload(
-            fn () => print($pdf->output()),
+            fn () => print ($pdf->output()),
             'Quotation-'.$quotation->number.'.pdf'
         );
     }
@@ -1723,6 +1979,7 @@ class RentalEditor extends Component
     {
         if (! $this->record || ! $this->record->exists || ! $this->record->invoice_id) {
             Notification::make()->title('Invoice tidak ditemukan')->danger()->send();
+
             return null;
         }
 
@@ -1731,13 +1988,14 @@ class RentalEditor extends Component
 
         if (! $invoice) {
             Notification::make()->title('Invoice tidak ditemukan')->danger()->send();
+
             return null;
         }
 
         $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $invoice]);
 
         return response()->streamDownload(
-            fn () => print($pdf->output()),
+            fn () => print ($pdf->output()),
             'Invoice-'.$invoice->number.'.pdf'
         );
     }

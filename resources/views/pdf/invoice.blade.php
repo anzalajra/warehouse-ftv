@@ -105,39 +105,24 @@
                     <td style="border: none; padding: 5px;" class="text-right">Rp {{ number_format($invoice->subtotal, 0, ',', '.') }}</td>
                 </tr>
                 @php
-                    $baseDiscount = 0;
-                    $dailyDiscount = 0;
-                    $dateDiscount = 0;
-                    
+                    // Aggregate every discount layer across the invoice's rentals,
+                    // grouped by their human-readable label (Rental::discountBreakdown).
+                    $discountLines = [];
                     foreach ($invoice->rentals as $rental) {
-                        if ($rental->discount_type === 'percent') {
-                            $baseDiscount += ($rental->subtotal ?? 0) * (($rental->discount ?? 0) / 100);
-                        } else {
-                            $baseDiscount += $rental->discount ?? 0;
+                        foreach ($rental->discountBreakdown() as $line) {
+                            $discountLines[$line['label']] = ($discountLines[$line['label']] ?? 0) + $line['amount'];
                         }
-                        $dailyDiscount += $rental->daily_discount_amount ?? 0;
-                        $dateDiscount += $rental->date_promotion_amount ?? 0;
                     }
                 @endphp
-                
-                @if($baseDiscount > 0)
-                <tr>
-                    <td style="border: none; padding: 5px;">Kupon Diskon</td>
-                    <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($baseDiscount, 0, ',', '.') }}</td>
-                </tr>
-                @endif
-                @if($dailyDiscount > 0)
-                <tr>
-                    <td style="border: none; padding: 5px;">Diskon Promo Harian</td>
-                    <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($dailyDiscount, 0, ',', '.') }}</td>
-                </tr>
-                @endif
-                @if($dateDiscount > 0)
-                <tr>
-                    <td style="border: none; padding: 5px;">Diskon Promo Tanggal</td>
-                    <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($dateDiscount, 0, ',', '.') }}</td>
-                </tr>
-                @endif
+
+                @foreach($discountLines as $label => $amount)
+                    @if($amount > 0)
+                    <tr>
+                        <td style="border: none; padding: 5px;">{{ $label }}</td>
+                        <td style="border: none; padding: 5px;" class="text-right">- Rp {{ number_format($amount, 0, ',', '.') }}</td>
+                    </tr>
+                    @endif
+                @endforeach
 
                 @if($invoice->late_fee > 0)
                 <tr>
