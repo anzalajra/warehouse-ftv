@@ -315,11 +315,9 @@ class RentalsTable
                     ->action(function (Rental $record, array $data) {
                         $record->reopenFromCompleted();
 
-                        $stamp = '[' . now()->format('Y-m-d H:i') . '] REOPEN oleh '
-                            . (Auth::user()?->email ?? 'system') . ' — ' . $data['reason'];
-                        $record->updateQuietly([
-                            'notes' => trim(($record->notes ?? '') . "\n" . $stamp),
-                        ]);
+                        // Status transition (Completed → Active) is auto-logged by
+                        // RentalObserver; record the reopen reason in the same activity log.
+                        $record->logActivity('Reopen dari Completed. Alasan: ' . $data['reason'], 'status');
 
                         \Illuminate\Support\Facades\Log::info('Rental REOPEN', [
                             'rental_id' => $record->id,
@@ -500,6 +498,11 @@ class RentalsTable
                         ->action(function (Rental $record, array $data) {
                             $record->update(['late_fee' => $data['late_fee']]);
                             $record->recalculateTotal();
+
+                            $record->logActivity(
+                                'Late fee diset Rp ' . number_format((float) $data['late_fee'], 0, ',', '.'),
+                                'general'
+                            );
 
                             // Recalc the linked invoice, or issue one when a balance is now
                             // owed but the rental never had an invoice — otherwise the late

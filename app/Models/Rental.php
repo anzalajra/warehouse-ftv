@@ -1598,6 +1598,11 @@ class Rental extends Model
             'cancel_reason' => $reason,
         ]);
 
+        // Status transition is auto-logged by RentalObserver; record the reason too.
+        if (trim($reason) !== '') {
+            $this->logActivity('Dibatalkan. Alasan: ' . $reason, 'status');
+        }
+
         // Cancel all associated deliveries
         $this->deliveries()->update(['status' => Delivery::STATUS_CANCELLED]);
     }

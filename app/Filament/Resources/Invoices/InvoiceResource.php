@@ -237,8 +237,13 @@ class InvoiceResource extends Resource
                         }
 
                         $rental->late_fee = ($rental->late_fee ?? 0) + $amount;
-                        $rental->notes = trim(($rental->notes ?? '') . "\n[Late Fee] Rp " . number_format($amount, 0, ',', '.') . ' - Reason: ' . $data['reason']);
                         $rental->recalculateTotal();
+
+                        // Audit the late fee in the rental activity log (not the free-text notes).
+                        $rental->logActivity(
+                            'Late fee Rp ' . number_format($amount, 0, ',', '.') . ' ditambahkan. Alasan: ' . $data['reason'],
+                            'general'
+                        );
 
                         // Re-aggregate the invoice (total, late_fee, status) from its rentals.
                         $record->recalculate();
