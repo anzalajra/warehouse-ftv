@@ -66,10 +66,23 @@
 
     $hasOverflow = $canRevert || $canCancel || $canDelete;
     $rentalsIndexUrl = \App\Filament\Resources\Rentals\RentalResource::getUrl('index');
+
+    // --- Customer profile popup (clickable customer name) ---
+    $custInitials = strtoupper(collect(explode(' ', $customer?->name ?? '?'))
+        ->filter()
+        ->map(fn ($w) => mb_substr($w, 0, 1))
+        ->take(2)
+        ->implode('')) ?: '?';
+    $custHistory  = $this->customerHistory();
+    $custStats    = $this->customerStats();
+    $custCategory = $customer?->category?->name;
+    $custOpenUrl  = $this->getCustomerUrl();
+    $custBlocked  = $customer && method_exists($customer, 'isBlocked') && $customer->isBlocked();
+    $custRedNotice = $customer && method_exists($customer, 'isRedNotice') && $customer->isRedNotice();
 @endphp
 
 <x-filament-panels::page>
-    <div class="rent-app rent-view" x-data="{ sendSheet:false, actSheet:false }">
+    <div class="rent-app rent-view" x-data="{ sendSheet:false, actSheet:false, custProfile:false }">
         <style>
             .rent-app {
                 --danger-50:  var(--primary-50,  #f0f9ff);
@@ -349,6 +362,80 @@
                 .rent-app .rv-act.disabled { opacity:.5; pointer-events:none; }
                 .rent-app .rv-act .tag { margin-left:auto; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--fg-4); background:var(--gray-100); padding:3px 8px; border-radius:999px; }
             }
+
+            /* ===================================================================
+               Customer profile: clickable name trigger + detail popup
+               =================================================================== */
+            .rent-app .cust-trigger { display:inline-flex; align-items:center; gap:5px; background:none; border:none; padding:0; margin:0; font:inherit; cursor:pointer; color:var(--danger-600); font-weight:600; font-size:15px; line-height:1.35; text-align:left; }
+            .rent-app .cust-trigger:hover .cust-trigger-name { text-decoration:underline; }
+            .rent-app .cust-trigger-name { overflow-wrap:anywhere; }
+            .rent-app .cust-trigger-chev { flex:none; opacity:.65; margin-top:1px; }
+
+            .rent-app .cust-modal-root { position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; padding:20px; }
+            .rent-app .cust-scrim { position:absolute; inset:0; background:rgba(8,11,16,.5); animation:rv-fade .18s ease; }
+            @keyframes rv-fade { from{opacity:0} to{opacity:1} }
+            @keyframes cust-pop { from{opacity:0; transform:translateY(8px) scale(.98)} to{opacity:1; transform:none} }
+            .rent-app .cust-modal { position:relative; z-index:1; width:100%; max-width:480px; max-height:88vh; display:flex; flex-direction:column; background:var(--bg-surface); border:1px solid var(--border-1); border-radius:18px; box-shadow:0 24px 64px -12px rgba(0,0,0,.4); overflow:hidden; animation:cust-pop .2s cubic-bezier(.2,.7,.3,1); }
+
+            .rent-app .cust-modal-head { display:flex; align-items:flex-start; gap:13px; padding:18px 18px 16px; border-bottom:1px solid var(--border-1); }
+            .rent-app .cust-avatar { width:46px; height:46px; border-radius:13px; flex:none; background:var(--primary-600,#0284c7); color:#fff; display:grid; place-items:center; font-size:17px; font-weight:800; letter-spacing:-.02em; }
+            .rent-app .cust-id { flex:1; min-width:0; }
+            .rent-app .cust-id .cust-name { font-size:17px; font-weight:800; letter-spacing:-.01em; color:var(--fg-1); line-height:1.25; word-break:break-word; }
+            .rent-app .cust-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+            .rent-app .cust-chip { font-size:10.5px; font-weight:700; letter-spacing:.02em; padding:2.5px 8px; border-radius:999px; background:var(--gray-100); color:var(--fg-2); text-transform:uppercase; }
+            .rent-app .cust-chip.ok { background:var(--success-100); color:var(--success-700); }
+            .rent-app .cust-chip.bad { background:#fee2e2; color:#b91c1c; }
+            .dark .rent-app .cust-chip.bad { background:rgba(220,38,38,.2); color:#f87171; }
+            .rent-app .cust-chip.muted { background:transparent; color:var(--fg-4); font-family:var(--font-mono); letter-spacing:0; padding-left:2px; }
+            .rent-app .cust-x { width:32px; height:32px; flex:none; border-radius:9px; background:var(--gray-100); border:none; display:grid; place-items:center; color:var(--fg-2); cursor:pointer; }
+            .rent-app .cust-x:hover { background:var(--gray-200); }
+
+            .rent-app .cust-modal-body { overflow:auto; padding:16px 18px; display:flex; flex-direction:column; gap:16px; }
+
+            .rent-app .cust-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--border-1); border:1px solid var(--border-1); border-radius:12px; overflow:hidden; }
+            .rent-app .cust-stats .cs-cell { background:var(--bg-surface); padding:11px 8px; text-align:center; min-width:0; }
+            .rent-app .cust-stats .cs-v { font-size:18px; font-weight:800; color:var(--fg-1); font-variant-numeric:tabular-nums; line-height:1.1; }
+            .rent-app .cust-stats .cs-v.sm { font-size:12px; font-weight:700; overflow:hidden; text-overflow:ellipsis; }
+            .rent-app .cust-stats .cs-k { font-size:9.5px; font-weight:600; color:var(--fg-3); text-transform:uppercase; letter-spacing:.04em; margin-top:4px; }
+
+            .rent-app .cust-contact { display:flex; flex-direction:column; }
+            .rent-app .cust-contact .cc-row { display:flex; align-items:flex-start; gap:10px; padding:8px 2px; border-bottom:1px solid var(--gray-100); }
+            .rent-app .cust-contact .cc-row:last-child { border-bottom:none; }
+            .rent-app .cust-contact .cc-ic { color:var(--fg-4); flex:none; margin-top:1px; display:flex; }
+            .rent-app .cust-contact .cc-k { font-size:12.5px; color:var(--fg-3); width:62px; flex:none; }
+            .rent-app .cust-contact .cc-v { font-size:13.5px; color:var(--fg-1); font-weight:500; flex:1; min-width:0; word-break:break-word; }
+            .rent-app .cust-contact .cc-v.muted { color:var(--fg-4); font-weight:400; }
+            .rent-app .cust-contact .cc-v a { color:var(--success-700); text-decoration:none; }
+            .dark .rent-app .cust-contact .cc-v a { color:#4ade80; }
+            .rent-app .cust-contact .cc-v a:hover { text-decoration:underline; }
+
+            .rent-app .cust-warn { display:flex; gap:9px; padding:11px 12px; border-radius:11px; background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; font-size:12.5px; line-height:1.45; }
+            .dark .rent-app .cust-warn { background:rgba(220,38,38,.12); border-color:rgba(220,38,38,.35); color:#f87171; }
+            .rent-app .cust-warn svg { flex:none; margin-top:1px; }
+
+            .rent-app .cust-hist .ch-head { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--fg-3); margin-bottom:9px; }
+            .rent-app .cust-hist .ch-count { font-size:11px; font-weight:700; color:var(--fg-2); background:var(--gray-100); padding:1px 7px; border-radius:999px; }
+            .rent-app .cust-hist .ch-list { display:flex; flex-direction:column; gap:6px; }
+            .rent-app .cust-hist .ch-item { display:flex; align-items:center; gap:10px; padding:10px 11px; border:1px solid var(--border-1); border-radius:11px; text-decoration:none; transition:background var(--dur-fast) var(--ease); }
+            .rent-app .cust-hist .ch-item:hover { background:var(--gray-50); }
+            .rent-app .cust-hist .ch-item.current { border-color:var(--primary-400); background:var(--danger-50); }
+            .rent-app .cust-hist .ch-main { flex:1; min-width:0; }
+            .rent-app .cust-hist .ch-code { font-family:var(--font-mono); font-size:13px; font-weight:600; color:var(--fg-1); display:flex; align-items:center; gap:6px; }
+            .rent-app .cust-hist .ch-now { font-family:var(--font-sans); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--danger-700); background:var(--danger-100); padding:1.5px 6px; border-radius:999px; }
+            .rent-app .cust-hist .ch-meta { font-size:11.5px; color:var(--fg-3); margin-top:3px; }
+            .rent-app .cust-hist .ch-right { display:flex; flex-direction:column; align-items:flex-end; gap:5px; flex:none; }
+            .rent-app .cust-hist .ch-amt { font-size:13px; font-weight:700; color:var(--fg-1); font-variant-numeric:tabular-nums; white-space:nowrap; }
+            .rent-app .cust-hist .ch-right .pill { font-size:10px; padding:2px 7px; }
+            .rent-app .cust-hist .ch-empty { padding:18px; text-align:center; color:var(--fg-4); font-size:13px; }
+
+            .rent-app .cust-modal-foot { display:flex; gap:8px; padding:13px 18px; border-top:1px solid var(--border-1); }
+            .rent-app .cust-modal-foot .btn { flex:1; justify-content:center; }
+
+            @media (max-width: 520px) {
+                .rent-app .cust-modal-root { padding:0; align-items:flex-end; }
+                .rent-app .cust-modal { max-width:none; max-height:90vh; border-radius:20px 20px 0 0; border-bottom:none; animation:rv-slideup .26s cubic-bezier(.2,.7,.3,1); }
+                .rent-app .cust-stats .cs-v { font-size:16px; }
+            }
         </style>
 
         {{-- ===================== Sticky topbar ===================== --}}
@@ -525,12 +612,15 @@
                 <div class="info-cell">
                     <span class="il">Customer</span>
                     <span class="iv">
-                        @if($customerUrl)
-                            <a href="{{ $customerUrl }}" class="iv-link">{{ $customer?->name ?? '—' }}</a>
+                        @if($customer)
+                            <button type="button" class="cust-trigger" @click="custProfile=true" title="Lihat detail pelanggan">
+                                <span class="cust-trigger-name">{{ $customer->name ?? '—' }}</span>
+                                <svg class="cust-trigger-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
                         @else
-                            {{ $customer?->name ?? '—' }}
+                            —
                         @endif
-                        @if($customer && method_exists($customer, 'isRedNotice') && $customer->isRedNotice())
+                        @if($custRedNotice)
                             <span class="pill pill-red" style="margin-left:8px;font-size:10px;">Red Notice</span>
                         @endif
                     </span>
@@ -801,5 +891,110 @@
                 </div>
             </div>
         </div>
+
+        {{-- ===================== Customer profile modal ===================== --}}
+        @if($customer)
+            <div class="cust-modal-root" x-show="custProfile" x-cloak @keydown.escape.window="custProfile=false" style="display:none;">
+                <div class="cust-scrim" @click="custProfile=false"></div>
+                <div class="cust-modal">
+                    <div class="cust-modal-head">
+                        <span class="cust-avatar">{{ $custInitials }}</span>
+                        <div class="cust-id">
+                            <div class="cust-name">{{ $customer->name ?? '—' }}</div>
+                            <div class="cust-tags">
+                                @if($custCategory)<span class="cust-chip">{{ $custCategory }}</span>@endif
+                                @if($customer->is_verified)<span class="cust-chip ok">Terverifikasi</span>@endif
+                                @if($custRedNotice)<span class="cust-chip bad">Red Notice</span>@endif
+                                @if($custBlocked)<span class="cust-chip bad">Diblokir</span>@endif
+                                <span class="cust-chip muted">#{{ $customer->id }}</span>
+                            </div>
+                        </div>
+                        <button type="button" class="cust-x" @click="custProfile=false" aria-label="Tutup">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+
+                    <div class="cust-modal-body">
+                        {{-- Aggregate stats --}}
+                        <div class="cust-stats">
+                            <div class="cs-cell"><div class="cs-v">{{ $custStats['total'] }}</div><div class="cs-k">Total</div></div>
+                            <div class="cs-cell"><div class="cs-v">{{ $custStats['active'] }}</div><div class="cs-k">Aktif</div></div>
+                            <div class="cs-cell"><div class="cs-v">{{ $custStats['completed'] }}</div><div class="cs-k">Selesai</div></div>
+                            <div class="cs-cell"><div class="cs-v sm">{{ $rp($custStats['spent']) }}</div><div class="cs-k">Belanja</div></div>
+                        </div>
+
+                        {{-- Contact info --}}
+                        <div class="cust-contact">
+                            <div class="cc-row">
+                                <span class="cc-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+                                <span class="cc-k">Telepon</span>
+                                <span class="cc-v {{ $customer->phone ? '' : 'muted' }}">
+                                    @if($waLink)<a href="{{ $waLink }}" target="_blank" rel="noopener">{{ $customer->phone }}</a>@else{{ $customer->phone ?: '—' }}@endif
+                                </span>
+                            </div>
+                            <div class="cc-row">
+                                <span class="cc-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></span>
+                                <span class="cc-k">Email</span>
+                                <span class="cc-v {{ $customer->email ? '' : 'muted' }}">
+                                    @if($customer->email)<a href="mailto:{{ $customer->email }}">{{ $customer->email }}</a>@else—@endif
+                                </span>
+                            </div>
+                            <div class="cc-row">
+                                <span class="cc-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2M15 12h2M7 16h10"/></svg></span>
+                                <span class="cc-k">NIK</span>
+                                <span class="cc-v {{ $customer->nik ? 'mono' : 'muted' }}">{{ $customer->nik ?: '—' }}</span>
+                            </div>
+                            <div class="cc-row">
+                                <span class="cc-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+                                <span class="cc-k">Alamat</span>
+                                <span class="cc-v {{ $customer->address ? '' : 'muted' }}">{{ $customer->address ?: '—' }}</span>
+                            </div>
+                        </div>
+
+                        {{-- Blocked / red-notice reason --}}
+                        @if(($custBlocked || $custRedNotice) && !empty($customer->blocked_reason))
+                            <div class="cust-warn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4M12 17h.01"/></svg>
+                                <span><strong>{{ $custRedNotice ? 'Red Notice' : 'Diblokir' }}:</strong> {{ $customer->blocked_reason }}</span>
+                            </div>
+                        @endif
+
+                        {{-- Rental history --}}
+                        <div class="cust-hist">
+                            <div class="ch-head">Riwayat Rental <span class="ch-count">{{ $custStats['total'] }}</span></div>
+                            <div class="ch-list">
+                                @forelse($custHistory as $h)
+                                    @php
+                                        $hStatus = $h->status;
+                                        $hTone   = $toneMap[$hStatus] ?? 'gray';
+                                        $hUrl    = \App\Filament\Resources\Rentals\RentalResource::getUrl('view', ['record' => $h]);
+                                        $isCurrent = $h->id === $rental->id;
+                                    @endphp
+                                    <a class="ch-item {{ $isCurrent ? 'current' : '' }}" href="{{ $hUrl }}">
+                                        <div class="ch-main">
+                                            <div class="ch-code">{{ $h->rental_code }}@if($isCurrent)<span class="ch-now">Ini</span>@endif</div>
+                                            <div class="ch-meta">{{ $h->start_date?->format('d M Y') }} · {{ $h->items_count }} item</div>
+                                        </div>
+                                        <div class="ch-right">
+                                            <span class="ch-amt">{{ $rp($h->total) }}</span>
+                                            <span class="pill pill-{{ $hTone }}">{{ ucfirst(str_replace('_', ' ', $hStatus)) }}</span>
+                                        </div>
+                                    </a>
+                                @empty
+                                    <div class="ch-empty">Belum ada riwayat rental.</div>
+                                @endforelse
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="cust-modal-foot">
+                        @if($custOpenUrl)
+                            <a class="btn btn-secondary" href="{{ $custOpenUrl }}">Buka Halaman Pelanggan</a>
+                        @endif
+                        <button type="button" class="btn btn-info" @click="custProfile=false">Tutup</button>
+                    </div>
+                </div>
+            </div>
+        @endif
     </div>
 </x-filament-panels::page>

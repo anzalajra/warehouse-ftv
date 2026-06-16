@@ -35,7 +35,7 @@ class ViewRental extends Page
     public function mount(int|string $record): void
     {
         $this->rental = Rental::with([
-            'user',
+            'user.category',
             'items.productUnit.product.category',
             'items.product.category',
             'items.rentalItemKits.unitKit',
@@ -176,6 +176,69 @@ class ViewRental extends Page
     public function canDownloadInvoice(): bool
     {
         return ! empty($this->rental->invoice_id);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Customer profile popup (clickable customer name → detail modal)
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Recent rentals for this customer, used by the customer profile modal.
+     */
+    public function customerHistory()
+    {
+        if (! $this->rental->user_id) {
+            return collect();
+        }
+
+        return Rental::where('user_id', $this->rental->user_id)
+            ->withCount('items')
+            ->latest('start_date')
+            ->limit(8)
+            ->get();
+    }
+
+    /**
+     * Aggregate stats for this customer, used by the customer profile modal.
+     *
+     * @return array{total:int, active:int, completed:int, spent:float}
+     */
+    public function customerStats(): array
+    {
+        if (! $this->rental->user_id) {
+            return ['total' => 0, 'active' => 0, 'completed' => 0, 'spent' => 0.0];
+        }
+
+        $base = Rental::where('user_id', $this->rental->user_id);
+
+        return [
+            'total' => (clone $base)->count(),
+            'active' => (clone $base)->whereIn('status', [
+                Rental::STATUS_ACTIVE,
+                Rental::STATUS_LATE_RETURN,
+                Rental::STATUS_PARTIAL_RETURN,
+            ])->count(),
+            'completed' => (clone $base)->where('status', Rental::STATUS_COMPLETED)->count(),
+            'spent' => (float) (clone $base)->whereNotIn('status', [
+                Rental::STATUS_CANCELLED,
+                Rental::STATUS_QUOTATION,
+            ])->sum('total'),
+        ];
+    }
+
+    public function getCustomerUrl(): ?string
+    {
+        if (! $this->rental->user_id) {
+            return null;
+        }
+
+        try {
+            return \App\Filament\Resources\Customers\CustomerResource::getUrl('view', ['record' => $this->rental->user_id]);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /*
