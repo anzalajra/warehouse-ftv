@@ -269,6 +269,7 @@
                (var(--primary-*)); the global app bottom nav is hidden here.
                =================================================================== */
             .rent-app .rv-kebab { display:none; }            /* desktop: hidden */
+            .rent-app .rv-back { display:none; }             /* desktop: hidden (crumbs handle back) */
             .rent-app .rv-mobilebar,
             .rent-app .rv-sheet-root { display:none; }       /* desktop: hidden */
 
@@ -286,6 +287,7 @@
 
                 /* The topbar icon-button row moves to the bottom bar + Actions sheet. */
                 .rent-app .topbar-actions { display:none; }
+                .rent-app .rv-back { display:inline-flex; flex:none; }
                 .rent-app .rv-kebab { display:inline-flex; flex:none; margin-left:auto; }
 
                 /* ---- Sticky bottom action bar ---- */
@@ -352,6 +354,10 @@
         {{-- ===================== Sticky topbar ===================== --}}
         <div class="topbar">
             <div class="topbar-inner">
+                {{-- Mobile-only back button (desktop uses the breadcrumbs below) --}}
+                <a href="{{ $rentalsIndexUrl }}" class="btn btn-secondary btn-iconsq rv-back" aria-label="Kembali ke daftar rental">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                </a>
                 <div style="min-width:0;flex:1;">
                     <div class="crumbs">
                         <a href="{{ $rentalsIndexUrl }}">Rentals</a>
