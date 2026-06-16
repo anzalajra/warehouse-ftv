@@ -295,6 +295,45 @@ class RentalsTable
                         Rental::STATUS_LATE_RETURN,
                     ])),
 
+                // Reopen a completed rental (admin only) so items/total can be corrected
+                // and the return redone.
+                Action::make('reopen_rental')
+                    ->label('Reopen Rental')
+                    ->icon('heroicon-o-lock-open')
+                    ->color('danger')
+                    ->visible(fn (Rental $record) => $record->status === Rental::STATUS_COMPLETED
+                        && Auth::user()?->hasRole(['super_admin', 'admin']))
+                    ->requiresConfirmation()
+                    ->modalHeading('Reopen completed rental?')
+                    ->modalDescription('Moves this rental back to ACTIVE so items and total can be edited and the return redone. The last return checklist is reopened and units are marked rented again. Financial entries from the previous completion are NOT reversed — review them before completing again to avoid double counting.')
+                    ->form([
+                        Textarea::make('reason')
+                            ->label('Reason')
+                            ->required()
+                            ->placeholder('e.g. koreksi late fee / salah input item'),
+                    ])
+                    ->action(function (Rental $record, array $data) {
+                        $record->reopenFromCompleted();
+
+                        $stamp = '[' . now()->format('Y-m-d H:i') . '] REOPEN oleh '
+                            . (Auth::user()?->email ?? 'system') . ' — ' . $data['reason'];
+                        $record->updateQuietly([
+                            'notes' => trim(($record->notes ?? '') . "\n" . $stamp),
+                        ]);
+
+                        \Illuminate\Support\Facades\Log::info('Rental REOPEN', [
+                            'rental_id' => $record->id,
+                            'by' => Auth::id(),
+                            'reason' => $data['reason'],
+                        ]);
+
+                        Notification::make()
+                            ->title('Rental reopened')
+                            ->body('Status set to Active. Edit the rental, then process the return again. Review finance entries from the prior completion.')
+                            ->warning()
+                            ->send();
+                    }),
+
                 // Finance Actions Group
                 ActionGroup::make([
                     // Record DP / Payment
@@ -462,28 +501,29 @@ class RentalsTable
                             $record->update(['late_fee' => $data['late_fee']]);
                             $record->recalculateTotal();
 
-                            if ($record->invoice_id) {
-                                $invoice = \App\Models\Invoice::find($record->invoice_id);
-                                if ($invoice) {
-                                    $previousStatus = $invoice->status;
-                                    $invoice->recalculate();
+                            // Recalc the linked invoice, or issue one when a balance is now
+                            // owed but the rental never had an invoice — otherwise the late
+                            // fee stays invisible in Accounts Receivable.
+                            $result = $record->syncOutstandingInvoice('late fee');
 
-                                    if ($previousStatus === \App\Models\Invoice::STATUS_PAID && $invoice->status !== \App\Models\Invoice::STATUS_PAID) {
-                                        Notification::make()
-                                            ->title('Invoice Reopened')
-                                            ->body('Late fee added. Invoice status reverted to Partial due to new outstanding balance.')
-                                            ->warning()
-                                            ->send();
-                                    } else {
-                                        Notification::make()
-                                            ->title('Late Fee Added')
-                                            ->body('Rental and Invoice totals have been updated.')
-                                            ->success()
-                                            ->send();
-                                    }
-                                }
+                            if ($result['reopened']) {
+                                Notification::make()
+                                    ->title('Invoice Reopened')
+                                    ->body('Late fee added. Invoice reverted to Partial due to new outstanding balance.')
+                                    ->warning()
+                                    ->send();
+                            } elseif ($result['action'] === 'created' && $result['invoice']) {
+                                Notification::make()
+                                    ->title('Invoice Issued')
+                                    ->body('Late fee added — invoice ' . $result['invoice']->number . ' created. Collect it from Finance → Accounts Receivable.')
+                                    ->success()
+                                    ->send();
                             } else {
-                                Notification::make()->title('Late Fee Updated')->success()->send();
+                                Notification::make()
+                                    ->title('Late Fee Updated')
+                                    ->body('Rental and invoice totals have been updated.')
+                                    ->success()
+                                    ->send();
                             }
                         }),
                 ])

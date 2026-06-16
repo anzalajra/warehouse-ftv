@@ -152,6 +152,7 @@ class ProcessReturn extends Page
 
         return [
             'late_fee' => $lateFee,
+            'late_fee_breakdown' => $this->rental->lateFeeBreakdown(),
             'deposit' => $deposit,
             'deposit_status' => $this->rental->security_deposit_status,
             'total' => (float) $this->rental->total,
@@ -414,15 +415,17 @@ class ProcessReturn extends Page
     public function validateReturn(array $data = []): void
     {
         if ($this->allItemsChecked()) {
-            // Apply manual late fee adjustment.
-            if (isset($data['manual_late_fee'])) {
-                $this->rental->late_fee = (float) $data['manual_late_fee'];
-                $this->rental->recalculateTotal();
-                $this->rental->save();
-            }
+            // Resolve the final late fee once: a manual value from the settlement modal
+            // wins over the auto-calculated amount (so it can be adjusted or waived).
+            $lateFee = isset($data['manual_late_fee'])
+                ? (float) $data['manual_late_fee']
+                : $this->rental->calculateOverdueFee();
+
+            $this->rental->late_fee = $lateFee;
+            $this->rental->recalculateTotal();
 
             // Recognize rental revenue (excl. deposit + late fee).
-            $rentalRevenue = $this->rental->total - $this->rental->security_deposit_amount - ($this->rental->late_fee ?? 0);
+            $rentalRevenue = $this->rental->total - $this->rental->security_deposit_amount - $lateFee;
             if ($rentalRevenue > 0) {
                 JournalService::recordSimpleTransaction(
                     'RENTAL_COMPLETION',
@@ -458,7 +461,14 @@ class ProcessReturn extends Page
                 $this->rental->save();
             }
 
-            $this->rental->validateReturn();
+            // Pass the resolved late fee so the model does NOT overwrite it with a fresh
+            // auto-calculation.
+            $this->rental->validateReturn($lateFee);
+
+            // Keep finances trackable: sync the linked invoice with the new total/late fee,
+            // or issue an invoice when a balance is now owed but none was ever created.
+            $this->syncInvoiceAfterReturn();
+
             $this->delivery->complete();
 
             Notification::make()
@@ -517,6 +527,34 @@ class ProcessReturn extends Page
             ->send();
 
         $this->redirect(RentalResource::getUrl('return', ['record' => $this->rental]));
+    }
+
+    /**
+     * Keep finances trackable once a return is validated.
+     *
+     *  - If the rental already has an invoice, recalculate it so the late fee / new total
+     *    (and any PAID → PARTIAL reopen) flows into Accounts Receivable.
+     *  - If no invoice exists but a balance is now owed (typically the late fee), issue one
+     *    so it surfaces in the Invoices list / Accounts Receivable instead of being stranded
+     *    on the rental row where nothing tracks the outstanding payment.
+     */
+    protected function syncInvoiceAfterReturn(): void
+    {
+        $result = $this->rental->syncOutstandingInvoice('on return');
+
+        if ($result['reopened']) {
+            Notification::make()
+                ->title('Invoice reopened')
+                ->body('Late fee added — invoice now has an outstanding balance to collect.')
+                ->warning()
+                ->send();
+        } elseif ($result['action'] === 'created' && $result['invoice']) {
+            Notification::make()
+                ->title('Invoice issued')
+                ->body('Outstanding balance (incl. late fee) — invoice ' . $result['invoice']->number . ' created. Collect it from Finance → Accounts Receivable.')
+                ->success()
+                ->send();
+        }
     }
 
     /* ============================================================

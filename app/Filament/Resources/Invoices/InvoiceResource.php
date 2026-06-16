@@ -219,11 +219,28 @@ class InvoiceResource extends Resource
                             ->required(),
                     ])
                     ->action(function (Invoice $record, array $data) {
-                        $record->late_fee = ($record->late_fee ?? 0) + $data['late_fee_amount'];
-                        $record->notes .= "\n[Late Fee] Rp " . number_format($data['late_fee_amount'], 0, ',', '.') . " - Reason: " . $data['reason'];
-                        $record->save();
-                        
-                        // Recalculate totals
+                        $amount = (float) $data['late_fee_amount'];
+
+                        // invoice.late_fee is DERIVED (Invoice::recalculate sums rentals.late_fee)
+                        // and invoice.total = Σ rentals.total. Writing the fee onto the invoice
+                        // row alone is immediately wiped by recalculate(), so apply it to the
+                        // underlying rental — the source of truth — then re-aggregate.
+                        $rental = $record->rentals()->first();
+                        if (! $rental) {
+                            Notification::make()
+                                ->title('No rental linked')
+                                ->body('This invoice has no rental to attach the late fee to.')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+
+                        $rental->late_fee = ($rental->late_fee ?? 0) + $amount;
+                        $rental->notes = trim(($rental->notes ?? '') . "\n[Late Fee] Rp " . number_format($amount, 0, ',', '.') . ' - Reason: ' . $data['reason']);
+                        $rental->recalculateTotal();
+
+                        // Re-aggregate the invoice (total, late_fee, status) from its rentals.
                         $record->recalculate();
 
                         Notification::make()
