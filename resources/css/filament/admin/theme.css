@@ -301,16 +301,6 @@ html:has(.fi-body:not(.fi-body-has-topbar)) body {
 /* ===== Mobile Enhancements ===== */
 /* Simple mobile enhancements - let Filament handle navigation natively */
 @media (max-width: 767px) {
-    /* Hide dynamic island footer on mobile */
-    .fi-sidebar-footer {
-        display: none !important;
-    }
-    
-    /* Hide QR scanner floating button on mobile */
-    .fi-sidebar.fi-main-sidebar>div:has(button[title="Scan QR Code"]) {
-        display: none !important;
-    }
-    
     /* Compact navigation items on mobile */
     .fi-sidebar-nav-groups {
         padding: 0.5rem !important;
@@ -426,4 +416,70 @@ html:has(.fi-body:not(.fi-body-has-topbar)) body {
     .fi-section {
         border-radius: 0 !important;
     }
+}
+
+/* ============================================
+   COMPACT MODE (portrait tablet / narrow viewport): mobile-style layout
+   --------------------------------------------
+   Toggled by the `gr-compact` body class set in
+   resources/views/filament/hooks/responsive-navigation.blade.php
+   (compact = portrait OR width < 1024px; expanded = landscape AND width >= 1024px).
+
+   In compact mode the sidebar nav is collapsed out of the layout, the page goes
+   full-width, navigation happens through the bottom tab bar (.gr-bottombar), and the
+   "dynamic island" footer is re-anchored to a fixed top-right account pill so the user
+   menu + notifications stay reachable. Rotating the device just adds/removes this class,
+   so the switch is instant with no page reload.
+
+   These rules target the sidebar DOM; they are no-ops on the phone top-navigation DOM
+   (which has no .fi-sidebar), so phones keep their existing top-nav experience.
+   ============================================ */
+
+/* Collapse the sidebar out of the layout flow so content spans the full width */
+body.gr-compact .fi-sidebar.fi-main-sidebar,
+body.gr-compact .fi-body:not(.fi-body-has-topbar) .fi-sidebar.fi-main-sidebar.fi-sidebar-open {
+    position: fixed !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    border: 0 !important;
+    overflow: visible !important;
+    z-index: 50 !important;
+}
+
+/* Hide the sidebar nav list + brand header (navigation moves to the bottom bar) */
+body.gr-compact .fi-sidebar-nav,
+body.gr-compact .fi-sidebar-header {
+    display: none !important;
+}
+
+/* Re-anchor the dynamic island as a fixed top-right account pill */
+body.gr-compact .fi-body:not(.fi-body-has-topbar) .fi-sidebar-footer,
+body.gr-compact .fi-sidebar-footer {
+    display: flex !important;
+    position: fixed !important;
+    top: 0.75rem !important;
+    right: 0.75rem !important;
+    left: auto !important;
+    bottom: auto !important;
+    width: auto !important;
+    padding-inline-end: 0.375rem !important;
+    z-index: 60 !important;
+}
+
+/* Hide the global QR scanner float in compact (still available in landscape/desktop) */
+body.gr-compact .fi-sidebar.fi-main-sidebar > div:has(button[title="Scan QR Code"]) {
+    display: none !important;
+}
+
+/* Hide breadcrumbs to save vertical space, matching the mobile treatment */
+body.gr-compact .fi-breadcrumbs {
+    display: none !important;
+}
+
+/* Ensure the content column reclaims the full width once the sidebar leaves the flow
+   (defensive: neutralises any sidebar-width offset some Filament layouts apply here) */
+body.gr-compact .fi-main-ctn {
+    padding-inline-start: 0 !important;
+    margin-inline-start: 0 !important;
+    width: 100% !important;
 }

@@ -91,9 +91,13 @@ class AdminPanelProvider extends PanelProvider
                 'purple' => Color::Purple,
             ]);
             
-        // Detect mobile early for render hooks
-        $isMobile = $this->isMobileDevice();
-        $useTopNav = ($navigationLayout === 'top' || $isMobile);
+        // Detect phones early for render hooks.
+        // NOTE: tablets (iPad) are intentionally NOT forced to top-nav — they render the
+        // sidebar DOM and switch between sidebar (landscape) and a mobile-style compact
+        // layout (portrait) entirely client-side. See resources/views/filament/hooks/
+        // responsive-navigation.blade.php + resources/css/filament/admin/theme.css (.gr-compact).
+        $isPhone = $this->isPhone();
+        $useTopNav = ($navigationLayout === 'top' || $isPhone);
         
         $panel
             ->renderHook(
@@ -224,32 +228,46 @@ class AdminPanelProvider extends PanelProvider
     }
     
     /**
-     * Detect if the current request is from a mobile device
+     * Detect if the current request is from a phone (NOT a tablet).
+     *
+     * Phones keep the forced top-navigation layout. Tablets (iPad/Android tablets) fall
+     * through to the sidebar DOM and are made responsive client-side via the `.gr-compact`
+     * body class (portrait = mobile-style, landscape = sidebar) so rotation switches the
+     * layout instantly without a reload.
+     *
+     * iPad detection by User-Agent is unreliable anyway — since iPadOS 13 Safari sends a
+     * desktop (macOS) UA by default — so any iPad that *isn't* matched here simply renders
+     * the sidebar DOM, which is exactly what we want.
      */
-    protected function isMobileDevice(): bool
+    protected function isPhone(): bool
     {
         $userAgent = request()->header('User-Agent', '');
-        
-        // Common mobile device patterns
-        $mobilePatterns = [
-            '/Mobile/i',
-            '/Android/i',
+
+        // Tablets are explicitly excluded — they use the responsive sidebar layout.
+        if (preg_match('/iPad|Tablet|PlayBook|Nexus (?:7|9|10)|SM-T|KFAPWI|Silk/i', $userAgent)) {
+            return false;
+        }
+
+        // Genuine phone patterns. Android phones include "Mobile" in their UA; Android
+        // tablets do not — so we require Android to be paired with Mobile.
+        $phonePatterns = [
             '/iPhone/i',
-            '/iPad/i',
             '/iPod/i',
-            '/webOS/i',
-            '/BlackBerry/i',
-            '/Opera Mini/i',
-            '/IEMobile/i',
+            '/Android.*Mobile/i',
             '/Windows Phone/i',
+            '/IEMobile/i',
+            '/BlackBerry/i',
+            '/BB10/i',
+            '/Opera Mini/i',
+            '/webOS/i',
         ];
-        
-        foreach ($mobilePatterns as $pattern) {
+
+        foreach ($phonePatterns as $pattern) {
             if (preg_match($pattern, $userAgent)) {
                 return true;
             }
         }
-        
+
         return false;
     }
 }
