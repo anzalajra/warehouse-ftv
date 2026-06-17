@@ -2,12 +2,18 @@
 
 namespace App\Filament\Resources\Invoices;
 
+use App\Filament\Actions\AddLateFeeAction;
+use App\Filament\Actions\RecordPaymentAction;
 use App\Filament\Resources\Invoices\Pages\CreateInvoice;
 use App\Filament\Resources\Invoices\Pages\EditInvoice;
 use App\Filament\Resources\Invoices\Pages\ListInvoices;
+use App\Filament\Resources\Invoices\Pages\ViewInvoice;
 use App\Filament\Resources\Invoices\RelationManagers\RentalsRelationManager;
 use App\Models\Invoice;
+use App\Models\Rental;
+use App\Models\Setting;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Filament\Schemas\Components\Utilities\Get;
 use BackedEnum;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -16,19 +22,18 @@ use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use Filament\Support\Icons\Heroicon;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\URL;
 use UnitEnum;
-use App\Models\FinanceAccount;
-use App\Models\FinanceTransaction;
-use App\Models\Account;
-use App\Services\JournalService;
-use Filament\Notifications\Notification;
-use Illuminate\Support\Facades\Auth;
 
 class InvoiceResource extends Resource
 {
@@ -54,7 +59,8 @@ class InvoiceResource extends Resource
                             ->relationship('customer', 'name')
                             ->required()
                             ->searchable()
-                            ->preload(),
+                            ->preload()
+                            ->live(),
                         DatePicker::make('date')
                             ->required()
                             ->default(now()),
@@ -68,6 +74,24 @@ class InvoiceResource extends Resource
                             ->prefix('Rp')
                             ->numeric(),
                         Textarea::make('notes')
+                            ->columnSpanFull(),
+                        // Manual creation shortcut: attach unbilled rentals right here
+                        // instead of create-blank-then-add-via-relation-manager.
+                        // Handled in CreateInvoice::afterCreate (not a real column).
+                        Select::make('rental_ids')
+                            ->label('Attach Rentals')
+                            ->helperText('Pick the customer\'s rentals to bill on this invoice. Totals are recalculated automatically.')
+                            ->multiple()
+                            ->searchable()
+                            ->preload()
+                            ->dehydrated(false)
+                            ->visibleOn('create')
+                            ->options(fn (Get $get): array => $get('user_id')
+                                ? Rental::where('user_id', $get('user_id'))
+                                    ->whereNull('invoice_id')
+                                    ->pluck('rental_code', 'id')
+                                    ->all()
+                                : [])
                             ->columnSpanFull(),
                     ])
                     ->columns(2),
@@ -99,8 +123,22 @@ class InvoiceResource extends Resource
                     ->sortable()
                     ->toggleable()
                     ->visibleFrom('sm'),
+                TextColumn::make('paid_amount')
+                    ->label('Paid')
+                    ->money('IDR')
+                    ->sortable()
+                    ->toggleable()
+                    ->visibleFrom('lg'),
+                TextColumn::make('balance')
+                    ->label('Balance')
+                    ->money('IDR')
+                    ->state(fn (Invoice $record): float => $record->balance)
+                    ->color(fn (Invoice $record): string => $record->balance > 0 ? 'danger' : 'success')
+                    ->weight('bold')
+                    ->toggleable(),
                 TextColumn::make('status')
                     ->badge()
+                    ->formatStateUsing(fn (string $state): string => Invoice::getStatusOptions()[$state] ?? $state)
                     ->color(fn (string $state): string => match ($state) {
                         Invoice::STATUS_SENT => 'info',
                         Invoice::STATUS_NEGOTIATION => 'warning',
@@ -112,180 +150,74 @@ class InvoiceResource extends Resource
                     ->toggleable(),
             ])
             ->filters([
-                //
+                SelectFilter::make('status')
+                    ->options(Invoice::getStatusOptions()),
+                Filter::make('outstanding')
+                    ->label('Outstanding only')
+                    ->query(fn (Builder $query): Builder => $query
+                        ->where('status', '!=', Invoice::STATUS_PAID)
+                        ->whereColumn('total', '>', 'paid_amount')),
             ])
+            ->recordUrl(fn (Invoice $record): string => ViewInvoice::getUrl(['record' => $record]))
             ->recordActions([
-                Action::make('record_payment')
-                    ->label('Record Payment')
-                    ->icon('heroicon-o-banknotes')
-                    ->color('success')
-                    ->visible(fn (Invoice $record) => $record->status !== Invoice::STATUS_PAID && $record->status !== 'cancelled' && ($record->total - $record->paid_amount) > 0)
-                    ->form(function (Invoice $record) {
-                        return [
-                            Select::make('finance_account_id')
-                                ->label('Deposit To Account')
-                                ->options(FinanceAccount::where('is_active', true)->pluck('name', 'id'))
-                                ->required(),
-                            TextInput::make('amount')
-                                ->label('Amount')
-                                ->required()
-                                ->numeric()
-                                ->prefix('Rp')
-                                ->default($record->total - $record->paid_amount)
-                                ->maxValue($record->total - $record->paid_amount),
-                            DatePicker::make('date')
-                                ->label('Payment Date')
-                                ->default(now())
-                                ->required(),
-                            Select::make('payment_method')
-                                ->label('Payment Method')
-                                ->options([
-                                    'Cash' => 'Cash',
-                                    'Transfer' => 'Bank Transfer',
-                                    'QRIS' => 'QRIS',
-                                    'Credit Card' => 'Credit Card',
-                                ])
-                                ->required(),
-                            Textarea::make('notes')
-                                ->label('Notes'),
-                        ];
-                    })
-                    ->action(function (Invoice $record, array $data) {
-                        $transaction = new FinanceTransaction([
-                            'finance_account_id' => $data['finance_account_id'],
-                            'user_id' => Auth::id(),
-                            'type' => FinanceTransaction::TYPE_INCOME,
-                            'amount' => $data['amount'],
-                            'date' => $data['date'],
-                            'category' => 'Invoice Payment',
-                            'description' => 'Payment for Invoice #' . $record->number,
-                            'payment_method' => $data['payment_method'],
-                            'notes' => $data['notes'] ?? null,
-                        ]);
-                        $transaction->reference()->associate($record);
-                        $transaction->save();
+                // Primary contextual action: collect payment when a balance is owed.
+                RecordPaymentAction::make(),
 
-                        // Recalculate invoice status
-                        $record->recalculate();
-
-                        // Journal Entry: Debit 1-1100 (Kas/Bank), Credit 2-1300 (Pendapatan Diterima Dimuka)
-                        $financeAccount = FinanceAccount::find($data['finance_account_id']);
-                        $debitAccountId = $financeAccount?->linked_account_id;
-                        
-                        // Default to 2-1300 Pendapatan Diterima Dimuka for Invoice Payments (usually Rentals)
-                        $creditAccount = Account::where('code', '2-1300')->first();
-                        $creditAccountId = $creditAccount?->id;
-
-                        if ($debitAccountId && $creditAccountId) {
-                            JournalService::createEntry(
-                                $record,
-                                'Payment for Invoice #' . $record->number,
-                                [
-                                    [
-                                        'account_id' => $debitAccountId,
-                                        'debit' => $data['amount'],
-                                        'credit' => 0,
-                                    ],
-                                    [
-                                        'account_id' => $creditAccountId,
-                                        'debit' => 0,
-                                        'credit' => $data['amount'],
-                                    ],
-                                ],
-                                $data['date']
-                            );
-                        }
-
-                        Notification::make()
-                            ->title('Payment Recorded')
-                            ->success()
-                            ->send();
-                    }),
-
-                Action::make('add_late_fee')
-                    ->label('Add Late Fee')
-                    ->icon('heroicon-o-exclamation-triangle')
-                    ->color('warning')
-                    ->visible(fn (Invoice $record) => $record->status !== Invoice::STATUS_PAID && $record->status !== 'cancelled')
-                    ->form([
-                        TextInput::make('late_fee_amount')
-                            ->label('Late Fee Amount')
-                            ->required()
-                            ->numeric()
-                            ->prefix('Rp')
-                            ->minValue(1),
-                        Textarea::make('reason')
-                            ->label('Reason')
-                            ->required(),
-                    ])
-                    ->action(function (Invoice $record, array $data) {
-                        $amount = (float) $data['late_fee_amount'];
-
-                        // invoice.late_fee is DERIVED (Invoice::recalculate sums rentals.late_fee)
-                        // and invoice.total = Σ rentals.total. Writing the fee onto the invoice
-                        // row alone is immediately wiped by recalculate(), so apply it to the
-                        // underlying rental — the source of truth — then re-aggregate.
-                        $rental = $record->rentals()->first();
-                        if (! $rental) {
-                            Notification::make()
-                                ->title('No rental linked')
-                                ->body('This invoice has no rental to attach the late fee to.')
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        $rental->late_fee = ($rental->late_fee ?? 0) + $amount;
-                        $rental->recalculateTotal();
-
-                        // Audit the late fee in the rental activity log (not the free-text notes).
-                        $rental->logActivity(
-                            'Late fee Rp ' . number_format($amount, 0, ',', '.') . ' ditambahkan. Alasan: ' . $data['reason'],
-                            'general'
-                        );
-
-                        // Re-aggregate the invoice (total, late_fee, status) from its rentals.
-                        $record->recalculate();
-
-                        Notification::make()
-                            ->title('Late Fee Added')
-                            ->success()
-                            ->send();
-                    }),
-                EditAction::make(),
-                DeleteAction::make(),
-                Action::make('change_status')
-                    ->label('Status')
-                    ->icon('heroicon-o-arrow-path')
-                    ->form([
-                        Select::make('status')
-                            ->options(Invoice::getStatusOptions())
-                            ->required(),
-                    ])
-                    ->action(function (array $data, Invoice $record) {
-                        $record->update(['status' => $data['status']]);
-                    }),
-                Action::make('print_invoice')
-                    ->label('Print')
-                    ->icon('heroicon-o-printer')
-                    ->color('gray')
-                    ->action(function (Invoice $record) {
-                        foreach ($record->rentals as $rental) {
-                            foreach ($rental->items as $item) {
-                                $item->attachKitsFromUnit();
+                // Everything else tucked behind one overflow menu to keep the row clean.
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->url(fn (Invoice $record): string => ViewInvoice::getUrl(['record' => $record])),
+                    Action::make('print_invoice')
+                        ->label('Print / Download')
+                        ->icon('heroicon-o-printer')
+                        ->color('gray')
+                        ->action(function (Invoice $record) {
+                            foreach ($record->rentals as $rental) {
+                                foreach ($rental->items as $item) {
+                                    $item->attachKitsFromUnit();
+                                }
                             }
-                        }
-                        
-                        $record->load(['customer', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit']);
-                        
-                        $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $record]);
-                        
-                        return response()->streamDownload(
-                            fn () => print($pdf->output()),
-                            'Invoice-' . $record->number . '.pdf'
-                        );
-                    }),
+
+                            $record->load(['customer', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit']);
+
+                            $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $record]);
+
+                            return response()->streamDownload(
+                                fn () => print($pdf->output()),
+                                'Invoice-' . $record->number . '.pdf'
+                            );
+                        }),
+                    Action::make('send_whatsapp_invoice')
+                        ->label('Send via WhatsApp')
+                        ->icon('heroicon-o-chat-bubble-left-right')
+                        ->color('success')
+                        ->visible(fn () => Setting::get('whatsapp_enabled', true))
+                        ->disabled(fn (Invoice $record) => empty($record->customer->phone))
+                        ->tooltip(fn (Invoice $record) => empty($record->customer->phone) ? 'Customer phone number is missing' : null)
+                        ->url(function (Invoice $record) {
+                            $customer = $record->customer;
+                            if (empty($customer->phone)) {
+                                return '#';
+                            }
+
+                            $pdfLink = URL::signedRoute('public-documents.invoice', ['invoice' => $record]);
+
+                            $message = \App\Helpers\WhatsAppHelper::parseTemplate('whatsapp_template_invoice', [
+                                'customer_name' => $customer->name,
+                                'invoice_ref' => $record->number,
+                                'total_amount' => 'Rp ' . number_format($record->total, 0, ',', '.'),
+                                'due_date' => $record->due_date ? $record->due_date->format('d M Y') : '-',
+                                'link_pdf' => $pdfLink,
+                                'company_name' => Setting::get('site_name', 'Gearent'),
+                            ]);
+
+                            return \App\Helpers\WhatsAppHelper::getLink($customer->phone, $message);
+                        })
+                        ->openUrlInNewTab(),
+                    AddLateFeeAction::make(),
+                    EditAction::make(),
+                    DeleteAction::make(),
+                ]),
             ]);
     }
 
@@ -309,6 +241,7 @@ class InvoiceResource extends Resource
         return [
             'index' => ListInvoices::route('/'),
             'create' => CreateInvoice::route('/create'),
+            'view' => ViewInvoice::route('/{record}'),
             'edit' => EditInvoice::route('/{record}/edit'),
         ];
     }

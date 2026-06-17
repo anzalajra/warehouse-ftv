@@ -1958,7 +1958,7 @@ class RentalEditor extends Component
             return null;
         }
 
-        $quotation = Quotation::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])
+        $quotation = Quotation::with(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit'])
             ->find($this->record->quotation_id);
 
         if (! $quotation) {
@@ -1983,7 +1983,7 @@ class RentalEditor extends Component
             return null;
         }
 
-        $invoice = Invoice::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])
+        $invoice = Invoice::with(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit'])
             ->find($this->record->invoice_id);
 
         if (! $invoice) {

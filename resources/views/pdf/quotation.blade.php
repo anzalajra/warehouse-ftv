@@ -44,18 +44,24 @@
                 </td>
             </tr>
             @foreach($rental->items as $index => $item)
+            @php
+                $productName = $item->productUnit->product->name
+                    ?? $item->product->name
+                    ?? '-';
+                $variationName = $item->productVariation->name ?? null;
+            @endphp
             <tr>
                 <td>{{ $index + 1 }}</td>
-                <td>{{ $item->productUnit->product->name }}</td>
-                <td>{{ $item->productUnit->serial_number }}</td>
+                <td>{{ $productName }}{{ $variationName ? ' - ' . $variationName : '' }}</td>
+                <td>{{ $item->productUnit->serial_number ?? '-' }}</td>
                 <td class="text-right">Rp {{ number_format($item->daily_rate, 0, ',', '.') }}</td>
                 <td class="text-right">{{ $item->days }}</td>
                 <td class="text-right">Rp {{ number_format($item->subtotal, 0, ',', '.') }}</td>
             </tr>
             @php
-                $kits = $item->rentalItemKits->count() > 0 
-                    ? $item->rentalItemKits->map(fn($k) => $k->unitKit) 
-                    : $item->productUnit->kits;
+                $kits = $item->rentalItemKits->count() > 0
+                    ? $item->rentalItemKits->map(fn($k) => $k->unitKit)
+                    : ($item->productUnit?->kits ?? collect());
             @endphp
             @foreach($kits as $kit)
             <tr style="background-color: {{ $doc_settings['doc_secondary_color'] ?? '#fafafa' }};">

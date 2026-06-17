@@ -614,7 +614,7 @@ class RentalsTable
                         ->icon('heroicon-o-document-text')
                         ->color('gray')
                         ->action(function (Rental $record) {
-                            $quotation = Quotation::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])->find($record->quotation_id);
+                            $quotation = Quotation::with(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit'])->find($record->quotation_id);
                             
                             if (!$quotation) {
                                 Notification::make()
@@ -639,7 +639,7 @@ class RentalsTable
                         ->icon('heroicon-o-document-currency-dollar')
                         ->color('gray')
                         ->action(function (Rental $record) {
-                            $invoice = \App\Models\Invoice::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])->find($record->invoice_id);
+                            $invoice = \App\Models\Invoice::with(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit'])->find($record->invoice_id);
                             
                             if (!$invoice) {
                                 Notification::make()

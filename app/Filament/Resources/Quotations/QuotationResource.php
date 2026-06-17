@@ -2,16 +2,15 @@
 
 namespace App\Filament\Resources\Quotations;
 
+use App\Filament\Actions\ConvertQuotationToInvoiceAction;
 use App\Filament\Resources\Quotations\Pages\CreateQuotation;
 use App\Filament\Resources\Quotations\Pages\EditQuotation;
 use App\Filament\Resources\Quotations\Pages\ListQuotations;
+use App\Filament\Resources\Quotations\Pages\ViewQuotation;
 use App\Filament\Resources\Quotations\RelationManagers\RentalsRelationManager;
-use App\Filament\Resources\Invoices\InvoiceResource;
-use App\Models\Invoice;
 use App\Models\Quotation;
 use Barryvdh\DomPDF\Facade\Pdf;
 use BackedEnum;
-use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -20,11 +19,13 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use Filament\Support\Icons\Heroicon;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use UnitEnum;
 
@@ -87,6 +88,11 @@ class QuotationResource extends Resource
                     ->sortable()
                     ->toggleable()
                     ->visibleFrom('sm'),
+                TextColumn::make('valid_until')
+                    ->date()
+                    ->sortable()
+                    ->toggleable()
+                    ->visibleFrom('lg'),
                 TextColumn::make('total')
                     ->money('IDR')
                     ->sortable()
@@ -94,6 +100,7 @@ class QuotationResource extends Resource
                     ->visibleFrom('sm'),
                 TextColumn::make('status')
                     ->badge()
+                    ->formatStateUsing(fn (string $state): string => Quotation::getStatusOptions()[$state] ?? $state)
                     ->color(fn (string $state): string => match ($state) {
                         Quotation::STATUS_ON_QUOTE => 'warning',
                         Quotation::STATUS_SENT => 'info',
@@ -103,89 +110,50 @@ class QuotationResource extends Resource
                     ->toggleable(),
             ])
             ->filters([
-                //
+                SelectFilter::make('status')
+                    ->options(Quotation::getStatusOptions()),
             ])
+            ->recordUrl(fn (Quotation $record): string => ViewQuotation::getUrl(['record' => $record]))
             ->recordActions([
-                EditAction::make(),
-                DeleteAction::make(),
-                Action::make('change_status')
-                    ->label('Status')
-                    ->icon('heroicon-o-arrow-path')
-                    ->form([
-                        Select::make('status')
-                            ->options(Quotation::getStatusOptions())
-                            ->required()
-                            ->live(),
-                        Checkbox::make('create_invoice')
-                            ->label('Create Invoice from this Quotation')
-                            ->visible(fn ($get) => $get('status') === Quotation::STATUS_ACCEPTED),
-                    ])
-                    ->action(function (array $data, Quotation $record) {
-                        $record->update(['status' => $data['status']]);
+                // Primary: turn this quotation into an invoice in one click.
+                ConvertQuotationToInvoiceAction::make(),
 
-                        if ($data['status'] === Quotation::STATUS_ACCEPTED && ($data['create_invoice'] ?? false)) {
-                            // Create Invoice
-                            $invoice = Invoice::create([
-                                'quotation_id' => $record->id,
-                                'user_id' => $record->user_id,
-                                'date' => now(),
-                                'due_date' => now()->addDays(7), // Default due date
-                                'status' => Invoice::STATUS_SENT,
-                                'subtotal' => $record->subtotal,
-                                'tax' => $record->tax,
-                                'total' => $record->total,
-                                'notes' => $record->notes,
-                            ]);
-
-                            // Move rentals to invoice (or link them)
+                ActionGroup::make([
+                    ViewAction::make()
+                        ->url(fn (Quotation $record): string => ViewQuotation::getUrl(['record' => $record])),
+                    Action::make('print_quotation')
+                        ->label('Print / Download')
+                        ->icon('heroicon-o-printer')
+                        ->color('gray')
+                        ->action(function (Quotation $record) {
                             foreach ($record->rentals as $rental) {
-                                $rental->update(['invoice_id' => $invoice->id]);
+                                foreach ($rental->items as $item) {
+                                    $item->attachKitsFromUnit();
+                                }
                             }
 
-                            Notification::make()
-                                ->title('Invoice created successfully')
-                                ->success()
-                                ->send();
-                                
-                            return redirect()->to(InvoiceResource::getUrl('edit', ['record' => $invoice]));
-                        }
+                            $record->load(['customer', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit']);
 
-                        Notification::make()
-                            ->title('Status updated')
-                            ->success()
-                            ->send();
-                    }),
-                Action::make('send_quotation')
-                    ->label('Send')
-                    ->icon('heroicon-o-paper-airplane')
-                    ->action(function (Quotation $record) {
-                        $record->update(['status' => Quotation::STATUS_SENT]);
-                        Notification::make()
-                            ->title('Quotation sent')
-                            ->success()
-                            ->send();
-                    })
-                    ->requiresConfirmation(),
-                Action::make('print_quotation')
-                    ->label('Print')
-                    ->icon('heroicon-o-printer')
-                    ->color('gray')
-                    ->action(function (Quotation $record) {
-                        foreach ($record->rentals as $rental) {
-                            foreach ($rental->items as $item) {
-                                $item->attachKitsFromUnit();
-                            }
-                        }
+                            $pdf = Pdf::loadView('pdf.quotation', ['quotation' => $record]);
 
-                        $record->load(['customer', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit']);
-                        
-                        $pdf = Pdf::loadView('pdf.quotation', ['quotation' => $record]);
-                        
-                        return response()->streamDownload(
-                            fn () => print($pdf->output()),
-                            'Quotation-' . $record->number . '.pdf'
-                        );
-                    }),
+                            return response()->streamDownload(
+                                fn () => print($pdf->output()),
+                                'Quotation-' . $record->number . '.pdf'
+                            );
+                        }),
+                    Action::make('mark_sent')
+                        ->label('Mark as Sent')
+                        ->icon('heroicon-o-paper-airplane')
+                        ->color('info')
+                        ->requiresConfirmation()
+                        ->visible(fn (Quotation $record) => $record->status !== Quotation::STATUS_ACCEPTED)
+                        ->action(function (Quotation $record) {
+                            $record->update(['status' => Quotation::STATUS_SENT]);
+                            Notification::make()->title('Quotation sent')->success()->send();
+                        }),
+                    EditAction::make(),
+                    DeleteAction::make(),
+                ]),
             ]);
     }
 
@@ -201,6 +169,7 @@ class QuotationResource extends Resource
         return [
             'index' => ListQuotations::route('/'),
             'create' => CreateQuotation::route('/create'),
+            'view' => ViewQuotation::route('/{record}'),
             'edit' => EditQuotation::route('/{record}/edit'),
         ];
     }

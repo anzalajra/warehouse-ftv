@@ -266,7 +266,7 @@ class ViewRental extends Page
     {
         return Action::make('downloadQuotation')
             ->action(function () {
-                $quotation = Quotation::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])->find($this->rental->quotation_id);
+                $quotation = Quotation::with(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit'])->find($this->rental->quotation_id);
 
                 if (! $quotation) {
                     Notification::make()
@@ -290,7 +290,7 @@ class ViewRental extends Page
     {
         return Action::make('downloadInvoice')
             ->action(function () {
-                $invoice = \App\Models\Invoice::with(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit'])->find($this->rental->invoice_id);
+                $invoice = \App\Models\Invoice::with(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit'])->find($this->rental->invoice_id);
 
                 if (! $invoice) {
                     Notification::make()

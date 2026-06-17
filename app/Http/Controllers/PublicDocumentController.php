@@ -65,7 +65,7 @@ class PublicDocumentController extends Controller
             }
         }
 
-        $quotation->load(['user', 'rentals.items.productUnit.product', 'rentals.items.rentalItemKits.unitKit']);
+        $quotation->load(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit']);
         
         $pdf = Pdf::loadView('pdf.quotation', ['quotation' => $quotation]);
         
@@ -78,7 +78,7 @@ class PublicDocumentController extends Controller
             abort(403);
         }
 
-        $invoice->load(['user', 'rentals.items.productUnit.product']);
+        $invoice->load(['user', 'rentals.items.productUnit.product', 'rentals.items.product', 'rentals.items.productVariation', 'rentals.items.rentalItemKits.unitKit']);
         
         $pdf = Pdf::loadView('pdf.invoice', ['invoice' => $invoice]);
         

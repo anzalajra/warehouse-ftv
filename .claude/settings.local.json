@@ -24,7 +24,9 @@
       "Bash(C:/xampp/php/php.exe -r ' *)",
       "Bash(C:/xampp/php/php.exe vendor/bin/pint --dirty)",
       "Bash(C:/xampp/php/php.exe vendor/bin/pint app/Filament/Resources/Maintenances/Pages/ManageMaintenances.php app/Filament/Resources/Maintenances/Widgets/MaintenanceStatsOverview.php app/Filament/Clusters/Settings/Pages/MaintenanceSettings.php app/Console/Commands/FlagMaintenanceDueCommand.php app/Notifications/MaintenanceDueNotification.php \"database/migrations/2026_06_16_000001_extend_maintenance_records.php\")",
-      "Bash(C:/xampp/php/php.exe artisan *)"
+      "Bash(C:/xampp/php/php.exe artisan *)",
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; $files = @\\(\"app/Models/Invoice.php\",\"app/Filament/Actions/RecordPaymentAction.php\",\"app/Filament/Actions/AddLateFeeAction.php\",\"app/Filament/Resources/Invoices/Pages/ViewInvoice.php\",\"app/Filament/Resources/Invoices/Pages/CreateInvoice.php\",\"app/Filament/Resources/Invoices/InvoiceResource.php\"\\); foreach \\($f in $files\\) { & $php -l $f })",
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; & $php -l \"app/Filament/Resources/Invoices/InvoiceResource.php\"; & $php -l \"app/Filament/Clusters/Finance/Pages/AccountsReceivable.php\")"
     ]
   }
 }

@@ -127,6 +127,16 @@ class Invoice extends Model
         return $this->morphMany(FinanceTransaction::class, 'reference');
     }
 
+    /**
+     * Outstanding balance still owed on this invoice (total minus what's been paid).
+     * Used by the table column, action visibility guards, and the View page so the
+     * "total - paid_amount" math lives in one place.
+     */
+    public function getBalanceAttribute(): float
+    {
+        return (float) $this->total - (float) $this->paid_amount;
+    }
+
     public function recalculate(): void
     {
         // Aggregate from Rentals
