@@ -928,7 +928,7 @@
     .mono { font-family: ui-monospace, monospace; }
 
     /* responsive */
-    @media (max-width: 860px) {
+    @media (max-width: 1023px), (orientation: portrait) {
       .focus-wrap { grid-template-columns: 1fr; }
       .focus-rail { position: static; }
       .rail-list { max-height: 220px; }
@@ -955,7 +955,7 @@
     /* The phone-only sticky action bar is hidden on desktop (desktop uses the toolbar). */
     .mobile-actionbar { display: none; }
 
-    @media (max-width: 680px) {
+    @media (max-width: 1023px), (orientation: portrait) {
 
       & { --pad: 15px; --row-pad: 12px; }
 
@@ -1201,7 +1201,7 @@
     </style>
     <style>
         [x-cloak]{display:none!important;}
-        @media (max-width:680px){ #op-console .page{ padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important; } }
+        @media (max-width: 1023px), (orientation: portrait){ #op-console .page{ padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important; } }
         /* Hide the global app bottom nav on this page — the operation's own sticky
            action bar replaces it (same approach as the Rental editor / view rental).
            Keyed off body.gr-compact (the canonical compact-chrome signal), NOT a
@@ -1341,7 +1341,7 @@
         .dark #op-console .scrim { background: rgba(0,0,0,.60); }
 
         /* ---- mobile sticky action bar (phone breakpoint) ---- */
-        @media (max-width: 680px) {
+        @media (max-width: 1023px), (orientation: portrait) {
             .dark #op-console .mobile-actionbar { box-shadow: 0 -8px 26px rgba(0,0,0,.55); }
             .dark #op-console .mobile-actionbar .mab-primary:disabled,
             .dark #op-console .mobile-actionbar .mab-primary[aria-disabled="true"] {

@@ -26,7 +26,10 @@
       "Bash(C:/xampp/php/php.exe vendor/bin/pint app/Filament/Resources/Maintenances/Pages/ManageMaintenances.php app/Filament/Resources/Maintenances/Widgets/MaintenanceStatsOverview.php app/Filament/Clusters/Settings/Pages/MaintenanceSettings.php app/Console/Commands/FlagMaintenanceDueCommand.php app/Notifications/MaintenanceDueNotification.php \"database/migrations/2026_06_16_000001_extend_maintenance_records.php\")",
       "Bash(C:/xampp/php/php.exe artisan *)",
       "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; $files = @\\(\"app/Models/Invoice.php\",\"app/Filament/Actions/RecordPaymentAction.php\",\"app/Filament/Actions/AddLateFeeAction.php\",\"app/Filament/Resources/Invoices/Pages/ViewInvoice.php\",\"app/Filament/Resources/Invoices/Pages/CreateInvoice.php\",\"app/Filament/Resources/Invoices/InvoiceResource.php\"\\); foreach \\($f in $files\\) { & $php -l $f })",
-      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; & $php -l \"app/Filament/Resources/Invoices/InvoiceResource.php\"; & $php -l \"app/Filament/Clusters/Finance/Pages/AccountsReceivable.php\")"
+      "PowerShell($php = \"C:\\\\xampp\\\\php\\\\php.exe\"; & $php -l \"app/Filament/Resources/Invoices/InvoiceResource.php\"; & $php -l \"app/Filament/Clusters/Finance/Pages/AccountsReceivable.php\")",
+      "PowerShell($php = @\\(\"C:\\\\xampp\\\\php\\\\php.exe\",\"D:\\\\xampp\\\\php\\\\php.exe\",\"C:\\\\xampp82\\\\php\\\\php.exe\"\\) | Where-Object { Test-Path $_ } | Select-Object -First 1; if \\($php\\) { & $php artisan route:list 2>$null | Select-String -Pattern \"logout|auth.profile\" } else { \"php not found in common XAMPP paths\" })",
+      "PowerShell($paths = @\\(\"C:\\\\xampp\\\\php\\\\php.exe\",\"D:\\\\xampp\\\\php\\\\php.exe\",\"C:\\\\xampp82\\\\php\\\\php.exe\",\"C:\\\\xampp81\\\\php\\\\php.exe\"\\); foreach \\($p in $paths\\) { if \\(Test-Path $p\\) { Write-Output \"FOUND: $p\" } }; Write-Output \"done\")",
+      "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" \"d:\\\\AJRA\\\\1. Website\\\\warehouse-ftv\\\\artisan\" route:list --path=admin 2>&1)"
     ]
   }
 }

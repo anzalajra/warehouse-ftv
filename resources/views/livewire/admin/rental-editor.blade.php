@@ -86,7 +86,7 @@
         /* ============== Show/hide for desktop vs mobile sections ============== */
         .rent-app .desktop-view { display: block; }
         .rent-app .mobile-view  { display: none; }
-        @media (max-width: 768px) {
+        @media (max-width: 1023px), (orientation: portrait) {
             .rent-app .desktop-view { display: none; }
             /* Desktop toast lives outside .desktop-view, so hide it explicitly on mobile
                (mobile has its own .mtoast) — otherwise both fire on rent-toast and stack. */
@@ -164,7 +164,7 @@
         .rent-app .mobile-subhead {
             display: none;
         }
-        @media (max-width: 768px) {
+        @media (max-width: 1023px), (orientation: portrait) {
             .rent-app .mobile-subhead {
                 display: flex; align-items: center; gap: 8px;
                 padding: 10px 12px;
@@ -1606,7 +1606,7 @@
            so all interaction/functionality is preserved — only the presentation
            changes to match the Opsi B bottom-sheet language.
            =========================================================== */
-        @media (max-width: 768px) {
+        @media (max-width: 1023px), (orientation: portrait) {
             .rent-app .modal-backdrop {
                 align-items: flex-end;
                 padding: 0;

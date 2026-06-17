@@ -185,7 +185,7 @@
             .rent-app .menu-item .mi-tag { margin-left:auto; font-size:10px; font-weight:600; color:var(--fg-4); text-transform:uppercase; letter-spacing:0.04em; }
             .rent-app .menu-sep { height:1px; background:var(--gray-100); margin:5px 2px; }
 
-            @media (max-width: 760px) {
+            @media (max-width: 1023px), (orientation: portrait) {
                 .rent-app .topbar { margin:-1rem -1rem 0; }
                 .rent-app .topbar-inner { padding:10px 12px; gap:8px; }
                 .rent-app .crumbs { display:none; }
@@ -258,7 +258,7 @@
             .rent-app .view-foot .frow.grand .fl { font-weight:700; color:var(--fg-1); font-size:15px; }
             .rent-app .view-foot .frow.grand .fv { font-size:18px; font-weight:700; color:var(--fg-1); }
 
-            @media (max-width: 760px) {
+            @media (max-width: 1023px), (orientation: portrait) {
                 .rent-app .info-view { grid-template-columns:1fr 1fr; }
                 .rent-app .view-head { display:none; }
                 .rent-app .view-row {
@@ -297,7 +297,7 @@
             body.gr-compact.fi-body.fi-body { padding-bottom:0 !important; }
             body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom:0 !important; }
 
-            @media (max-width: 767px) {
+            @media (max-width: 1023px), (orientation: portrait) {
                 /* Hide the global app bottom nav on this page — the rental action
                    bar replaces it (same approach as the Rental editor, Opsi B). */
                 .gr-bottombar { display:none !important; }
@@ -442,7 +442,7 @@
             .rent-app .cust-modal-foot { display:flex; gap:8px; padding:13px 18px; border-top:1px solid var(--border-1); }
             .rent-app .cust-modal-foot .btn { flex:1; justify-content:center; }
 
-            @media (max-width: 520px) {
+            @media (max-width: 1023px), (orientation: portrait) {
                 .rent-app .cust-modal-root { padding:0; align-items:flex-end; }
                 .rent-app .cust-modal { max-width:none; max-height:90vh; border-radius:20px 20px 0 0; border-bottom:none; animation:rv-slideup .26s cubic-bezier(.2,.7,.3,1); }
                 .rent-app .cust-stats .cs-v { font-size:16px; }

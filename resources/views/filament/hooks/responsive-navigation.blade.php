@@ -68,6 +68,29 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 Settings
             </a>
+
+            {{-- Account + logout: the compact-mode replacement for the hidden
+                 sidebar-footer account pill (user menu is otherwise unreachable
+                 in portrait, since the sidebar only returns in landscape). --}}
+            @auth
+                <div class="gr-bb-more-sep"></div>
+                <div class="gr-bb-more-user">
+                    <span class="gr-bb-more-user-avatar">{{ strtoupper(mb_substr(auth()->user()->name ?? 'U', 0, 1)) }}</span>
+                    <span class="gr-bb-more-user-info">
+                        <span class="gr-bb-more-user-name">{{ auth()->user()->name }}</span>
+                        @if(auth()->user()->email)
+                            <span class="gr-bb-more-user-email">{{ auth()->user()->email }}</span>
+                        @endif
+                    </span>
+                </div>
+                <form method="POST" action="{{ route('filament.admin.auth.logout') }}" class="gr-bb-more-logout-form">
+                    @csrf
+                    <button type="submit" class="gr-bb-more-link gr-bb-more-logout">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                        Logout
+                    </button>
+                </form>
+            @endauth
         </div>
     </div>
 </nav>
@@ -219,6 +242,81 @@ body.gr-compact .gr-bb-more-link svg {
     width: 18px;
     height: 18px;
     color: #6b7280;
+}
+
+/* ---- Account + logout block at the foot of the "More" menu ---- */
+body.gr-compact .gr-bb-more-sep {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 6px 4px;
+}
+.dark body.gr-compact .gr-bb-more-sep { background: rgb(255 255 255 / 0.1); }
+
+body.gr-compact .gr-bb-more-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px 10px;
+}
+body.gr-compact .gr-bb-more-user-avatar {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--primary-600);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+}
+body.gr-compact .gr-bb-more-user-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+body.gr-compact .gr-bb-more-user-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dark body.gr-compact .gr-bb-more-user-name { color: #e5e7eb; }
+body.gr-compact .gr-bb-more-user-email {
+    font-size: 11.5px;
+    color: #9ca3af;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The logout control is a <button> in a <form>; reset it to match .gr-bb-more-link (an <a>) */
+body.gr-compact .gr-bb-more-logout-form { margin: 0; }
+body.gr-compact .gr-bb-more-link.gr-bb-more-logout {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    color: #dc2626;
+}
+body.gr-compact .gr-bb-more-link.gr-bb-more-logout svg { color: #dc2626; }
+body.gr-compact .gr-bb-more-link.gr-bb-more-logout:hover { background: rgba(220, 38, 38, 0.08); }
+.dark body.gr-compact .gr-bb-more-link.gr-bb-more-logout:hover { background: rgba(220, 38, 38, 0.15); }
+
+/*
+ * Hide the "dynamic island" account pill in compact mode. theme.css re-anchors the
+ * sidebar footer to a fixed top-right pill, but on portrait tablets it rendered as a
+ * squished capsule stuck at the old (width:0) sidebar edge — so we drop it entirely.
+ * Selectors mirror theme.css exactly; this hook renders at body.end (after the head
+ * stylesheet), so at equal specificity `display:none` wins with no Vite rebuild.
+ * No-op on the phone top-nav DOM (it keeps its own topbar user menu).
+ */
+body.gr-compact .fi-body:not(.fi-body-has-topbar) .fi-sidebar-footer,
+body.gr-compact .fi-sidebar-footer {
+    display: none !important;
 }
 
 /* Give page content room for the bar */
