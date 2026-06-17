@@ -1204,13 +1204,14 @@
         @media (max-width:680px){ #op-console .page{ padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important; } }
         /* Hide the global app bottom nav on this page — the operation's own sticky
            action bar replaces it (same approach as the Rental editor / view rental).
-           The nav hook renders at body.end so prefix with `body` to outrank it and
-           reclaim the bottom padding it reserved. */
-        @media (max-width: 767px) {
-            .gr-bottombar { display: none !important; }
-            body.fi-body { padding-bottom: 0 !important; }
-            body .fi-main, body .fi-page { padding-bottom: 0 !important; }
-        }
+           Keyed off body.gr-compact (the canonical compact-chrome signal), NOT a
+           max-width media query, so it also hides on PORTRAIT tablets (iPad, up to
+           1024px) where the bottom bar likewise renders. The nav hook renders at
+           body.end with `body.gr-compact … !important`, so we double the page classes
+           (.fi-page.fi-page) to outrank it and reclaim its reserved bottom padding. */
+        body.gr-compact .gr-bottombar { display: none !important; }
+        body.gr-compact.fi-body.fi-body { padding-bottom: 0 !important; }
+        body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom: 0 !important; }
 
         /* Blend with Filament content — drop the inset "window" page background */
         #op-console { background: transparent; }

@@ -286,6 +286,17 @@
             .rent-app .rv-mobilebar,
             .rent-app .rv-sheet-root { display:none; }       /* desktop: hidden */
 
+            /* Hide the global app bottom nav whenever the COMPACT chrome is active
+               (body.gr-compact = phone + PORTRAIT tablet up to 1024px), not just at
+               <768px. On portrait iPad this page renders its desktop layout but the
+               global bottom bar still shows, so it must be hidden here too. The nav
+               hook renders at body.end with `body.gr-compact … !important`, so we
+               double the page classes (.fi-page.fi-page) to outrank it and reclaim
+               the bottom padding it reserved. */
+            body.gr-compact .gr-bottombar { display:none !important; }
+            body.gr-compact.fi-body.fi-body { padding-bottom:0 !important; }
+            body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom:0 !important; }
+
             @media (max-width: 767px) {
                 /* Hide the global app bottom nav on this page — the rental action
                    bar replaces it (same approach as the Rental editor, Opsi B). */

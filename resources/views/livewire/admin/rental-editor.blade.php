@@ -1544,10 +1544,15 @@
 
         /* In edit/new rental mode the global bottom nav is hidden — the editbar
            replaces it (Opsi B: "navigasi disembunyikan sementara"). This rule only
-           exists in the DOM while this page is rendered, so it's effectively scoped. */
-        @media (max-width: 767px) {
-            .gr-bottombar { display: none !important; }
-        }
+           exists in the DOM while this page is rendered, so it's effectively scoped.
+           Keyed off body.gr-compact (the canonical compact-chrome signal), NOT a
+           max-width media query, so it also hides on PORTRAIT tablets (iPad, up to
+           1024px) where the bottom bar likewise renders. The nav hook renders at
+           body.end with `body.gr-compact … !important`, so we double the page classes
+           (.fi-page.fi-page) to outrank it and reclaim its reserved bottom padding. */
+        body.gr-compact .gr-bottombar { display: none !important; }
+        body.gr-compact.fi-body.fi-body { padding-bottom: 0 !important; }
+        body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom: 0 !important; }
 
         /* ----- Edit action bar (Opsi B) ----- */
         .rent-app .mobile-view .editbar {

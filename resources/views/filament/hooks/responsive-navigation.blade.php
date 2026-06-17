@@ -227,6 +227,32 @@ body.gr-compact .fi-page,
 body.gr-compact.fi-body {
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 0)) !important;
 }
+
+/*
+ * Tablet (iPad portrait) gets a slightly larger bar than phones. Compact chrome at
+ * >= 768px wide is a portrait tablet — phones are < 768px, and landscape tablets
+ * (>= 1024px) aren't compact at all — so this only bumps the iPad without touching
+ * the phone bar above. Bigger tap targets, icons and labels for the larger screen.
+ */
+@media (min-width: 768px) {
+    body.gr-compact .gr-bottombar { height: 76px; }
+    body.gr-compact .gr-bb-item { font-size: 13px; gap: 4px; }
+    body.gr-compact .gr-bb-item svg { width: 26px; height: 26px; }
+    body.gr-compact .gr-bb-more-btn { font-size: 13px; gap: 4px; }
+    body.gr-compact .gr-bb-more-btn svg { width: 26px; height: 26px; }
+    body.gr-compact .gr-bb-fab { flex: 0 0 64px; width: 64px; height: 64px; margin-top: -22px; }
+    body.gr-compact .gr-bb-fab svg { width: 30px; height: 30px; }
+    body.gr-compact .gr-bb-more-menu { bottom: 84px; min-width: 230px; }
+    body.gr-compact .gr-bb-more-link { font-size: 14px; padding: 11px 13px; }
+    body.gr-compact .gr-bb-more-link svg { width: 20px; height: 20px; }
+    /* Match content padding to the taller bar (pages that hide the bar reclaim this
+       with higher-specificity doubled-class rules, so they're unaffected). */
+    body.gr-compact .fi-main,
+    body.gr-compact .fi-page,
+    body.gr-compact.fi-body {
+        padding-bottom: calc(84px + env(safe-area-inset-bottom, 0)) !important;
+    }
+}
 </style>
 
 <script>
