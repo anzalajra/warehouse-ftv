@@ -319,6 +319,25 @@ body.gr-compact .fi-sidebar-footer {
     display: none !important;
 }
 
+/*
+ * Remove every remaining Filament sidebar remnant in compact mode — navigation is
+ * the bottom bar + floating capsule, so none of it is needed:
+ *  - .fi-sidebar          the whole sidebar (theme.css only collapses it to width:0,
+ *                         which leaves its footer "island" squished at the left edge);
+ *                         display:none kills that remnant outright.
+ *  - .fi-layout-sidebar-toggle-btn-ctn  the top-left hamburger Filament renders when the
+ *                         topbar is off (it opens an off-canvas sidebar whose nav we've
+ *                         already hidden, so it appeared blank when tapped).
+ *  - .fi-sidebar-close-overlay  the dimmer shown while that off-canvas sidebar is open.
+ * Only active under .gr-compact, so landscape/desktop sidebar is untouched.
+ */
+body.gr-compact .fi-sidebar,
+body.gr-compact .fi-sidebar.fi-main-sidebar,
+body.gr-compact .fi-layout-sidebar-toggle-btn-ctn,
+body.gr-compact .fi-sidebar-close-overlay {
+    display: none !important;
+}
+
 /* Give page content room for the bar */
 body.gr-compact .fi-main,
 body.gr-compact .fi-page,

@@ -73,9 +73,22 @@
     x-data="{
         open: false,
         notifOpen: false,
-        toggleProfile() { this.open = !this.open; this.notifOpen = false; },
-        toggleNotif()   { this.notifOpen = !this.notifOpen; this.open = false; },
-        closeAll()      { this.open = false; this.notifOpen = false; },
+        expanded: false,
+        _t: null,
+        isCompact() { return window.matchMedia('(orientation: portrait)').matches || window.innerWidth < 1024; },
+        scheduleMinimize() {
+            if (! this.isCompact()) return;
+            clearTimeout(this._t);
+            this._t = setTimeout(() => { if (! this.open && ! this.notifOpen) this.expanded = false; }, 4000);
+        },
+        expand() { if (this.isCompact()) { this.expanded = true; this.scheduleMinimize(); } },
+        avatarClick() {
+            if (this.isCompact() && ! this.expanded) { this.expand(); return; }
+            this.toggleProfile();
+        },
+        toggleProfile() { this.open = !this.open; this.notifOpen = false; this.scheduleMinimize(); },
+        toggleNotif()   { this.notifOpen = !this.notifOpen; this.open = false; this.scheduleMinimize(); },
+        closeAll()      { this.open = false; this.notifOpen = false; this.expanded = false; clearTimeout(this._t); },
     }"
     @click.outside="closeAll()"
     @keydown.escape.window="closeAll()"
@@ -167,34 +180,42 @@
         @endforelse
     </div>
 
-    {{-- Capsule itself --}}
-    <div class="zw-capsule" role="region" aria-label="Profile capsule">
-        <button type="button" @click="toggleProfile()" class="zw-capsule__avatar-btn" aria-label="Open profile menu">
+    {{-- Capsule itself. On compact (tablet/mobile) it starts minimized as just the
+         avatar circle + a left chevron hint; tapping expands it into the full pill
+         (animated), then it auto-minimizes. On desktop it is always fully expanded. --}}
+    <div class="zw-capsule" :class="{ 'is-expanded': expanded }" role="region" aria-label="Profile capsule">
+        <button type="button" @click="expand()" class="zw-capsule__hint" aria-label="Buka menu" tabindex="-1">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <button type="button" @click="avatarClick()" class="zw-capsule__avatar-btn" aria-label="Open profile menu">
             <span class="zw-capsule__avatar">{{ $initials ?: '?' }}</span>
         </button>
-        <button type="button" @click="toggleProfile()" class="zw-capsule__id">
+        <button type="button" @click="avatarClick()" class="zw-capsule__id">
             <div class="zw-capsule__name">{{ $first }}</div>
             <div class="zw-capsule__role">{{ $roleLabel }}</div>
         </button>
-        <button type="button" @click="toggleNotif()" class="zw-capsule__icon-btn" aria-label="Notifications">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/>
-            </svg>
-            @if ($unreadCount > 0)
-                <span class="zw-capsule__notif-badge"></span>
+        <div class="zw-capsule__actions">
+            <button type="button" @click="toggleNotif()" class="zw-capsule__icon-btn" aria-label="Notifications">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/>
+                </svg>
+                @if ($unreadCount > 0)
+                    <span class="zw-capsule__notif-badge"></span>
+                @endif
+            </button>
+            @if ($settingsUrl)
+            <a href="{{ $settingsUrl }}" class="zw-capsule__icon-btn" aria-label="Pengaturan" title="Pengaturan" wire:navigate>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.03 7.03 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.241.437-.613.43-.992a7.03 7.03 0 0 1 0-.255c.007-.378-.138-.75-.43-.991l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+            </a>
             @endif
-        </button>
-        @if ($settingsUrl)
-        <a href="{{ $settingsUrl }}" class="zw-capsule__icon-btn" aria-label="Pengaturan" title="Pengaturan" wire:navigate>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.03 7.03 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.241.437-.613.43-.992a7.03 7.03 0 0 1 0-.255c.007-.378-.138-.75-.43-.991l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
-        </a>
-        @endif
-        <button type="button" class="zw-capsule__icon-btn" aria-label="QR Scanner"
-                onclick="window.dispatchEvent(new CustomEvent('zw:scanner-open'))">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5ZM6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z"/>
-            </svg>
-        </button>
+            <button type="button" class="zw-capsule__icon-btn" aria-label="QR Scanner"
+                    @click="scheduleMinimize()"
+                    onclick="window.dispatchEvent(new CustomEvent('zw:scanner-open'))">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5ZM6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z"/>
+                </svg>
+            </button>
+        </div>
     </div>
 </div>
 
@@ -268,6 +289,12 @@
         width: 8px; height: 8px; border-radius: 999px;
         background: #ef4444; border: 1.5px solid #1f2937;
     }
+
+    /* Actions group (bell / settings / QR). Inline on desktop; collapses on compact. */
+    .zw-capsule__actions { display: flex; align-items: center; gap: 10px; }
+
+    /* Left chevron hint — only shown on compact while minimized (see gr-compact below). */
+    .zw-capsule__hint { display: none; }
 
     .zw-capsule__profile {
         background: #1f2937; border-radius: 16px;
@@ -349,10 +376,11 @@
     .zw-pop-enter-to   { opacity: 1; transform: translateY(0) scale(1); }
 
     /* ───────────────────────────────────────────────────────
-       RESPONSIVE: tablet portrait + mobile (compact mode)
-       In gr-compact the bottom bar owns the bottom edge, so move the capsule to
-       the top-right and shrink it to avatar + icons (hide name/role). Popups flip
-       to open downward (column-reverse) and are width-capped to the viewport.
+       RESPONSIVE: tablet portrait + mobile (compact mode) — COLLAPSIBLE capsule
+       In gr-compact the bottom bar owns the bottom edge, so the capsule sits at the
+       top-right. It starts MINIMIZED as just the avatar circle + a pulsing left
+       chevron hint; tapping expands it (animated) into the full pill with the icon
+       actions, then it auto-minimizes (4s, JS). Popups flip to open downward.
        ─────────────────────────────────────────────────────── */
     body.gr-compact .zw-capsule-root {
         bottom: auto;
@@ -364,8 +392,7 @@
     }
     body.gr-compact .zw-capsule {
         min-width: 0;
-        gap: 6px;
-        padding: 5px 6px 5px 5px;
+        transition: padding 240ms ease, gap 240ms ease;
     }
     body.gr-compact .zw-capsule__id { display: none; }
     body.gr-compact .zw-capsule__avatar { width: 32px; height: 32px; font-size: 12px; }
@@ -373,6 +400,37 @@
     body.gr-compact .zw-capsule__profile,
     body.gr-compact .zw-capsule__notif {
         max-width: calc(100vw - 1.5rem);
+    }
+
+    /* Minimized vs expanded shape */
+    body.gr-compact .zw-capsule:not(.is-expanded) { gap: 3px; padding: 4px 6px 4px 5px; }
+    body.gr-compact .zw-capsule.is-expanded { gap: 6px; padding: 5px 6px 5px 5px; }
+
+    /* Action group collapses (width + fade) when minimized, expands when open */
+    body.gr-compact .zw-capsule__actions {
+        max-width: 0; opacity: 0; overflow: hidden; gap: 6px;
+        transition: max-width 280ms cubic-bezier(0.34, 1.4, 0.64, 1), opacity 200ms ease;
+    }
+    body.gr-compact .zw-capsule.is-expanded .zw-capsule__actions {
+        max-width: 160px; opacity: 1;
+    }
+
+    /* Chevron hint: visible + pulsing while minimized; collapses away on expand */
+    body.gr-compact .zw-capsule__hint {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 16px; height: 32px; padding: 0; border: none; background: transparent;
+        color: rgba(255, 255, 255, 0.75); cursor: pointer; flex-shrink: 0;
+        overflow: hidden;
+        transition: width 220ms ease, opacity 160ms ease;
+        animation: zw-hint-pulse 1.4s ease-in-out infinite;
+    }
+    body.gr-compact .zw-capsule.is-expanded .zw-capsule__hint {
+        width: 0; opacity: 0; pointer-events: none; animation: none;
+    }
+
+    @keyframes zw-hint-pulse {
+        0%, 100% { transform: translateX(0); opacity: 0.5; }
+        50%      { transform: translateX(-3px); opacity: 1; }
     }
 </style>
 @endonce
