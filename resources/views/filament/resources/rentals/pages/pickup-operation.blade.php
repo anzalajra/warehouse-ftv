@@ -642,6 +642,9 @@
     .row.is-kit { padding-left: calc(var(--pad) + 26px); background: linear-gradient(90deg, var(--card-2), transparent 40%); }
     .row.checked { background: linear-gradient(90deg, var(--success-bg), transparent 55%); }
     .row.conflict { background: linear-gradient(90deg, var(--danger-bg), transparent 60%); }
+    .row.not-taken { background: repeating-linear-gradient(45deg, var(--card-2), var(--card-2) 7px, transparent 7px, transparent 14px); opacity: .72; }
+    .row.not-taken .name { text-decoration: line-through; text-decoration-color: var(--muted-2); }
+    .not-taken-pill { background: var(--card-2); color: var(--muted); border-color: var(--border); }
     .row.flash { animation: flash 1.1s ease; }
     @keyframes flash {
       0% { background: var(--accent-100); }
@@ -669,7 +672,7 @@
     .row .meta .sn { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; color: var(--text-2); background: var(--card-2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 5px; }
     .row .meta .tags { display: inline-flex; gap: 5px; flex-wrap: wrap; }
     .row .right { display: flex; align-items: center; gap: 10px; }
-    .row-actions { display: inline-flex; align-items: center; gap: 6px; }
+    .row-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .btn-icon { padding: 7px; }
     .btn-icon .ic { width: 16px; height: 16px; }
     .btn-icon[aria-pressed="true"] { background: var(--accent-50); border-color: var(--accent-200); color: var(--accent-700); }
@@ -1526,6 +1529,7 @@
                     @forelse ($items as $item)
                         @php
                             $isKit = $item->rentalItemKit !== null;
+                            $notTaken = $isKit && $item->not_taken;
                             $name = $this->itemLabel($item);
                             $sn = $isKit ? ($item->rentalItemKit->unitKit->serial_number ?? '-') : $item->rentalItem->productUnit->serial_number;
                             $unavailable = $isUnavailable($item);
@@ -1536,7 +1540,7 @@
                             $tone = $item->condition ? ($conditionMeta[$item->condition]['tone'] ?? null) : null;
                             $condLabel = $item->condition ? ($conditionMeta[$item->condition]['label'] ?? ucfirst($item->condition)) : null;
                         @endphp
-                        <div class="row {{ $isKit ? 'is-kit' : '' }} {{ $item->is_checked ? 'checked' : '' }} {{ $unavailable ? 'conflict' : '' }}"
+                        <div class="row {{ $isKit ? 'is-kit' : '' }} {{ $item->is_checked ? 'checked' : '' }} {{ $notTaken ? 'not-taken' : '' }} {{ $unavailable ? 'conflict' : '' }}"
                              wire:key="row-{{ $item->id }}"
                              x-show="filter==='all' || (filter==='unchecked' && {{ $item->is_checked ? 'false' : 'true' }}) || (filter==='issues' && {{ $issue ? 'true' : 'false' }})">
                             <div class="thumb {{ $photoCount ? 'has-photo' : '' }}">
@@ -1557,25 +1561,36 @@
                                 </div>
                             </div>
                             <div class="right">
-                                @if ($condLabel)
-                                    <span class="cond {{ $tone }}"><span class="dot"></span>{{ $condLabel }}</span>
-                                @else
-                                    <span class="cond none"><span class="dot"></span>Not checked</span>
-                                @endif
-                                <span class="check-ic {{ $item->is_checked ? 'on' : 'off' }}">{!! $icon($item->is_checked ? 'check' : 'x') !!}</span>
-                                @if ($unavailable)
-                                    <button class="btn btn-sm btn-primary" wire:click="openSwap({{ $item->id }})">{!! $icon('swap') !!}Swap</button>
-                                @elseif ($kitParentUnavailable)
-                                    {{-- Parent unit will be swapped; kit actions hidden until then. --}}
-                                @else
+                                @if ($notTaken)
+                                    <span class="cond none"><span class="dot"></span>Tidak diambil</span>
                                     <div class="row-actions">
-                                        <button class="btn btn-sm btn-icon" title="Edit condition & photos" wire:click="openEditor({{ $item->id }})">{!! $icon('edit') !!}</button>
-                                        @if ($item->is_checked)
-                                            <button class="btn btn-sm" title="Undo check" wire:click="uncheckItem({{ $item->id }})">Undo</button>
-                                        @else
-                                            <button class="btn btn-sm btn-success" wire:click="quickCheck({{ $item->id }})">{!! $icon('check') !!}Check</button>
-                                        @endif
+                                        <span class="tag-pill not-taken-pill">{!! $icon('x') !!}Tidak diambil</span>
+                                        <button class="btn btn-sm" title="Batalkan — kit jadi diambil" wire:click="undoNotTaken({{ $item->id }})">Diambil</button>
                                     </div>
+                                @else
+                                    @if ($condLabel)
+                                        <span class="cond {{ $tone }}"><span class="dot"></span>{{ $condLabel }}</span>
+                                    @else
+                                        <span class="cond none"><span class="dot"></span>Not checked</span>
+                                    @endif
+                                    <span class="check-ic {{ $item->is_checked ? 'on' : 'off' }}">{!! $icon($item->is_checked ? 'check' : 'x') !!}</span>
+                                    @if ($unavailable)
+                                        <button class="btn btn-sm btn-primary" wire:click="openSwap({{ $item->id }})">{!! $icon('swap') !!}Swap</button>
+                                    @elseif ($kitParentUnavailable)
+                                        {{-- Parent unit will be swapped; kit actions hidden until then. --}}
+                                    @else
+                                        <div class="row-actions">
+                                            <button class="btn btn-sm btn-icon" title="Edit condition & photos" wire:click="openEditor({{ $item->id }})">{!! $icon('edit') !!}</button>
+                                            @if ($item->is_checked)
+                                                <button class="btn btn-sm" title="Undo check" wire:click="uncheckItem({{ $item->id }})">Undo</button>
+                                            @else
+                                                <button class="btn btn-sm btn-success" wire:click="quickCheck({{ $item->id }})">{!! $icon('check') !!}Check</button>
+                                            @endif
+                                            @if ($isKit)
+                                                <button class="btn btn-sm" title="Customer tidak mengambil kit ini" wire:click="markNotTaken({{ $item->id }})">Tidak diambil</button>
+                                            @endif
+                                        </div>
+                                    @endif
                                 @endif
                             </div>
                         </div>

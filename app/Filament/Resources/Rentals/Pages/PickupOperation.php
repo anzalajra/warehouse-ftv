@@ -343,15 +343,61 @@ class PickupOperation extends Page
     }
 
     /**
+     * Mark a kit as NOT taken by the customer (declined accessory). Only valid for
+     * kit rows. Flips `is_checked` true so it no longer blocks the pickup gate, and
+     * records the event to the rental activity log. The kit is then skipped when the
+     * IN (return) delivery is built — see Rental::createDeliveries().
+     */
+    public function markNotTaken(int $id): void
+    {
+        $record = $this->delivery->items()->with('rentalItem.productUnit', 'rentalItemKit.unitKit')->find($id);
+        if (! $record || ! $record->rentalItemKit) {
+            return;
+        }
+
+        $record->update(['not_taken' => true, 'is_checked' => true, 'condition' => null]);
+
+        $kitName = $record->rentalItemKit->unitKit->name ?? 'Kit';
+        $serial = $record->rentalItem?->productUnit?->serial_number ?? '-';
+        $this->rental->logActivity(
+            "Kit '{$kitName}' pada unit {$serial} tidak diambil customer saat pickup",
+            'general'
+        );
+
+        $this->delivery->refresh();
+    }
+
+    /** Undo a "not taken" kit before pickup is validated — it must be handed over again. */
+    public function undoNotTaken(int $id): void
+    {
+        $record = $this->delivery->items()->with('rentalItem.productUnit', 'rentalItemKit.unitKit')->find($id);
+        if (! $record || ! $record->rentalItemKit) {
+            return;
+        }
+
+        $record->update(['not_taken' => false, 'is_checked' => false]);
+
+        $kitName = $record->rentalItemKit->unitKit->name ?? 'Kit';
+        $serial = $record->rentalItem?->productUnit?->serial_number ?? '-';
+        $this->rental->logActivity(
+            "Kit '{$kitName}' pada unit {$serial} jadi diambil customer (batal not-taken)",
+            'general'
+        );
+
+        $this->delivery->refresh();
+    }
+
+    /**
      * Items the scanner can match against — every delivery item EXCEPT kits
-     * flagged `auto_scan_with_parent` (those ride along with their parent unit).
+     * flagged `auto_scan_with_parent` (those ride along with their parent unit)
+     * and kits already marked "not taken" (nothing to hand over).
      *
      * @return array<int, array{id:int, name:string, serial:?string, type:string, checked:bool}>
      */
     public function scannableList(): array
     {
         return $this->getDeliveryItems()
-            ->reject(fn (DeliveryItem $it) => $it->rentalItemKit && $it->rentalItemKit->unitKit?->auto_scan_with_parent)
+            ->reject(fn (DeliveryItem $it) => ($it->rentalItemKit && $it->rentalItemKit->unitKit?->auto_scan_with_parent) || $it->not_taken)
             ->map(function (DeliveryItem $it) {
                 $isKit = $it->rentalItemKit !== null;
 
@@ -397,19 +443,22 @@ class PickupOperation extends Page
         $needle = mb_strtolower($serial);
         $match = $items->first(function (DeliveryItem $it) use ($needle) {
             return ! $it->rentalItemKit
+                && ! $it->not_taken
                 && mb_strtolower((string) $it->rentalItem->productUnit->serial_number) === $needle;
         });
 
         if (! $match) {
             $match = $items->first(function (DeliveryItem $it) use ($needle) {
                 return $it->rentalItemKit
+                    && ! $it->not_taken
                     && mb_strtolower((string) $it->rentalItemKit->unitKit->serial_number) === $needle;
             });
         }
 
         if (! $match && $manual) {
             $match = $items->first(function (DeliveryItem $it) use ($needle) {
-                return str_contains(mb_strtolower($this->itemLabel($it)), $needle);
+                return ! $it->not_taken
+                    && str_contains(mb_strtolower($this->itemLabel($it)), $needle);
             });
         }
 
@@ -561,6 +610,11 @@ class PickupOperation extends Page
         $skippedCount = 0;
 
         foreach ($items as $record) {
+            // Leave "not taken" kits as-is — they're intentionally not handed over.
+            if ($record->not_taken) {
+                continue;
+            }
+
             $unit = $record->rentalItem->productUnit;
             $unit->refresh();
 

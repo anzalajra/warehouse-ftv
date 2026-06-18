@@ -1539,6 +1539,19 @@ class Rental extends Model
         }
 
         if ($deliveryIn->status === Delivery::STATUS_DRAFT) {
+            // Kits flagged "not taken" on the OUT delivery were never handed to the
+            // customer, so there is nothing to receive back — skip them entirely so
+            // they don't appear in the return checklist or block its completion gate.
+            // The flag is usually set AFTER the IN row was first created at pickup time,
+            // so also delete any stale IN row for those kits (not just skip new ones).
+            $outNotTakenKitIds = $deliveryOut
+                ? $deliveryOut->items()->where('not_taken', true)->pluck('rental_item_kit_id')->filter()->all()
+                : [];
+
+            if (! empty($outNotTakenKitIds)) {
+                $deliveryIn->items()->whereIn('rental_item_kit_id', $outNotTakenKitIds)->delete();
+            }
+
             foreach ($this->items as $item) {
                 // Skip empty "ghost" slots (no unit assigned) — nothing physical to receive.
                 if (! $item->product_unit_id || ! $item->productUnit) {
@@ -1555,6 +1568,10 @@ class Rental extends Model
 
                 // Kits
                 foreach ($item->rentalItemKits as $kit) {
+                    if (in_array($kit->id, $outNotTakenKitIds, true)) {
+                        continue;
+                    }
+
                     $deliveryIn->items()->firstOrCreate([
                         'rental_item_id' => $item->id,
                         'rental_item_kit_id' => $kit->id,

@@ -12,6 +12,7 @@ class DeliveryItem extends Model
         'rental_item_id',
         'rental_item_kit_id',
         'is_checked',
+        'not_taken',
         'condition',
         'photos',
         'notes',
@@ -19,6 +20,7 @@ class DeliveryItem extends Model
 
     protected $casts = [
         'is_checked' => 'boolean',
+        'not_taken' => 'boolean',
         'photos' => 'array',
     ];
 
