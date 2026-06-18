@@ -95,17 +95,32 @@
             <div class="zw-capsule__profile-tenant">{{ $tenantName }}</div>
         </div>
 
+        {{-- Theme switcher (light / dark / system) — reuses Filament's own
+             `theme-changed` window event (dark-mode.js persists to localStorage +
+             toggles the .dark class on <html>). `theme` tracks the raw selection
+             for the active-button state. --}}
+        <div class="zw-capsule__theme">
+            <span class="zw-capsule__theme-label">Tema</span>
+            <div class="zw-capsule__theme-seg"
+                 x-data="{ theme: null }"
+                 x-init="$watch('theme', () => $dispatch('theme-changed', theme)); theme = localStorage.getItem('theme') || @js(filament()->getDefaultThemeMode()->value)">
+                <button type="button" @click="theme = 'light'" :class="{ 'is-active': theme === 'light' }" aria-label="Terang">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                </button>
+                <button type="button" @click="theme = 'dark'" :class="{ 'is-active': theme === 'dark' }" aria-label="Gelap">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+                </button>
+                <button type="button" @click="theme = 'system'" :class="{ 'is-active': theme === 'system' }" aria-label="Sistem">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                </button>
+            </div>
+        </div>
+
         <div class="zw-capsule__profile-list">
             @if ($profileUrl)
             <a href="{{ $profileUrl }}" class="zw-capsule__profile-item" wire:navigate>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg>
                 <span>My Profile</span>
-            </a>
-            @endif
-            @if ($settingsUrl)
-            <a href="{{ $settingsUrl }}" class="zw-capsule__profile-item" wire:navigate>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.03 7.03 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.241.437-.613.43-.992a7.03 7.03 0 0 1 0-.255c.007-.378-.138-.75-.43-.991l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
-                <span>Pengaturan</span>
             </a>
             @endif
             <form method="POST" action="{{ $logoutUrl }}" class="zw-capsule__profile-form">
@@ -169,6 +184,11 @@
                 <span class="zw-capsule__notif-badge"></span>
             @endif
         </button>
+        @if ($settingsUrl)
+        <a href="{{ $settingsUrl }}" class="zw-capsule__icon-btn" aria-label="Pengaturan" title="Pengaturan" wire:navigate>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.03 7.03 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.241.437-.613.43-.992a7.03 7.03 0 0 1 0-.255c.007-.378-.138-.75-.43-.991l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+        </a>
+        @endif
         <button type="button" class="zw-capsule__icon-btn" aria-label="QR Scanner"
                 onclick="window.dispatchEvent(new CustomEvent('zw:scanner-open'))">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -194,8 +214,16 @@
 
     /* Hide Filament's built-in sidebar-footer island in sidebar/expanded mode.
        In compact mode it is already hidden by the responsive-navigation hook,
-       so we scope this to :not(.gr-compact) to avoid fighting that rule. */
-    body:not(.gr-compact) .fi-sidebar-footer { display: none !important; }
+       so we scope this to :not(.gr-compact) to avoid fighting that rule.
+       `.fi-body` / `.fi-body-has-topbar` live on the <body> element itself
+       (so they must be chained on `body`, not used as a descendant), matching
+       theme.css's island rule `.fi-body:not(.fi-body-has-topbar) .fi-sidebar-footer`
+       (which sets `display:flex !important`, specificity 0,3,0). Adding
+       `body...:not(.gr-compact)` lifts ours to 0,4,1 so `display:none` wins. */
+    body.fi-body:not(.gr-compact):not(.fi-body-has-topbar) .fi-sidebar-footer,
+    body:not(.gr-compact) .fi-sidebar-footer {
+        display: none !important;
+    }
 
     .zw-capsule {
         background: #1f2937;
@@ -205,7 +233,7 @@
         box-shadow: 0 4px 24px rgba(0,0,0,0.25);
         border: 1px solid rgba(255,255,255,0.08);
         user-select: none;
-        min-width: 240px;
+        min-width: 264px;
     }
     .zw-capsule__avatar-btn { background:none; border:none; padding:0; cursor:pointer; flex-shrink:0; }
     .zw-capsule__avatar {
@@ -232,6 +260,7 @@
         display: grid; place-items: center;
         position: relative; flex-shrink: 0;
         transition: background 150ms;
+        text-decoration: none;
     }
     .zw-capsule__icon-btn:hover { background: rgba(255,255,255,0.16); color: #fff; }
     .zw-capsule__notif-badge {
@@ -249,6 +278,24 @@
     .zw-capsule__profile-head { padding: 14px 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
     .zw-capsule__profile-name { font-size: 14px; font-weight: 700; color: #fff; }
     .zw-capsule__profile-tenant { font-size: 11.5px; color: rgba(255,255,255,0.45); margin-top: 1px; }
+
+    /* Theme switcher row */
+    .zw-capsule__theme {
+        padding: 10px 18px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .zw-capsule__theme-label { font-size: 12.5px; font-weight: 500; color: rgba(255,255,255,0.7); }
+    .zw-capsule__theme-seg {
+        display: inline-flex; gap: 2px;
+        background: rgba(255,255,255,0.06); border-radius: 999px; padding: 3px;
+    }
+    .zw-capsule__theme-seg button {
+        width: 28px; height: 28px; border: none; border-radius: 999px;
+        background: transparent; color: rgba(255,255,255,0.55); cursor: pointer;
+        display: grid; place-items: center; transition: background 150ms, color 150ms;
+    }
+    .zw-capsule__theme-seg button:hover { color: #fff; }
+    .zw-capsule__theme-seg button.is-active { background: var(--primary-600, #0284c7); color: #fff; }
     .zw-capsule__profile-list { padding: 6px 0; }
     .zw-capsule__profile-form { margin: 0; padding: 0; }
     .zw-capsule__profile-form button { width: 100%; background: none; border: none; cursor: pointer; font-family: inherit; }

@@ -92,24 +92,25 @@ class AdminPanelProvider extends PanelProvider
                 'purple' => Color::Purple,
             ]);
             
-        // Detect phones early for render hooks.
-        // NOTE: tablets (iPad) are intentionally NOT forced to top-nav — they render the
-        // sidebar DOM and switch between sidebar (landscape) and a mobile-style compact
-        // layout (portrait) entirely client-side. See resources/views/filament/hooks/
-        // responsive-navigation.blade.php + resources/css/filament/admin/theme.css (.gr-compact).
-        $isPhone = $this->isPhone();
-        $useTopNav = ($navigationLayout === 'top' || $isPhone);
+        // Navigation DOM selection. The default 'sidebar' renders the sidebar layout,
+        // which the responsive system (responsive-navigation.blade.php + theme.css
+        // .gr-compact) collapses into a bottom bar + floating profile capsule on
+        // portrait/narrow viewports — INCLUDING phones. So phones now get the same
+        // compact experience as portrait tablets (the capsule replaces the Filament
+        // top bar), flipping instantly on rotation with no reload. Only an explicit
+        // 'top' navigation_layout setting forces top navigation (a desktop choice).
+        $useTopNav = ($navigationLayout === 'top');
         
         $panel
             ->renderHook(
                 'panels::head.end',
                 fn () => view('filament.hooks.admin-pwa')
             )
-            // Global QR scanner. In top-nav (phone) mode it lives in the topbar with its
-            // own trigger button. In sidebar mode the trigger is provided by the floating
-            // profile capsule (which dispatches `zw:scanner-open`), so the scanner renders
-            // free-floating at body.end (NOT inside the now-hidden sidebar footer) with its
-            // own trigger hidden.
+            // Global QR scanner. In explicit top-nav mode it lives in the topbar with
+            // its own trigger button. In sidebar mode (the default, incl. phones/tablets)
+            // the trigger is provided by the floating profile capsule (which dispatches
+            // `zw:scanner-open`), so the scanner renders free-floating at body.end (NOT
+            // inside the now-hidden sidebar footer) with its own trigger hidden.
             ->renderHook(
                 $useTopNav
                     ? 'panels::global-search.after'
@@ -159,8 +160,9 @@ class AdminPanelProvider extends PanelProvider
                 Authenticate::class,
             ]);
 
-        // On mobile, always use top navigation for better UX
-        // On desktop, use the user's preferred setting
+        // Top navigation only when explicitly chosen via the navigation_layout setting.
+        // Otherwise the sidebar layout is used for every device; the responsive system
+        // collapses it to a bottom bar + floating capsule on phones/portrait tablets.
         if ($useTopNav) {
             $panel->topNavigation();
         } else {
@@ -169,9 +171,11 @@ class AdminPanelProvider extends PanelProvider
             $panel->topbar(false);
 
             // Replace Filament's built-in sidebar-footer "island" (user menu +
-            // notifications) with the custom floating profile capsule. Sidebar mode
-            // only — phones keep the top-nav user menu. The capsule blade hides the
-            // old .fi-sidebar-footer and provides the QR-scanner trigger.
+            // notifications) with the custom floating profile capsule. Used on all
+            // devices in sidebar mode: full pill (desktop/landscape) or a compact
+            // top-right pill on phones/portrait tablets (see the blade's gr-compact
+            // styles). The capsule hides the old .fi-sidebar-footer and provides the
+            // QR-scanner trigger.
             $panel->renderHook(
                 'panels::body.end',
                 fn () => view('filament.hooks.floating-profile-capsule')
@@ -240,49 +244,5 @@ class AdminPanelProvider extends PanelProvider
             ])
             // Sidebar collapsible (opsional - bisa dihapus jika tidak perlu)
             ->sidebarCollapsibleOnDesktop();
-    }
-    
-    /**
-     * Detect if the current request is from a phone (NOT a tablet).
-     *
-     * Phones keep the forced top-navigation layout. Tablets (iPad/Android tablets) fall
-     * through to the sidebar DOM and are made responsive client-side via the `.gr-compact`
-     * body class (portrait = mobile-style, landscape = sidebar) so rotation switches the
-     * layout instantly without a reload.
-     *
-     * iPad detection by User-Agent is unreliable anyway — since iPadOS 13 Safari sends a
-     * desktop (macOS) UA by default — so any iPad that *isn't* matched here simply renders
-     * the sidebar DOM, which is exactly what we want.
-     */
-    protected function isPhone(): bool
-    {
-        $userAgent = request()->header('User-Agent', '');
-
-        // Tablets are explicitly excluded — they use the responsive sidebar layout.
-        if (preg_match('/iPad|Tablet|PlayBook|Nexus (?:7|9|10)|SM-T|KFAPWI|Silk/i', $userAgent)) {
-            return false;
-        }
-
-        // Genuine phone patterns. Android phones include "Mobile" in their UA; Android
-        // tablets do not — so we require Android to be paired with Mobile.
-        $phonePatterns = [
-            '/iPhone/i',
-            '/iPod/i',
-            '/Android.*Mobile/i',
-            '/Windows Phone/i',
-            '/IEMobile/i',
-            '/BlackBerry/i',
-            '/BB10/i',
-            '/Opera Mini/i',
-            '/webOS/i',
-        ];
-
-        foreach ($phonePatterns as $pattern) {
-            if (preg_match($pattern, $userAgent)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
