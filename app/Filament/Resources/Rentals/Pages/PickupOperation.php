@@ -478,6 +478,7 @@ class PickupOperation extends Page
 
         $this->quickCheck($match->id);
         $checkedLabels = [$label];
+        $checkedIds = [$match->id];
 
         // Cascade: auto-check this unit's auto_scan_with_parent kits.
         if ($cascade && ! $match->rentalItemKit) {
@@ -494,10 +495,14 @@ class PickupOperation extends Page
                 }
                 $this->quickCheck($kit->id);
                 $checkedLabels[] = $this->itemLabel($kit);
+                $checkedIds[] = $kit->id;
             }
         }
 
-        return ['status' => 'ok', 'label' => $label, 'checked' => $checkedLabels];
+        // checked_ids lets the Alpine scanner update its local list without a
+        // second `scannableList()` round-trip (the quickCheck() above already
+        // re-rendered the page's own checklist in this same request).
+        return ['status' => 'ok', 'label' => $label, 'checked' => $checkedLabels, 'checked_ids' => $checkedIds];
     }
 
     /** Scan-to-check: check the next available unchecked item, or notify when none remain. */

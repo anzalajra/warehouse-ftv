@@ -273,6 +273,7 @@ class ProcessReturn extends Page
 
         $this->quickCheck($match->id);
         $checkedLabels = [$label];
+        $checkedIds = [$match->id];
 
         if ($cascade && ! $match->rentalItemKit) {
             $kits = $items->filter(function (DeliveryItem $it) use ($match) {
@@ -285,10 +286,14 @@ class ProcessReturn extends Page
             foreach ($kits as $kit) {
                 $this->quickCheck($kit->id);
                 $checkedLabels[] = $this->itemLabel($kit);
+                $checkedIds[] = $kit->id;
             }
         }
 
-        return ['status' => 'ok', 'label' => $label, 'checked' => $checkedLabels];
+        // checked_ids lets the Alpine scanner update its local list without a
+        // second `scannableList()` round-trip (the quickCheck() above already
+        // re-rendered the page's own checklist in this same request).
+        return ['status' => 'ok', 'label' => $label, 'checked' => $checkedLabels, 'checked_ids' => $checkedIds];
     }
 
     /** Scan-to-check: check the next unchecked item, or notify when none remain. */

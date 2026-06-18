@@ -53,8 +53,9 @@
 .scn-scrim {
     position: fixed; inset: 0; z-index: 9999;
     display: grid; place-items: center; padding: 26px;
+    /* solid scrim (no backdrop-filter blur — too expensive to re-render every
+       frame on low-spec mobile GPUs while the camera feed is live) */
     background: var(--scn-scrim);
-    backdrop-filter: blur(4px);
 }
 .scn-modal {
     width: 100%; max-width: 432px; max-height: 92vh;
@@ -144,7 +145,7 @@
 .scn-hint {
     position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 4;
     display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; white-space: nowrap;
-    background: rgba(0,0,0,0.55); backdrop-filter: blur(6px); font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.92);
+    background: rgba(0,0,0,0.72); font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.92);
 }
 .scn-hint.err { background: rgba(220,38,38,0.85); }
 .scn-hint .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--scn-accent); animation: scn-blink 1.1s ease infinite; }
@@ -154,7 +155,7 @@
 .scn-live-chips { position: absolute; top: 12px; right: 12px; z-index: 5; display: flex; gap: 8px; }
 .scn-chip {
     display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 0; cursor: pointer;
-    background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); color: rgba(255,255,255,.9);
+    background: rgba(0,0,0,0.68); color: rgba(255,255,255,.9);
     font-family: var(--scn-font); font-size: 11.5px; font-weight: 700; letter-spacing: .03em;
 }
 .scn-chip svg { width: 14px; height: 14px; }
@@ -162,7 +163,7 @@
 .scn-chip .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--scn-accent); box-shadow: 0 0 8px var(--scn-accent); animation: scn-blink 1.1s ease infinite; }
 .scn-mode-pill {
     position: absolute; top: 12px; left: 12px; z-index: 5; display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 11px; border-radius: 999px; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px);
+    padding: 6px 11px; border-radius: 999px; background: rgba(0,0,0,0.68);
     font-size: 11px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; color: #fff;
 }
 .scn-mode-pill .swatch { width: 7px; height: 7px; border-radius: 2px; }

@@ -21,6 +21,28 @@ const SCAN_HINTS = new Map();
 SCAN_HINTS.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE, BarcodeFormat.CODE_128]);
 SCAN_HINTS.set(DecodeHintType.TRY_HARDER, true);
 
+// Classify the device by the (best-effort) capability signals the browser
+// exposes, so we can dial camera resolution + decode cadence to what the
+// hardware can actually keep up with. Low-spec Androids (e.g. Samsung A14)
+// choke on a 1080p stream decoded 10×/sec; high-end phones don't.
+//   - 'low'  : ≤4 GB RAM or ≤4 logical cores  → 960×720, 180ms between scans
+//   - 'high' : ≥8 GB RAM and ≥6 logical cores → 1920×1080, 100ms (unchanged)
+//   - 'mid'  : everything else, incl. browsers that hide deviceMemory (iOS) → 1280×720, 100ms
+function deviceTier() {
+    const mem = typeof navigator !== 'undefined' ? navigator.deviceMemory : undefined;   // GB, Chrome-only, coarse
+    const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : undefined;
+
+    if ((mem !== undefined && mem <= 4) || (cores !== undefined && cores <= 4)) return 'low';
+    if (mem !== undefined && cores !== undefined && mem >= 8 && cores >= 6) return 'high';
+    return 'mid';
+}
+
+const TIER_PROFILES = {
+    low:  { width: 960,  height: 720,  delayBetweenScanAttempts: 180 },
+    mid:  { width: 1280, height: 720,  delayBetweenScanAttempts: 100 },
+    high: { width: 1920, height: 1080, delayBetweenScanAttempts: 100 },
+};
+
 function unitScanner(config = {}) {
     return {
         // ---- config ----
@@ -51,6 +73,7 @@ function unitScanner(config = {}) {
         lastCode: null,
         lastAt: 0,
         _detectTimer: null,
+        _profile: TIER_PROFILES.mid,   // resolved in init() from deviceTier()
 
         // ---- derived ----
         get remaining() { return this.items.filter((i) => !i.checked).length; },
@@ -62,6 +85,7 @@ function unitScanner(config = {}) {
 
         // ---- lifecycle ----
         init() {
+            this._profile = TIER_PROFILES[deviceTier()] || TIER_PROFILES.mid;
             this.$watch('open', (v) => { if (!v) this.stopAll(); });
         },
 
@@ -113,15 +137,16 @@ function unitScanner(config = {}) {
                 return;
             }
             try {
-                // Ask for continuous autofocus + a high resolution so small QR
-                // codes keep enough pixels to decode. `focusMode`/`advanced` are
+                // Ask for continuous autofocus + a resolution sized to the
+                // device tier (low-spec phones get 720p so the decode loop
+                // isn't drawing huge frames). `focusMode`/`advanced` are
                 // ignored by browsers that don't support them (no throw), and we
                 // re-apply focus after the stream starts (see applyFocus()).
                 this.stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: { ideal: 'environment' },
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 },
+                        width: { ideal: this._profile.width },
+                        height: { ideal: this._profile.height },
                         focusMode: 'continuous',
                         advanced: [{ focusMode: 'continuous' }],
                     },
@@ -169,10 +194,11 @@ function unitScanner(config = {}) {
             if (!this.reader) {
                 // zxing throttles decode attempts to 500ms by default → only 2
                 // tries/sec, so a code can sit in frame for seconds before a
-                // sharp frame happens to land on a poll. Poll ~10×/sec instead
-                // for near-instant lock-on.
+                // sharp frame happens to land on a poll. Poll faster for
+                // near-instant lock-on, but back off on low-spec devices
+                // (180ms ≈ 5.5×/sec) so the decode loop doesn't peg the CPU.
                 this.reader = new BrowserMultiFormatReader(SCAN_HINTS, {
-                    delayBetweenScanAttempts: 100,
+                    delayBetweenScanAttempts: this._profile.delayBetweenScanAttempts,
                     delayBetweenScanSuccess: 300,
                 });
             }
@@ -262,11 +288,26 @@ function unitScanner(config = {}) {
 
             if (res.status === 'ok') {
                 this.showDetected(res.label, 'ok');
-                await this.refresh();
+                // scanByCode already re-rendered the page checklist in this same
+                // round-trip; update our local list from checked_ids instead of
+                // firing a second scannableList() request.
+                this.applyChecked(res.checked_ids);
             } else if (res.status === 'already') {
                 this.showDetected(res.label, 'already');
             }
             // 'notfound' / 'foreign' / 'unavailable' → silently keep scanning
+        },
+
+        // Mark the given DeliveryItem ids checked in the local list (no server
+        // round-trip). Falls back to refresh() only if the backend didn't send
+        // ids (e.g. older server build).
+        applyChecked(ids) {
+            if (Array.isArray(ids) && ids.length) {
+                const set = new Set(ids);
+                this.items = this.items.map((it) => (set.has(it.id) ? { ...it, checked: true } : it));
+            } else {
+                this.refresh();
+            }
         },
 
         showDetected(name, tone) {
@@ -294,7 +335,7 @@ function unitScanner(config = {}) {
             if (res.status === 'ok') {
                 this.manualVal = '';
                 this.manualErr = '';
-                await this.refresh();
+                this.applyChecked(res.checked_ids);
             }
         },
     };
