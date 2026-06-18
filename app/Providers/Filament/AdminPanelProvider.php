@@ -77,6 +77,7 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login(\App\Filament\Pages\Auth\Login::class)
+            ->profile()
             ->maxContentWidth(Width::Full)
             ->brandName($brandName)
             ->brandLogo($brandLogo)
@@ -104,11 +105,16 @@ class AdminPanelProvider extends PanelProvider
                 'panels::head.end',
                 fn () => view('filament.hooks.admin-pwa')
             )
+            // Global QR scanner. In top-nav (phone) mode it lives in the topbar with its
+            // own trigger button. In sidebar mode the trigger is provided by the floating
+            // profile capsule (which dispatches `zw:scanner-open`), so the scanner renders
+            // free-floating at body.end (NOT inside the now-hidden sidebar footer) with its
+            // own trigger hidden.
             ->renderHook(
                 $useTopNav
                     ? 'panels::global-search.after'
-                    : 'panels::sidebar.footer',
-                fn () => view('filament.hooks.qr-scanner')
+                    : 'panels::body.end',
+                fn () => view('filament.hooks.qr-scanner', ['hideTrigger' => ! $useTopNav])
             )
             ->renderHook(
                 'panels::content.end',
@@ -161,6 +167,15 @@ class AdminPanelProvider extends PanelProvider
             // Sidebar mode: hide the topbar entirely
             // Search, notifications, and user menu automatically move to sidebar
             $panel->topbar(false);
+
+            // Replace Filament's built-in sidebar-footer "island" (user menu +
+            // notifications) with the custom floating profile capsule. Sidebar mode
+            // only — phones keep the top-nav user menu. The capsule blade hides the
+            // old .fi-sidebar-footer and provides the QR-scanner trigger.
+            $panel->renderHook(
+                'panels::body.end',
+                fn () => view('filament.hooks.floating-profile-capsule')
+            );
         }
 
         return $panel

@@ -194,9 +194,14 @@
 </script>
 @endonce
 
+{{-- $hideTrigger: in sidebar mode the floating profile capsule provides the QR
+     button (and dispatches `zw:scanner-open`), so the inline trigger is hidden.
+     In top-nav (phone) mode the trigger is shown in the topbar. --}}
 <div class="scn-host flex items-center"
-     x-data="globalScanner({ resolveUrl: @js(route('admin.scan-resolve')) })">
+     x-data="globalScanner({ resolveUrl: @js(route('admin.scan-resolve')) })"
+     x-on:zw:scanner-open.window="openScanner()">
 
+    @unless ($hideTrigger ?? false)
     {{-- Trigger (always visible; modal is gated by x-if so no x-cloak needed here) --}}
     <button
         @click="openScanner()"
@@ -209,6 +214,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" />
         </svg>
     </button>
+    @endunless
 
     {{-- Scanner modal (same chrome as Pickup/Return) --}}
     <template x-if="open">
