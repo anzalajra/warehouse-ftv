@@ -1,8 +1,20 @@
 // unit-scanner.js — Alpine component powering the camera scanner popup on the
-// Pickup / Return operation pages. Real QR + Code128 decode via @zxing/browser.
+// Pickup / Return operation pages.
 //
 // Phases mirror the design handoff (scanner-core.jsx):
 //   prompt → requesting → live | denied | blocked | nocamera | manual
+//
+// Small-QR detection strategy (labels are 12 mm, so the QR is tiny):
+//   1. ROI crop + upscale — decode only a centered square (the finder frame)
+//      drawn upscaled to an offscreen canvas, so the QR fills the decoded image
+//      ("digital zoom" that works on every browser, incl. iOS Safari).
+//   2. Hardware zoom — magnify at the sensor where the camera exposes a `zoom`
+//      capability (Android Chrome); buttons/pinch fall back to software crop
+//      (softZoom) where it isn't (iOS).
+//   3. Native BarcodeDetector — use the OS detector (Android Chrome) when
+//      available: far more robust on small/blurry codes and lighter on CPU than
+//      the JS decoder. Falls back to @zxing/browser everywhere else (iOS, etc.).
+//   4. Tap-to-focus on the camera area.
 //
 // Closed-system contract: every label encodes "PREFIX:serial". The client does
 // a fast prefix check to ignore foreign codes, then hands the raw code to the
@@ -43,6 +55,12 @@ const TIER_PROFILES = {
     high: { width: 1920, height: 1080, delayBetweenScanAttempts: 100 },
 };
 
+// Software-zoom (ROI crop) bounds. softZoom = how tightly we crop the centred
+// square before decoding; 1.5 ≈ the finder frame, up to 3× for tiny codes.
+const SOFT_ZOOM_MIN = 1.0;
+const SOFT_ZOOM_MAX = 3.0;
+const SOFT_ZOOM_DEFAULT = 1.5;
+
 function unitScanner(config = {}) {
     return {
         // ---- config ----
@@ -66,14 +84,29 @@ function unitScanner(config = {}) {
         manualVal: '',
         manualErr: '',
 
+        // ---- zoom ----
+        zoomSupported: false,        // true → camera exposes a hardware `zoom` capability
+        zoomMin: 1,
+        zoomMax: 1,
+        zoomStep: 0,
+        zoom: 1,                     // current hardware zoom
+        softZoom: SOFT_ZOOM_DEFAULT, // ROI crop factor (digital zoom)
+
         // ---- internals ----
         stream: null,
-        reader: null,
-        controls: null,
+        reader: null,                // ZXing reader (zxing engine only)
+        engine: 'zxing',             // 'native' | 'zxing'
+        _detector: null,             // BarcodeDetector instance (native engine)
+        _scanning: false,
+        _loop: null,
+        _canvas: null,
+        _ctx: null,
         lastCode: null,
         lastAt: 0,
         _detectTimer: null,
         _profile: TIER_PROFILES.mid,   // resolved in init() from deviceTier()
+        _pinchStart: 0,
+        _pinchBase: 0,
 
         // ---- derived ----
         get remaining() { return this.items.filter((i) => !i.checked).length; },
@@ -82,11 +115,36 @@ function unitScanner(config = {}) {
         get isReturn() { return this.mode === 'return'; },
         get modeWord() { return this.isReturn ? 'Return' : 'Pick Up'; },
         get modeKey() { return this.isReturn ? 'return' : 'pickup'; },
+        get zoomLabel() {
+            const z = this.zoomSupported ? this.zoom : this.softZoom;
+            return (Math.round(z * 10) / 10) + '×';
+        },
 
         // ---- lifecycle ----
         init() {
             this._profile = TIER_PROFILES[deviceTier()] || TIER_PROFILES.mid;
+            this.detectEngine();   // async, no stream needed — cache the result early
             this.$watch('open', (v) => { if (!v) this.stopAll(); });
+        },
+
+        // Pick the best decode engine once: the OS-native BarcodeDetector when it
+        // supports our formats (Android Chrome), else fall back to ZXing JS.
+        async detectEngine() {
+            this.engine = 'zxing';
+            this._detector = null;
+            try {
+                if ('BarcodeDetector' in window && typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+                    const fmts = await window.BarcodeDetector.getSupportedFormats();
+                    const want = ['qr_code', 'code_128'].filter((f) => fmts.includes(f));
+                    if (want.length) {
+                        this._detector = new window.BarcodeDetector({ formats: want });
+                        this.engine = 'native';
+                    }
+                }
+            } catch (e) {
+                this.engine = 'zxing';
+                this._detector = null;
+            }
         },
 
         openScanner() {
@@ -180,35 +238,99 @@ function unitScanner(config = {}) {
             const video = this.$refs.video;
             if (!video || !this.stream) return;
 
-            // torch capability probe
-            const track = this.stream.getVideoTracks ? this.stream.getVideoTracks()[0] : null;
+            // Capability probe: torch + hardware zoom.
+            const track = this._track();
             const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
             this.torchSupported = !!caps.torch;
+            this.setupZoom(track, caps);
 
             // Force continuous autofocus so small QR codes come into focus. The
             // initial getUserMedia hint is often ignored; applyConstraints after
-            // the track is live is the reliable path. Prefer 'continuous', fall
-            // back to whatever the device supports.
+            // the track is live is the reliable path.
             this.applyFocus(track, caps);
 
-            if (!this.reader) {
-                // zxing throttles decode attempts to 500ms by default → only 2
-                // tries/sec, so a code can sit in frame for seconds before a
-                // sharp frame happens to land on a poll. Poll faster for
-                // near-instant lock-on, but back off on low-spec devices
-                // (180ms ≈ 5.5×/sec) so the decode loop doesn't peg the CPU.
-                this.reader = new BrowserMultiFormatReader(SCAN_HINTS, {
-                    delayBetweenScanAttempts: this._profile.delayBetweenScanAttempts,
-                    delayBetweenScanSuccess: 300,
-                });
+            // ZXing reader is only needed for the fallback engine.
+            if (this.engine === 'zxing' && !this.reader) {
+                this.reader = new BrowserMultiFormatReader(SCAN_HINTS);
             }
 
-            this.reader
-                .decodeFromStream(this.stream, video, (result) => {
-                    if (result) this.onDecode(result.getText());
-                })
-                .then((controls) => { this.controls = controls; })
-                .catch(() => { /* decode loop failed to start */ });
+            // Attach the stream to the <video> ourselves (we drive the decode
+            // loop manually rather than via reader.decodeFromStream, so we can
+            // crop + upscale each frame before decoding).
+            try {
+                if (video.srcObject !== this.stream) video.srcObject = this.stream;
+                const p = video.play();
+                if (p && p.catch) p.catch(() => { /* autoplay blocked — playsinline+muted should avoid this */ });
+            } catch (e) { /* noop */ }
+
+            this._scanning = true;
+            this.runLoop();
+        },
+
+        // Probe + initialise hardware zoom. Auto-applies a gentle 2× so small
+        // codes already fill more of the frame on devices that support it.
+        setupZoom(track, caps) {
+            const z = caps && caps.zoom;
+            if (z && typeof z.max === 'number' && z.max > (z.min || 1)) {
+                this.zoomSupported = true;
+                this.zoomMin = z.min || 1;
+                this.zoomMax = z.max;
+                this.zoomStep = z.step || Math.max(0.1, (this.zoomMax - this.zoomMin) / 10);
+                const target = Math.min(this.zoomMax, Math.max(this.zoomMin, 2));
+                this.setZoom(target);
+            } else {
+                this.zoomSupported = false;
+            }
+        },
+
+        // The decode loop: grab the centred ROI, upscale it, decode with the
+        // active engine. Re-schedules itself at the tier cadence; setTimeout
+        // recursion (not setInterval) so an async native detect never overlaps.
+        async runLoop() {
+            if (!this._scanning) return;
+            const video = this.$refs.video;
+            if (video && video.readyState >= 2 && video.videoWidth) {
+                try {
+                    const text = await this.grabAndDecode(video);
+                    if (text) this.onDecode(text);
+                } catch (e) { /* no code in this frame */ }
+            }
+            if (this._scanning) {
+                this._loop = setTimeout(() => this.runLoop(), this._profile.delayBetweenScanAttempts);
+            }
+        },
+
+        // Draw the centred square ROI (sized by softZoom) into the offscreen
+        // canvas, upscaling tight crops so the QR has more module resolution,
+        // then decode it with the active engine. Returns the text or null.
+        async grabAndDecode(video) {
+            const vW = video.videoWidth, vH = video.videoHeight;
+            if (!vW || !vH) return null;
+
+            const side = Math.min(vW, vH) / Math.min(SOFT_ZOOM_MAX, Math.max(SOFT_ZOOM_MIN, this.softZoom));
+            const sx = (vW - side) / 2;
+            const sy = (vH - side) / 2;
+            // Bound the canvas: upscale tight crops to ≥480 (more px per module),
+            // cap large ones at 1024 (CPU). Square, since the ROI is square.
+            const target = Math.min(1024, Math.max(480, Math.round(side)));
+
+            if (!this._canvas) {
+                this._canvas = document.createElement('canvas');
+                this._ctx = this._canvas.getContext('2d', { willReadFrequently: true });
+            }
+            if (this._canvas.width !== target) { this._canvas.width = target; this._canvas.height = target; }
+            this._ctx.drawImage(video, sx, sy, side, side, 0, 0, target, target);
+
+            if (this.engine === 'native' && this._detector) {
+                const codes = await this._detector.detect(this._canvas);
+                if (codes && codes.length) return codes[0].rawValue || null;
+                return null;
+            }
+
+            // ZXing: decodeFromCanvas throws NotFoundException when no code is
+            // present — that's the common case, caught by runLoop().
+            const result = this.reader.decodeFromCanvas(this._canvas);
+            return result ? result.getText() : null;
         },
 
         async applyFocus(track, caps) {
@@ -223,9 +345,29 @@ function unitScanner(config = {}) {
             } catch (e) { /* device has no controllable focus — fixed-focus cam */ }
         },
 
+        // Tap-to-focus: point the autofocus at where the operator tapped, then
+        // hand back to continuous so it keeps tracking. Best-effort — many
+        // devices ignore pointsOfInterest / single-shot (must never throw).
+        async focusAt(e) {
+            const track = this._track();
+            const el = this.$refs.video;
+            if (!track || !track.applyConstraints || !el) return;
+            const r = el.getBoundingClientRect();
+            const t = (e.touches && e.touches[0]) || e;
+            const x = Math.min(1, Math.max(0, ((t.clientX ?? (r.left + r.width / 2)) - r.left) / r.width));
+            const y = Math.min(1, Math.max(0, ((t.clientY ?? (r.top + r.height / 2)) - r.top) / r.height));
+            try {
+                await track.applyConstraints({ advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x, y }] }] });
+                setTimeout(() => {
+                    track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+                }, 1600);
+            } catch (e2) { /* device ignores POI / single-shot focus */ }
+        },
+
         stopDecode() {
-            try { if (this.controls) this.controls.stop(); } catch (e) { /* noop */ }
-            this.controls = null;
+            this._scanning = false;
+            clearTimeout(this._loop);
+            this._loop = null;
         },
 
         stopAll() {
@@ -235,11 +377,72 @@ function unitScanner(config = {}) {
                 try { this.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ }
                 this.stream = null;
             }
+            const v = this.$refs.video;
+            if (v) { try { v.srcObject = null; } catch (e) { /* noop */ } }
             this.torch = false;
         },
 
+        _track() {
+            return this.stream && this.stream.getVideoTracks ? this.stream.getVideoTracks()[0] : null;
+        },
+
+        // ---- zoom controls (hardware where supported, else software ROI) ----
+        async setZoom(v) {
+            if (this.zoomSupported) {
+                const z = Math.min(this.zoomMax, Math.max(this.zoomMin, v));
+                this.zoom = Math.round(z * 10) / 10;
+                const track = this._track();
+                if (track && track.applyConstraints) {
+                    try { await track.applyConstraints({ advanced: [{ zoom: this.zoom }] }); } catch (e) { /* noop */ }
+                }
+            } else {
+                this.softZoom = Math.min(SOFT_ZOOM_MAX, Math.max(SOFT_ZOOM_MIN, Math.round(v * 100) / 100));
+            }
+        },
+
+        zoomIn() {
+            if (this.zoomSupported) {
+                this.setZoom(this.zoom + (this.zoomStep || 0.5));
+            } else {
+                this.softZoom = Math.min(SOFT_ZOOM_MAX, Math.round((this.softZoom + 0.25) * 100) / 100);
+            }
+        },
+
+        zoomOut() {
+            if (this.zoomSupported) {
+                this.setZoom(this.zoom - (this.zoomStep || 0.5));
+            } else {
+                this.softZoom = Math.max(SOFT_ZOOM_MIN, Math.round((this.softZoom - 0.25) * 100) / 100);
+            }
+        },
+
+        // Pinch-to-zoom on the camera area.
+        onCamTouchStart(e) {
+            if (e.touches && e.touches.length === 2) {
+                this._pinchStart = this._touchDist(e.touches);
+                this._pinchBase = this.zoomSupported ? this.zoom : this.softZoom;
+            }
+        },
+
+        onCamTouchMove(e) {
+            if (e.touches && e.touches.length === 2 && this._pinchStart) {
+                e.preventDefault();
+                const ratio = this._touchDist(e.touches) / this._pinchStart;
+                if (this.zoomSupported) {
+                    this.setZoom(this._pinchBase * ratio);
+                } else {
+                    this.softZoom = Math.min(SOFT_ZOOM_MAX, Math.max(SOFT_ZOOM_MIN, Math.round(this._pinchBase * ratio * 100) / 100));
+                }
+            }
+        },
+
+        _touchDist(t) {
+            const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+            return Math.hypot(dx, dy);
+        },
+
         async toggleTorch() {
-            const track = this.stream && this.stream.getVideoTracks ? this.stream.getVideoTracks()[0] : null;
+            const track = this._track();
             if (!track || !track.applyConstraints) return;
             this.torch = !this.torch;
             try {

@@ -31,7 +31,10 @@
       "PowerShell($paths = @\\(\"C:\\\\xampp\\\\php\\\\php.exe\",\"D:\\\\xampp\\\\php\\\\php.exe\",\"C:\\\\xampp82\\\\php\\\\php.exe\",\"C:\\\\xampp81\\\\php\\\\php.exe\"\\); foreach \\($p in $paths\\) { if \\(Test-Path $p\\) { Write-Output \"FOUND: $p\" } }; Write-Output \"done\")",
       "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" \"d:\\\\AJRA\\\\1. Website\\\\warehouse-ftv\\\\artisan\" route:list --path=admin 2>&1)",
       "PowerShell($php=\"C:\\\\xampp\\\\php\\\\php.exe\"; & $php -l \"app/Models/DeliveryItem.php\"; & $php -l \"app/Models/Rental.php\"; & $php -l \"app/Filament/Resources/Rentals/Pages/PickupOperation.php\"; & $php -l \"database/migrations/2026_06_18_000000_add_not_taken_to_delivery_items.php\")",
-      "PowerShell($php=\"C:\\\\xampp\\\\php\\\\php.exe\"; & $php artisan migrate --force 2>&1 | Select-Object -Last 15)"
+      "PowerShell($php=\"C:\\\\xampp\\\\php\\\\php.exe\"; & $php artisan migrate --force 2>&1 | Select-Object -Last 15)",
+      "Bash(node -e \"const c=require\\('./vite.config.js'\\); \")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\);\")",
+      "Bash(npm run *)"
     ]
   }
 }

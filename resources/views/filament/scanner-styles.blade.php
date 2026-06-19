@@ -161,6 +161,17 @@
 .scn-chip svg { width: 14px; height: 14px; }
 .scn-chip.on { background: rgba(255,255,255,.92); color: #111; }
 .scn-chip .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--scn-accent); box-shadow: 0 0 8px var(--scn-accent); animation: scn-blink 1.1s ease infinite; }
+
+/* Zoom control — hardware zoom where supported, else software ROI crop. */
+.scn-zoom { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 999px; background: rgba(0,0,0,0.68); }
+.scn-zoom-btn {
+    width: 26px; height: 26px; flex: none; border: 0; border-radius: 999px; cursor: pointer;
+    background: transparent; color: rgba(255,255,255,.92);
+    font-family: var(--scn-font); font-size: 17px; font-weight: 700; line-height: 1;
+    display: grid; place-items: center; padding: 0; user-select: none;
+}
+.scn-zoom-btn:active { background: rgba(255,255,255,.18); }
+.scn-zoom-val { min-width: 30px; text-align: center; color: rgba(255,255,255,.9); font-family: var(--scn-font); font-size: 11.5px; font-weight: 700; letter-spacing: .02em; }
 .scn-mode-pill {
     position: absolute; top: 12px; left: 12px; z-index: 5; display: inline-flex; align-items: center; gap: 6px;
     padding: 6px 11px; border-radius: 999px; background: rgba(0,0,0,0.68);

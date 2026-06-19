@@ -20,14 +20,22 @@
     <button class="scn-iconbtn" @click="{{ $closeAction }}" aria-label="Close scanner">{!! $icon('x') !!}</button>
 </div>
 
-{{-- Live camera view --}}
-<div class="scn-cam" x-show="phase==='live'" x-cloak>
+{{-- Live camera view. Tap to focus; pinch (two fingers) to zoom. --}}
+<div class="scn-cam" x-show="phase==='live'" x-cloak
+     @click="focusAt($event)"
+     @touchstart="onCamTouchStart($event)"
+     @touchmove="onCamTouchMove($event)">
     <video x-ref="video" class="scn-video" playsinline muted autoplay></video>
 
     <div class="scn-mode-pill" :class="modeKey"><span class="swatch"></span><span x-text="isReturn?'Return':'Pickup'"></span></div>
     <div class="scn-live-chips">
         <span class="scn-chip"><span class="live-dot"></span>AUTO</span>
-        <button class="scn-chip" :class="torch?'on':''" x-show="torchSupported" @click="toggleTorch()" aria-label="Toggle torch">{!! $icon('zap') !!}</button>
+        <button class="scn-chip" :class="torch?'on':''" x-show="torchSupported" @click.stop="toggleTorch()" aria-label="Toggle torch">{!! $icon('zap') !!}</button>
+        <div class="scn-zoom" role="group" aria-label="Zoom">
+            <button class="scn-zoom-btn" @click.stop="zoomOut()" aria-label="Zoom out">&minus;</button>
+            <span class="scn-zoom-val" x-text="zoomLabel"></span>
+            <button class="scn-zoom-btn" @click.stop="zoomIn()" aria-label="Zoom in">+</button>
+        </div>
     </div>
 
     <div class="scn-finder">
@@ -46,7 +54,7 @@
             <span style="display:inline-flex;align-items:center;gap:8px"><span style="color:var(--scn-success);display:inline-flex">{!! $icon('checkCircle') !!}</span>All units scanned</span>
         </template>
         <template x-if="!detectedName && remaining>0">
-            <span style="display:inline-flex;align-items:center;gap:8px"><span class="dot"></span>Point at the unit barcode or QR</span>
+            <span style="display:inline-flex;align-items:center;gap:8px"><span class="dot"></span>Point at the QR · pinch to zoom, tap to focus</span>
         </template>
     </div>
 
