@@ -97,6 +97,7 @@ function unitScanner(config = {}) {
         reader: null,                // ZXing reader (zxing engine only)
         engine: 'zxing',             // 'native' | 'zxing'
         _detector: null,             // BarcodeDetector instance (native engine)
+        _focusMode: 'continuous',    // resolved focus mode for applyCamera()
         _scanning: false,
         _loop: null,
         _canvas: null,
@@ -199,7 +200,7 @@ function unitScanner(config = {}) {
                 // device tier (low-spec phones get 720p so the decode loop
                 // isn't drawing huge frames). `focusMode`/`advanced` are
                 // ignored by browsers that don't support them (no throw), and we
-                // re-apply focus after the stream starts (see applyFocus()).
+                // re-apply focus after the stream starts (see applyCamera()).
                 this.stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: { ideal: 'environment' },
@@ -238,16 +239,20 @@ function unitScanner(config = {}) {
             const video = this.$refs.video;
             if (!video || !this.stream) return;
 
-            // Capability probe: torch + hardware zoom.
+            // Capability probe: torch + hardware zoom + focus.
             const track = this._track();
             const caps = (track && track.getCapabilities) ? track.getCapabilities() : {};
             this.torchSupported = !!caps.torch;
             this.setupZoom(track, caps);
+            const modes = (caps && caps.focusMode) || [];
+            this._focusMode = modes.includes('continuous') ? 'continuous'
+                : (modes.includes('auto') ? 'auto' : 'continuous');
 
-            // Force continuous autofocus so small QR codes come into focus. The
-            // initial getUserMedia hint is often ignored; applyConstraints after
-            // the track is live is the reliable path.
-            this.applyFocus(track, caps);
+            // Apply focus + zoom + torch in ONE constraints call. They must be
+            // co-applied: a separate applyConstraints for zoom replaces the
+            // `advanced` set and silently drops focusMode on many Android cams
+            // (e.g. Samsung A14) → camera falls back to fixed focus.
+            this.applyCamera();
 
             // ZXing reader is only needed for the fallback engine.
             if (this.engine === 'zxing' && !this.reader) {
@@ -267,8 +272,9 @@ function unitScanner(config = {}) {
             this.runLoop();
         },
 
-        // Probe + initialise hardware zoom. Auto-applies a gentle 2× so small
-        // codes already fill more of the frame on devices that support it.
+        // Probe + initialise hardware zoom. Sets a gentle 2× default so small
+        // codes already fill more of the frame; the actual applyConstraints is
+        // done by applyCamera() (co-applied with focus, see startDecode).
         setupZoom(track, caps) {
             const z = caps && caps.zoom;
             if (z && typeof z.max === 'number' && z.max > (z.min || 1)) {
@@ -276,10 +282,29 @@ function unitScanner(config = {}) {
                 this.zoomMin = z.min || 1;
                 this.zoomMax = z.max;
                 this.zoomStep = z.step || Math.max(0.1, (this.zoomMax - this.zoomMin) / 10);
-                const target = Math.min(this.zoomMax, Math.max(this.zoomMin, 2));
-                this.setZoom(target);
+                this.zoom = Math.min(this.zoomMax, Math.max(this.zoomMin, 2));
             } else {
                 this.zoomSupported = false;
+                this.zoom = 1;
+            }
+        },
+
+        // Apply the full desired camera state (focus + zoom + torch) in a single
+        // constraints call so none clobbers another. `focusOverride` lets
+        // tap-to-focus request a single-shot point without dropping zoom/torch.
+        async applyCamera(focusOverride) {
+            const track = this._track();
+            if (!track || !track.applyConstraints) return;
+            const focus = focusOverride || { focusMode: this._focusMode || 'continuous' };
+            const advanced = [focus];
+            if (this.zoomSupported) advanced.push({ zoom: this.zoom });
+            if (this.torchSupported) advanced.push({ torch: !!this.torch });
+            try {
+                await track.applyConstraints({ advanced });
+            } catch (e) {
+                // Some devices reject a combined advanced set — apply focus alone
+                // so autofocus still works even if zoom/torch can't co-apply.
+                try { await track.applyConstraints({ advanced: [focus] }); } catch (e2) { /* fixed-focus cam */ }
             }
         },
 
@@ -333,35 +358,19 @@ function unitScanner(config = {}) {
             return result ? result.getText() : null;
         },
 
-        async applyFocus(track, caps) {
-            if (!track || !track.applyConstraints) return;
-            const modes = (caps && caps.focusMode) || [];
-            // Some devices expose focusMode capability, some don't list it but
-            // still honour the constraint — try regardless.
-            const want = modes.includes('continuous') ? 'continuous'
-                : (modes.includes('auto') ? 'auto' : 'continuous');
-            try {
-                await track.applyConstraints({ advanced: [{ focusMode: want }] });
-            } catch (e) { /* device has no controllable focus — fixed-focus cam */ }
-        },
-
         // Tap-to-focus: point the autofocus at where the operator tapped, then
-        // hand back to continuous so it keeps tracking. Best-effort — many
-        // devices ignore pointsOfInterest / single-shot (must never throw).
+        // hand back to continuous so it keeps tracking. Goes through applyCamera
+        // so zoom/torch are preserved. Best-effort — many devices ignore
+        // pointsOfInterest / single-shot (must never throw).
         async focusAt(e) {
-            const track = this._track();
             const el = this.$refs.video;
-            if (!track || !track.applyConstraints || !el) return;
+            if (!this._track() || !el) return;
             const r = el.getBoundingClientRect();
             const t = (e.touches && e.touches[0]) || e;
             const x = Math.min(1, Math.max(0, ((t.clientX ?? (r.left + r.width / 2)) - r.left) / r.width));
             const y = Math.min(1, Math.max(0, ((t.clientY ?? (r.top + r.height / 2)) - r.top) / r.height));
-            try {
-                await track.applyConstraints({ advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x, y }] }] });
-                setTimeout(() => {
-                    track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
-                }, 1600);
-            } catch (e2) { /* device ignores POI / single-shot focus */ }
+            await this.applyCamera({ focusMode: 'single-shot', pointsOfInterest: [{ x, y }] });
+            setTimeout(() => { this.applyCamera(); }, 1600);
         },
 
         stopDecode() {
@@ -391,10 +400,7 @@ function unitScanner(config = {}) {
             if (this.zoomSupported) {
                 const z = Math.min(this.zoomMax, Math.max(this.zoomMin, v));
                 this.zoom = Math.round(z * 10) / 10;
-                const track = this._track();
-                if (track && track.applyConstraints) {
-                    try { await track.applyConstraints({ advanced: [{ zoom: this.zoom }] }); } catch (e) { /* noop */ }
-                }
+                await this.applyCamera();   // co-apply with focus so AF isn't dropped
             } else {
                 this.softZoom = Math.min(SOFT_ZOOM_MAX, Math.max(SOFT_ZOOM_MIN, Math.round(v * 100) / 100));
             }
@@ -442,14 +448,9 @@ function unitScanner(config = {}) {
         },
 
         async toggleTorch() {
-            const track = this._track();
-            if (!track || !track.applyConstraints) return;
+            if (!this._track()) return;
             this.torch = !this.torch;
-            try {
-                await track.applyConstraints({ advanced: [{ torch: this.torch }] });
-            } catch (e) {
-                this.torch = false;
-            }
+            await this.applyCamera();   // co-apply with focus + zoom
         },
 
         goManual() {
