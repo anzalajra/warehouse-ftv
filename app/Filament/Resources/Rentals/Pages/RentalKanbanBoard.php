@@ -33,6 +33,7 @@ class RentalKanbanBoard extends Page
     public function getRecords(): Collection
     {
         return Rental::query()
+            ->with(['customer', 'items', 'deliveries'])
             ->orderBy('created_at', 'desc')
             ->get()
             ->groupBy('status');

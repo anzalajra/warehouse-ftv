@@ -41,6 +41,12 @@
                             
                             <div class="mb-2">
                                 <div class="text-sm font-semibold text-gray-800">{{ $record->customer->name ?? 'Unknown Customer' }}</div>
+                                @if($record->hasPendingPartialReturn())
+                                    <span class="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-700 bg-amber-100 border border-amber-200">
+                                        <x-heroicon-m-arrow-path-rounded-square class="w-3 h-3"/>
+                                        Partial return
+                                    </span>
+                                @endif
                             </div>
 
                             <div class="text-xs text-gray-600 space-y-1">

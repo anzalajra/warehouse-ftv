@@ -179,6 +179,7 @@ class ProductUnit extends Model
                     Rental::STATUS_ACTIVE,
                     Rental::STATUS_LATE_PICKUP,
                     Rental::STATUS_LATE_RETURN,
+                    Rental::STATUS_PARTIAL_RETURN,
                 ])
                     ->where(function ($q) use ($startDate, $endDate) {
                         $q->whereBetween('start_date', [$startDate, $endDate])
@@ -207,6 +208,7 @@ class ProductUnit extends Model
                                 Rental::STATUS_ACTIVE,
                                 Rental::STATUS_LATE_PICKUP,
                                 Rental::STATUS_LATE_RETURN,
+                                Rental::STATUS_PARTIAL_RETURN,
                             ])
                                 ->where(function ($q) use ($startDate, $endDate) {
                                     $q->whereBetween('start_date', [$startDate, $endDate])
@@ -241,6 +243,7 @@ class ProductUnit extends Model
                                     Rental::STATUS_ACTIVE,
                                     Rental::STATUS_LATE_PICKUP,
                                     Rental::STATUS_LATE_RETURN,
+                                    Rental::STATUS_PARTIAL_RETURN,
                                 ])
                                     ->where(function ($q) use ($startDate, $endDate) {
                                         $q->whereBetween('start_date', [$startDate, $endDate])
@@ -264,6 +267,7 @@ class ProductUnit extends Model
                                                 Rental::STATUS_ACTIVE,
                                                 Rental::STATUS_LATE_PICKUP,
                                                 Rental::STATUS_LATE_RETURN,
+                                                Rental::STATUS_PARTIAL_RETURN,
                                             ])
                                                 ->where(function ($q) use ($startDate, $endDate) {
                                                     $q->whereBetween('start_date', [$startDate, $endDate])

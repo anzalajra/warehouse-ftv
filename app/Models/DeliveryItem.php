@@ -12,6 +12,7 @@ class DeliveryItem extends Model
         'rental_item_id',
         'rental_item_kit_id',
         'is_checked',
+        'checked_at',
         'not_taken',
         'condition',
         'photos',
@@ -20,9 +21,31 @@ class DeliveryItem extends Model
 
     protected $casts = [
         'is_checked' => 'boolean',
+        'checked_at' => 'datetime',
         'not_taken' => 'boolean',
         'photos' => 'array',
     ];
+
+    protected static function booted(): void
+    {
+        // Stamp checked_at the moment an item is first checked, and clear it when
+        // it's unchecked again. Centralized here so every check/uncheck path
+        // (quickCheck, scanByCode, markAllChecked, saveEditor, uncheckItem) gets
+        // an accurate per-item return timestamp without touching each call site.
+        static::saving(function (DeliveryItem $item) {
+            if (! $item->isDirty('is_checked')) {
+                return;
+            }
+
+            if ($item->is_checked) {
+                if ($item->checked_at === null) {
+                    $item->checked_at = now();
+                }
+            } else {
+                $item->checked_at = null;
+            }
+        });
+    }
 
     public function delivery(): BelongsTo
     {

@@ -465,6 +465,9 @@
                     <div style="display:flex;align-items:center;gap:10px;margin-top:3px;">
                         <h1>View Rental — {{ $rental->rental_code }}</h1>
                         <span class="pill pill-{{ $statusTone }}">{{ $statusLabel }}</span>
+                        @if($realStatus !== 'partial_return' && $rental->hasPendingPartialReturn())
+                            <span class="pill pill-orange" title="Some items returned, others still pending">Partial return</span>
+                        @endif
                     </div>
                 </div>
 

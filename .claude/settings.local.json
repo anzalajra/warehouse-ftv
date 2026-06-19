@@ -37,7 +37,16 @@
       "Bash(npm run *)",
       "PowerShell($php = Get-Command php -ErrorAction SilentlyContinue; if \\($php\\) { $php.Source } else { $cands = @\\('C:\\\\xampp\\\\php\\\\php.exe','C:\\\\php\\\\php.exe','C:\\\\laragon\\\\bin\\\\php'\\); foreach \\($c in $cands\\) { if \\(Test-Path $c\\) { Write-Output \"FOUND: $c\" } } ; if \\(-not \\(Test-Path 'C:\\\\xampp\\\\php\\\\php.exe'\\)\\) { Write-Output 'no php found in common locations' } })",
       "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe'; $files=@\\('app\\\\Models\\\\Rental.php','app\\\\Console\\\\Commands\\\\CheckLateRentals.php','app\\\\Filament\\\\Resources\\\\Rentals\\\\Pages\\\\RentalKanbanBoard.php','app\\\\Livewire\\\\Admin\\\\RentalEditor.php','database\\\\migrations\\\\2026_06_19_000000_add_expired_status_to_rentals_table.php'\\); foreach\\($f in $files\\){ & $php -l $f })",
-      "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe'; & $php artisan rentals:check-late --dry-run)"
+      "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe'; & $php artisan rentals:check-late --dry-run)",
+      "PowerShell($php = @\\('C:\\\\xampp\\\\php\\\\php.exe','C:\\\\xampp8\\\\php\\\\php.exe','C:\\\\php\\\\php.exe'\\) | Where-Object { Test-Path $_ } | Select-Object -First 1; if \\($php\\) { $php } else { Get-Command php -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source })",
+      "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe'; $files=@\\('app/Models/Rental.php','app/Models/DeliveryItem.php','app/Models/ProductUnit.php','app/Filament/Resources/Rentals/Pages/ProcessReturn.php','app/Filament/Resources/Rentals/Pages/RentalKanbanBoard.php','app/Filament/Resources/Rentals/Tables/RentalsTable.php','database/migrations/2026_06_19_000001_add_checked_at_to_delivery_items.php'\\); foreach\\($f in $files\\){ & $php -l $f })",
+      "Bash(ls tests/ tests/Unit tests/Feature)",
+      "Bash(ls database/factories)",
+      "Bash(grep -rl \"calculateOverdueFee\\\\|late_fee\\\\|OverdueFee\" tests)",
+      "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe'; & $php vendor/phpunit/phpunit/phpunit --filter PartialReturnLateFeeTest 2>&1 | Select-Object -Last 40)",
+      "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe')",
+      "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe'; \"vendor exists: $\\(Test-Path vendor\\)\"; \"autoload exists: $\\(Test-Path vendor/autoload.php\\)\"; Get-ChildItem vendor -Directory -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count)",
+      "Bash(git --no-pager diff --stat)"
     ]
   }
 }

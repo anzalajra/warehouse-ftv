@@ -1663,17 +1663,62 @@
         </template>
 
         {{-- Partial return confirm modal --}}
+        @php($partialLate = (float) ($fin['late_fee'] ?? 0))
         <template x-if="showPartial">
             <div class="scrim" @click.self="showPartial=false" @keydown.escape.window="showPartial=false">
-                <div class="modal">
+                <div class="modal{{ $partialLate > 0 ? ' wide' : '' }}"
+                     x-data="{
+                        lateFee: {{ $partialLate }},
+                        fmt(n){ return 'Rp ' + (Number(n)||0).toLocaleString('id-ID'); }
+                     }">
                     <div class="modal-head"><h3>{!! $icon('layers') !!}Process partial return</h3><p>{{ $checkedCount }} of {{ $total }} items checked. Unchecked items move to a new return checklist; the rental stays in Partial Return.</p></div>
                     <div class="modal-body">
-                        <div class="banner banner-warning">{!! $icon('alert') !!}<div class="body"><strong>Partial return.</strong> Settlement runs only when every item is checked. The remaining {{ $remaining }} item(s) will be carried over to a new checklist.</div></div>
+                        <div class="banner banner-warning">{!! $icon('alert') !!}<div class="body"><strong>Partial return.</strong> The remaining {{ $remaining }} item(s) are carried over to a new checklist. The security deposit is settled later, at full completion.</div></div>
+
+                        @if ($partialLate > 0)
+                            <div>
+                                <span class="field-label" style="display:block;margin-bottom:6px;">Late fee so far</span>
+                                <div class="money-input"><span class="pfx">Rp</span><input type="number" x-model.number="lateFee" /></div>
+                                <span class="muted" style="font-size:12px;">Auto-calculated {{ 'Rp ' . number_format($partialLate, 0, ',', '.') }} (per item). Adjust if waived. Items already returned are only charged up to their own return time.</span>
+
+                                @php($lfb = $fin['late_fee_breakdown'] ?? null)
+                                @if ($lfb && $lfb['is_late'] && count($lfb['lines']))
+                                    <details open style="margin-top:8px;border:1px solid var(--border-2);border-radius:10px;padding:8px 12px;">
+                                        <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text-2);">Rincian perhitungan late fee</summary>
+                                        <div style="margin-top:10px;">
+                                            <p class="muted" style="font-size:11.5px;line-height:1.5;margin:0 0 10px;">
+                                                Telat <strong>{{ $lfb['hours_late'] }} jam</strong> (dibulatkan ke atas = {{ $lfb['overdue_days'] }} hari penuh) · jatuh tempo {{ $lfb['end_date'] }} → kini {{ $lfb['now'] }}.<br>
+                                                Metode: <strong>{{ $lfb['mode_label'] }}</strong>@if ($lfb['amount_setting'] > 0) · nominal setelan Rp {{ number_format($lfb['amount_setting'], 0, ',', '.') }}@endif.
+                                            </p>
+
+                                            @foreach ($lfb['lines'] as $line)
+                                                <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border-2);">
+                                                    <span style="font-size:12.5px;color:var(--text-2);">
+                                                        {{ $line['label'] }}<br>
+                                                        <span class="muted" style="font-size:11px;">{{ $line['detail'] }}</span>
+                                                    </span>
+                                                    <span style="font-size:13px;font-weight:700;white-space:nowrap;">Rp {{ number_format($line['amount'], 0, ',', '.') }}</span>
+                                                </div>
+                                            @endforeach
+
+                                            @if ($lfb['summary'])
+                                                <p class="muted" style="font-size:11px;font-style:italic;margin:8px 0 0;">{{ $lfb['summary'] }}</p>
+                                            @endif
+
+                                            <div style="display:flex;justify-content:space-between;gap:12px;margin-top:8px;padding-top:8px;border-top:2px solid var(--border);">
+                                                <span style="font-size:12.5px;font-weight:700;color:var(--text-2);">Total auto late fee</span>
+                                                <span style="font-size:14px;font-weight:800;color:var(--accent-700);">Rp {{ number_format($lfb['fee'], 0, ',', '.') }}</span>
+                                            </div>
+                                        </div>
+                                    </details>
+                                @endif
+                            </div>
+                        @endif
                     </div>
                     <div class="modal-foot">
                         <span style="flex:1"></span>
                         <button class="btn" @click="showPartial=false">Cancel</button>
-                        <button class="btn btn-primary" @click="$wire.validateReturn({}); showPartial=false">{!! $icon('checkCircle') !!}Process partial return</button>
+                        <button class="btn btn-primary" @click="$wire.validateReturn({ manual_late_fee: lateFee }); showPartial=false">{!! $icon('checkCircle') !!}Process partial return</button>
                     </div>
                 </div>
             </div>

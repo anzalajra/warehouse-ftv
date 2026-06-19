@@ -522,7 +522,24 @@ class ProcessReturn extends Page
             }
         }
 
-        $this->rental->fresh()->update(['status' => Rental::STATUS_PARTIAL_RETURN]);
+        // Settle finances for what came back so far, then keep AR in sync. The late
+        // fee is now per-item (items returned in this batch only accrue up to their
+        // own check-in time), so re-running this at a later batch / final completion
+        // never re-charges already-returned items. A manual value from the modal wins.
+        //
+        // NOTE: revenue-recognition (RENTAL_COMPLETION) and deposit settlement journals
+        // stay EXCLUSIVE to full completion — posting them per batch would double-count
+        // revenue. Partial settlement is late-fee + invoice (AR) only.
+        $lateFee = isset($data['manual_late_fee'])
+            ? (float) $data['manual_late_fee']
+            : $this->rental->calculateOverdueFee();
+
+        $this->rental->late_fee = $lateFee;
+        $this->rental->status = Rental::STATUS_PARTIAL_RETURN;
+        $this->rental->recalculateTotal(); // persists late_fee + status + recomputed total
+
+        $this->syncInvoiceAfterReturn('partial return');
+
         $this->rental->refresh();
 
         Notification::make()
@@ -543,9 +560,9 @@ class ProcessReturn extends Page
      *    so it surfaces in the Invoices list / Accounts Receivable instead of being stranded
      *    on the rental row where nothing tracks the outstanding payment.
      */
-    protected function syncInvoiceAfterReturn(): void
+    protected function syncInvoiceAfterReturn(string $context = 'on return'): void
     {
-        $result = $this->rental->syncOutstandingInvoice('on return');
+        $result = $this->rental->syncOutstandingInvoice($context);
 
         if ($result['reopened']) {
             Notification::make()

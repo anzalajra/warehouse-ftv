@@ -55,6 +55,15 @@ class RentalsTable
                     ->formatStateUsing(fn (Rental $record): string => Rental::getStatusOptions()[$record->getRealTimeStatus()] ?? $record->getRealTimeStatus())
                     ->color(fn (Rental $record): string => Rental::getStatusColor($record->getRealTimeStatus()))
                     ->toggleable(),
+                // Secondary signal: some items already returned, others still pending.
+                // Survives the status flipping to Late Return once the end date passes.
+                TextColumn::make('partial_return_flag')
+                    ->label('')
+                    ->badge()
+                    ->color('warning')
+                    ->icon('heroicon-o-arrow-path-rounded-square')
+                    ->getStateUsing(fn (Rental $record): ?string => $record->hasPendingPartialReturn() ? 'Partial return' : null)
+                    ->toggleable(),
                 TextColumn::make('total')
                     ->money('IDR')
                     ->sortable()

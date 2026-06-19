@@ -494,6 +494,33 @@ class Rental extends Model
     }
 
     /**
+     * True when a partial return is in progress: some items have already been
+     * checked back in (a COMPLETED IN delivery exists) while others are still
+     * pending (a non-completed IN delivery also exists).
+     *
+     * Derived from the deliveries, NOT the status column — so the signal survives
+     * checkAndUpdateLateStatus() overwriting PARTIAL_RETURN → LATE_RETURN once the
+     * end date passes. Used to show a secondary "partial return" badge alongside
+     * whatever the literal status is. Clears once the rental is fully returned
+     * (all IN deliveries completed) or reaches a terminal status.
+     */
+    public function hasPendingPartialReturn(): bool
+    {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_EXPIRED])) {
+            return false;
+        }
+
+        $inDeliveries = $this->relationLoaded('deliveries')
+            ? $this->deliveries->where('type', Delivery::TYPE_IN)
+            : $this->deliveries()->where('type', Delivery::TYPE_IN)->get();
+
+        $hasCompleted = $inDeliveries->contains(fn ($d) => $d->status === Delivery::STATUS_COMPLETED);
+        $hasPending = $inDeliveries->contains(fn ($d) => $d->status !== Delivery::STATUS_COMPLETED);
+
+        return $hasCompleted && $hasPending;
+    }
+
+    /**
      * Refresh all product unit statuses associated with this rental
      */
     public function refreshUnitStatuses(): void
@@ -1008,18 +1035,90 @@ class Rental extends Model
      */
     public function calculateOverdueFee(): float
     {
-        if ($this->end_date->isFuture()) {
+        if (! $this->end_date || $this->end_date->isFuture()) {
             return 0;
         }
 
-        // Selisih jam telat (signed). end_date di masa lalu → now lebih besar → positif.
-        $hoursLate = (float) $this->end_date->diffInHours(now(), false);
+        $mode = $this->resolveLateFeeMode();
+        $amount = (float) Setting::get('late_fee_amount', 0);
 
-        if ($hoursLate <= 0) {
-            return 0;
+        // Per-item IN-delivery check-in times are needed to scope each item's
+        // overdue window (partial returns: an item returned earlier stops
+        // accruing at its own return time, not the rental-wide "now").
+        $this->loadMissing('items.deliveryItems.delivery');
+
+        // Item fisik yang ter-assign (abaikan ghost slot tanpa unit).
+        $items = $this->items->whereNotNull('product_unit_id');
+
+        // Jam telat PER ITEM, dihitung dari waktu kembali efektif item itu sendiri
+        // (checked_at di delivery IN bila sudah dikembalikan, atau now() bila masih di luar).
+        $hoursLateFor = fn (RentalItem $item): float => max(
+            0.0,
+            (float) $this->end_date->diffInHours($this->effectiveReturnTime($item), false)
+        );
+
+        // Tiered mode dihitung per-jam, per-item (menghormati override produk).
+        if ($mode === 'tiered') {
+            $tiers = json_decode(Setting::get('late_fee_tiers', '[]'), true);
+            $tiers = is_array($tiers) ? $tiers : [];
+
+            $fee = 0.0;
+            foreach ($items as $item) {
+                $hours = $hoursLateFor($item);
+                if ($hours <= 0) {
+                    continue;
+                }
+                $fee += $this->tieredLateFeeForItem($item, $tiers, $hours);
+            }
+
+            return round($fee, 2);
         }
 
-        // Resolve late fee mode. Backward-compat: derive from old late_fee_type.
+        // Flat per hari adalah denda TINGKAT RENTAL (bukan per item): satu nominal
+        // per hari selama MASIH ada item yang belum kembali. Pakai jendela telat
+        // terlama di antara semua item.
+        if ($mode === 'flat_per_day') {
+            $maxHours = 0.0;
+            foreach ($items as $item) {
+                $maxHours = max($maxHours, $hoursLateFor($item));
+            }
+
+            return $maxHours > 0 ? round($amount * (int) ceil($maxHours / 24), 2) : 0.0;
+        }
+
+        // Mode per-item per-hari: tiap item dibulatkan ke atas berdasarkan jam telatnya sendiri.
+        $fee = 0.0;
+        foreach ($items as $item) {
+            $hours = $hoursLateFor($item);
+            if ($hours <= 0) {
+                continue;
+            }
+
+            $overdueDays = (int) ceil($hours / 24);
+            $qty = $item->quantity ?? 1;
+
+            $fee += match ($mode) {
+                // Override produk (jika ada) menggantikan nominal global per unit.
+                'per_unit_per_day' => (
+                    ($item->productUnit?->product?->late_fee_daily_amount !== null
+                        ? (float) $item->productUnit->product->late_fee_daily_amount
+                        : $amount)
+                    * $qty * $overdueDays
+                ),
+                'percentage_per_day' => $this->lateFeeDailyBase($item) * $qty * ($amount / 100) * $overdueDays,
+                default => $this->lateFeeDailyBase($item) * $qty * $overdueDays, // full_daily_rate
+            };
+        }
+
+        return round($fee, 2);
+    }
+
+    /**
+     * Resolve the configured late-fee mode, deriving from the legacy late_fee_type
+     * setting when the newer late_fee_mode is unset (backward compatibility).
+     */
+    protected function resolveLateFeeMode(): string
+    {
         $mode = Setting::get('late_fee_mode');
         if ($mode === null) {
             $oldType = Setting::get('late_fee_type');
@@ -1030,48 +1129,36 @@ class Rental extends Model
             };
         }
 
-        $amount = (float) Setting::get('late_fee_amount', 0);
+        return $mode;
+    }
 
-        // Item fisik yang ter-assign (abaikan ghost slot tanpa unit).
-        $items = $this->items->whereNotNull('product_unit_id');
+    /**
+     * The effective return moment for a single rental item, used to scope its late
+     * fee to its own overdue window. For an item already checked back in (possibly
+     * in an earlier partial-return batch) this is the EARLIEST time it was checked
+     * in on an IN delivery; for an item still out it is now() (still accruing).
+     *
+     * Relies on `items.deliveryItems.delivery` being loaded (callers do so).
+     */
+    protected function effectiveReturnTime(RentalItem $item): \Illuminate\Support\Carbon
+    {
+        $earliest = null;
 
-        // Tiered mode dihitung per-jam, per-item (menghormati override produk).
-        if ($mode === 'tiered') {
-            $tiers = json_decode(Setting::get('late_fee_tiers', '[]'), true);
-            $tiers = is_array($tiers) ? $tiers : [];
-
-            $fee = 0.0;
-            foreach ($items as $item) {
-                $fee += $this->tieredLateFeeForItem($item, $tiers, $hoursLate);
+        foreach ($item->deliveryItems as $deliveryItem) {
+            // Only unit-level rows on IN (return) deliveries that are actually checked.
+            if ($deliveryItem->rental_item_kit_id !== null
+                || ! $deliveryItem->is_checked
+                || $deliveryItem->checked_at === null
+                || $deliveryItem->delivery?->type !== Delivery::TYPE_IN) {
+                continue;
             }
 
-            return round($fee, 2);
+            if ($earliest === null || $deliveryItem->checked_at->lt($earliest)) {
+                $earliest = $deliveryItem->checked_at;
+            }
         }
 
-        // Mode per-hari: bulatkan jam telat ke atas menjadi hari penuh.
-        $overdueDays = (int) ceil($hoursLate / 24);
-
-        $unitCount = (int) $items->sum(fn ($item) => $item->quantity ?? 1);
-
-        // Total tarif dasar denda harian (menghormati override produk per-item).
-        $totalDailyBase = (float) $items->sum(
-            fn ($item) => $this->lateFeeDailyBase($item) * ($item->quantity ?? 1)
-        );
-
-        $fee = match ($mode) {
-            // Override produk (jika ada) menggantikan nominal global per unit.
-            'per_unit_per_day' => $items->sum(function ($item) use ($amount) {
-                $override = $item->productUnit?->product?->late_fee_daily_amount;
-                $perUnit = $override !== null ? (float) $override : $amount;
-
-                return $perUnit * ($item->quantity ?? 1);
-            }) * $overdueDays,
-            'flat_per_day' => $amount * $overdueDays,
-            'percentage_per_day' => $totalDailyBase * ($amount / 100) * $overdueDays,
-            default => $totalDailyBase * $overdueDays, // full_daily_rate
-        };
-
-        return round($fee, 2);
+        return $earliest ?? now();
     }
 
     /**
@@ -1164,25 +1251,40 @@ class Rental extends Model
             return $result;
         }
 
-        $hoursLate = (float) $this->end_date->diffInHours($now, false);
-        if ($hoursLate <= 0) {
+        $mode = $this->resolveLateFeeMode();
+        $amount = (float) Setting::get('late_fee_amount', 0);
+
+        // Per-item return times (partial returns) — same source as calculateOverdueFee().
+        $this->loadMissing('items.deliveryItems.delivery');
+        $items = $this->items->whereNotNull('product_unit_id');
+
+        // Jam & hari telat per item, dari waktu kembali efektif item itu sendiri.
+        $hoursLateFor = fn (RentalItem $item): float => max(
+            0.0,
+            (float) $this->end_date->diffInHours($this->effectiveReturnTime($item), false)
+        );
+        $daysLateFor = fn (RentalItem $item): int => (int) ceil($hoursLateFor($item) / 24);
+
+        // Telat tingkat rental = jendela terlama di antara semua item.
+        $maxHours = 0.0;
+        foreach ($items as $item) {
+            $maxHours = max($maxHours, $hoursLateFor($item));
+        }
+
+        if ($maxHours <= 0) {
             return $result;
         }
 
-        // Resolve mode exactly like calculateOverdueFee() (incl. legacy fallback).
-        $mode = Setting::get('late_fee_mode');
-        if ($mode === null) {
-            $oldType = Setting::get('late_fee_type');
-            $mode = match ($oldType) {
-                'fixed' => 'flat_per_day',
-                'percentage' => 'percentage_per_day',
-                default => 'full_daily_rate',
-            };
+        // Apakah ada item yang sudah dikembalikan lebih awal (mis. partial return)?
+        $hasEarlyReturns = false;
+        foreach ($items as $item) {
+            if ($hoursLateFor($item) < $maxHours) {
+                $hasEarlyReturns = true;
+                break;
+            }
         }
 
-        $amount = (float) Setting::get('late_fee_amount', 0);
-        $items = $this->items->whereNotNull('product_unit_id');
-        $overdueDays = (int) ceil($hoursLate / 24);
+        $overdueDays = (int) ceil($maxHours / 24);
 
         $labels = [
             'flat_per_day' => 'Flat per hari',
@@ -1195,10 +1297,27 @@ class Rental extends Model
         $result['is_late'] = true;
         $result['mode'] = $mode;
         $result['mode_label'] = $labels[$mode] ?? $mode;
-        $result['hours_late'] = round($hoursLate, 1);
+        $result['hours_late'] = round($maxHours, 1);
         $result['overdue_days'] = $overdueDays;
         $result['amount_setting'] = $amount;
         $result['fee'] = $this->calculateOverdueFee();
+
+        if ($hasEarlyReturns) {
+            $result['summary'] = 'Beberapa item sudah dikembalikan lebih awal — denda dihitung per item dari waktu kembali masing-masing.';
+        }
+
+        // Suffix penjelas untuk item yang kembali lebih awal / masih di luar.
+        $itemNote = function (RentalItem $item) use ($maxHours, $hoursLateFor): string {
+            $h = $hoursLateFor($item);
+            if ($h <= 0) {
+                return ' · dikembalikan tepat waktu';
+            }
+            if ($h < $maxHours) {
+                return ' · dikembalikan lebih awal';
+            }
+
+            return '';
+        };
 
         $lines = [];
 
@@ -1208,14 +1327,15 @@ class Rental extends Model
 
             foreach ($items as $item) {
                 $qty = $item->quantity ?? 1;
+                $h = $hoursLateFor($item);
                 $lines[] = [
                     'label' => $this->lateFeeItemLabel($item),
-                    'detail' => $qty.' unit · tarif harian Rp'.number_format($this->lateFeeDailyBase($item), 0, ',', '.'),
-                    'amount' => round($this->tieredLateFeeForItem($item, $tiers, $hoursLate), 2),
+                    'detail' => $qty.' unit · tarif harian Rp'.number_format($this->lateFeeDailyBase($item), 0, ',', '.')
+                        .' · '.round($h, 1).' jam telat'.$itemNote($item),
+                    'amount' => $h > 0 ? round($this->tieredLateFeeForItem($item, $tiers, $h), 2) : 0.0,
                 ];
             }
 
-            $result['summary'] = 'Mode bertingkat dihitung per item dari '.round($hoursLate, 1).' jam telat.';
             $result['lines'] = $lines;
 
             return $result;
@@ -1224,8 +1344,9 @@ class Rental extends Model
         switch ($mode) {
             case 'flat_per_day':
                 $lines[] = [
-                    'label' => 'Tarif flat',
-                    'detail' => 'Rp'.number_format($amount, 0, ',', '.').' × '.$overdueDays.' hari',
+                    'label' => 'Tarif flat (tingkat rental)',
+                    'detail' => 'Rp'.number_format($amount, 0, ',', '.').' × '.$overdueDays.' hari'
+                        .' (selama masih ada item belum kembali)',
                     'amount' => round($amount * $overdueDays, 2),
                 ];
                 break;
@@ -1233,13 +1354,14 @@ class Rental extends Model
             case 'per_unit_per_day':
                 foreach ($items as $item) {
                     $qty = $item->quantity ?? 1;
+                    $days = $daysLateFor($item);
                     $override = $item->productUnit?->product?->late_fee_daily_amount;
                     $perUnit = $override !== null ? (float) $override : $amount;
                     $lines[] = [
                         'label' => $this->lateFeeItemLabel($item),
                         'detail' => $qty.' unit × Rp'.number_format($perUnit, 0, ',', '.')
-                            .($override !== null ? ' (override produk)' : '').' × '.$overdueDays.' hari',
-                        'amount' => round($perUnit * $qty * $overdueDays, 2),
+                            .($override !== null ? ' (override produk)' : '').' × '.$days.' hari'.$itemNote($item),
+                        'amount' => round($perUnit * $qty * $days, 2),
                     ];
                 }
                 break;
@@ -1247,13 +1369,14 @@ class Rental extends Model
             case 'percentage_per_day':
                 foreach ($items as $item) {
                     $qty = $item->quantity ?? 1;
+                    $days = $daysLateFor($item);
                     $dailyBase = $this->lateFeeDailyBase($item);
                     $lines[] = [
                         'label' => $this->lateFeeItemLabel($item),
                         'detail' => $qty.' × Rp'.number_format($dailyBase, 0, ',', '.')
                             .' × '.rtrim(rtrim(number_format($amount, 2, ',', ''), '0'), ',').'%'
-                            .' × '.$overdueDays.' hari',
-                        'amount' => round($dailyBase * $qty * ($amount / 100) * $overdueDays, 2),
+                            .' × '.$days.' hari'.$itemNote($item),
+                        'amount' => round($dailyBase * $qty * ($amount / 100) * $days, 2),
                     ];
                 }
                 break;
@@ -1261,11 +1384,12 @@ class Rental extends Model
             default: // full_daily_rate
                 foreach ($items as $item) {
                     $qty = $item->quantity ?? 1;
+                    $days = $daysLateFor($item);
                     $dailyBase = $this->lateFeeDailyBase($item);
                     $lines[] = [
                         'label' => $this->lateFeeItemLabel($item),
-                        'detail' => $qty.' × Rp'.number_format($dailyBase, 0, ',', '.').' × '.$overdueDays.' hari',
-                        'amount' => round($dailyBase * $qty * $overdueDays, 2),
+                        'detail' => $qty.' × Rp'.number_format($dailyBase, 0, ',', '.').' × '.$days.' hari'.$itemNote($item),
+                        'amount' => round($dailyBase * $qty * $days, 2),
                     ];
                 }
                 break;
