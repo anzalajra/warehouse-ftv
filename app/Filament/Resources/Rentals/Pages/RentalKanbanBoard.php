@@ -23,8 +23,10 @@ class RentalKanbanBoard extends Page
             Rental::STATUS_LATE_PICKUP => 'Late Pickup',
             Rental::STATUS_ACTIVE => 'Active',
             Rental::STATUS_LATE_RETURN => 'Late Return',
+            Rental::STATUS_PARTIAL_RETURN => 'Partial Return',
             Rental::STATUS_COMPLETED => 'Completed',
             Rental::STATUS_CANCELLED => 'Cancelled',
+            Rental::STATUS_EXPIRED => 'Expired',
         ];
     }
 

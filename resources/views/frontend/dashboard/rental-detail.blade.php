@@ -23,6 +23,7 @@
                 @elseif($rental->status == 'completed') bg-purple-100 text-purple-800
                 @elseif($rental->status == 'cancelled') bg-gray-100 text-gray-800
                 @elseif(in_array($rental->status, ['late_pickup', 'late_return'])) bg-red-100 text-red-800
+                @elseif($rental->status == 'expired') bg-gray-100 text-gray-500
                 @else bg-gray-100 text-gray-800
                 @endif">
                 {{ ucfirst(str_replace('_', ' ', $rental->status)) }}

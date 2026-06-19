@@ -26,6 +26,7 @@ class ScheduleController extends Controller
             Rental::STATUS_LATE_PICKUP,
             Rental::STATUS_LATE_RETURN,
             Rental::STATUS_PARTIAL_RETURN,
+            Rental::STATUS_EXPIRED,
         ];
         $out = [];
         foreach ($keys as $k) {

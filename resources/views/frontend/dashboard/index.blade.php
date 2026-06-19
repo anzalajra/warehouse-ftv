@@ -204,6 +204,7 @@
                             <span class="px-3 py-1 rounded-full text-sm font-medium
                                 @if($rental->status == 'quotation') bg-orange-100 text-orange-800
                                 @elseif($rental->status == 'active') bg-green-100 text-green-800
+                                @elseif($rental->status == 'expired') bg-gray-100 text-gray-500
                                 @else bg-red-100 text-red-800
                                 @endif">
                                 {{ ucfirst(str_replace('_', ' ', $rental->status)) }}

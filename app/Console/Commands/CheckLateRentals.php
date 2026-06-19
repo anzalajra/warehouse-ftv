@@ -34,8 +34,14 @@ class CheckLateRentals extends Command
         $now = now();
         $isDryRun = $this->option('dry-run');
 
-        // Count rentals that will be affected
-        $latePickupsCount = Rental::where('status', Rental::STATUS_QUOTATION)
+        // Count rentals that will be affected.
+        // Unconfirmed quotations past their pickup date expire (dead-end); only a
+        // *confirmed* booking past its pickup date becomes a late pickup.
+        $expiredCount = Rental::where('status', Rental::STATUS_QUOTATION)
+            ->where('start_date', '<', $now)
+            ->count();
+
+        $latePickupsCount = Rental::where('status', Rental::STATUS_CONFIRMED)
             ->where('start_date', '<', $now)
             ->count();
 
@@ -52,21 +58,35 @@ class CheckLateRentals extends Command
         $this->table(
             ['Status Change', 'Count'],
             [
-                ['Quotation → Late Pickup', $latePickupsCount],
+                ['Quotation → Expired', $expiredCount],
+                ['Confirmed → Late Pickup', $latePickupsCount],
                 ['Active → Late Return', $lateReturnsCount],
             ]
         );
 
         if ($isDryRun) {
             // Show details of affected rentals
+            if ($expiredCount > 0) {
+                $this->newLine();
+                $this->info('Expired Quotations:');
+                $expired = Rental::with('customer')
+                    ->where('status', Rental::STATUS_QUOTATION)
+                    ->where('start_date', '<', $now)
+                    ->get();
+
+                foreach ($expired as $rental) {
+                    $this->line("  - {$rental->rental_code} | Customer: {$rental->customer->name} | Start: {$rental->start_date->format('Y-m-d H:i')}");
+                }
+            }
+
             if ($latePickupsCount > 0) {
                 $this->newLine();
                 $this->info('Late Pickup Rentals:');
                 $latePickups = Rental::with('customer')
-                    ->where('status', Rental::STATUS_QUOTATION)
+                    ->where('status', Rental::STATUS_CONFIRMED)
                     ->where('start_date', '<', $now)
                     ->get();
-                
+
                 foreach ($latePickups as $rental) {
                     $this->line("  - {$rental->rental_code} | Customer: {$rental->customer->name} | Start: {$rental->start_date->format('Y-m-d H:i')}");
                 }
@@ -95,9 +115,18 @@ class CheckLateRentals extends Command
         try {
             DB::beginTransaction();
 
-            // Update late pickups
-            $updatedPickups = DB::table('rentals')
+            // Expire unconfirmed quotations whose pickup date has passed
+            $updatedExpired = DB::table('rentals')
                 ->where('status', Rental::STATUS_QUOTATION)
+                ->where('start_date', '<', $now)
+                ->update([
+                    'status' => Rental::STATUS_EXPIRED,
+                    'updated_at' => $now,
+                ]);
+
+            // Update late pickups (confirmed bookings past their pickup date)
+            $updatedPickups = DB::table('rentals')
+                ->where('status', Rental::STATUS_CONFIRMED)
                 ->where('start_date', '<', $now)
                 ->update([
                     'status' => Rental::STATUS_LATE_PICKUP,
@@ -116,8 +145,9 @@ class CheckLateRentals extends Command
             DB::commit();
 
             // Log the updates
-            if ($updatedPickups > 0 || $updatedReturns > 0) {
+            if ($updatedExpired > 0 || $updatedPickups > 0 || $updatedReturns > 0) {
                 Log::info("Late rentals check completed", [
+                    'expired_updated' => $updatedExpired,
                     'late_pickups_updated' => $updatedPickups,
                     'late_returns_updated' => $updatedReturns,
                     'checked_at' => $now->toDateTimeString(),
@@ -126,6 +156,7 @@ class CheckLateRentals extends Command
 
             $this->newLine();
             $this->info("✅ Update completed!");
+            $this->line("   - Quotations expired: {$updatedExpired}");
             $this->line("   - Late pickups updated: {$updatedPickups}");
             $this->line("   - Late returns updated: {$updatedReturns}");
 

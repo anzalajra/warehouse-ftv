@@ -93,6 +93,9 @@ class Rental extends Model
 
     public const STATUS_PARTIAL_RETURN = 'partial_return';
 
+    // Quotation whose start_date passed without ever being confirmed (dead-end, like cancelled).
+    public const STATUS_EXPIRED = 'expired';
+
     protected static function boot()
     {
         parent::boot();
@@ -169,10 +172,12 @@ class Rental extends Model
             self::STATUS_LATE_PICKUP => 1,
             self::STATUS_LATE_RETURN => 2,
             self::STATUS_PARTIAL_RETURN => 2,
+            self::STATUS_EXPIRED => -1,
         ];
 
         $currentOrder = $statusOrder[$this->status] ?? 0;
-        $isCancelled = $this->status === self::STATUS_CANCELLED;
+        // Treat expired like cancelled — a terminal dead-end that locks the checklist.
+        $isCancelled = in_array($this->status, [self::STATUS_CANCELLED, self::STATUS_EXPIRED]);
         $isConfirmedOrAbove = $currentOrder >= 1;
 
         // Step 1: Konfirmasi WA
@@ -343,6 +348,7 @@ class Rental extends Model
             self::STATUS_LATE_PICKUP => 'Late Pickup',
             self::STATUS_LATE_RETURN => 'Late Return',
             self::STATUS_PARTIAL_RETURN => 'Partial Return',
+            self::STATUS_EXPIRED => 'Expired',
         ];
     }
 
@@ -356,6 +362,7 @@ class Rental extends Model
             self::STATUS_CANCELLED => 'gray',
             self::STATUS_PARTIAL_RETURN => 'orange',
             self::STATUS_LATE_PICKUP, self::STATUS_LATE_RETURN => 'danger',
+            self::STATUS_EXPIRED => 'gray',
             default => 'gray',
         };
     }
@@ -376,6 +383,7 @@ class Rental extends Model
             self::STATUS_LATE_PICKUP,
             self::STATUS_LATE_RETURN => '#ef4444',
             self::STATUS_PARTIAL_RETURN => '#eab308',
+            self::STATUS_EXPIRED => '#9ca3af',
             default => '#6b7280',
         };
     }
@@ -394,6 +402,7 @@ class Rental extends Model
             self::STATUS_LATE_PICKUP,
             self::STATUS_LATE_RETURN => 'Late',
             self::STATUS_PARTIAL_RETURN => 'Partial',
+            self::STATUS_EXPIRED => 'Expired',
             default => ucfirst(str_replace('_', ' ', $status)),
         };
     }
@@ -410,6 +419,9 @@ class Rental extends Model
             self::STATUS_ACTIVE,
             self::STATUS_LATE_RETURN,
             self::STATUS_PARTIAL_RETURN,
+            // Expiry is a soft timeout (unlike a deliberate cancellation), so an
+            // expired quote stays editable and can be revived (re-date / re-confirm).
+            self::STATUS_EXPIRED,
         ]);
     }
 
@@ -418,13 +430,19 @@ class Rental extends Model
      */
     public function getRealTimeStatus(): string
     {
-        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED])) {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_EXPIRED])) {
             return $this->status;
         }
 
         $now = now();
 
+        // A quotation whose pickup date passed without being confirmed expires (dead-end).
         if ($this->status === self::STATUS_QUOTATION && $this->start_date < $now) {
+            return self::STATUS_EXPIRED;
+        }
+
+        // A confirmed booking past its pickup date that hasn't been picked up is late.
+        if ($this->status === self::STATUS_CONFIRMED && $this->start_date < $now) {
             return self::STATUS_LATE_PICKUP;
         }
 
@@ -449,14 +467,19 @@ class Rental extends Model
      */
     public function checkAndUpdateLateStatus(): void
     {
-        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED])) {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_EXPIRED])) {
             return;
         }
 
         $now = now();
         $newStatus = $this->status;
 
+        // Unconfirmed quotation past its pickup date → expired; confirmed → late pickup.
         if ($this->status === self::STATUS_QUOTATION && $this->start_date < $now) {
+            $newStatus = self::STATUS_EXPIRED;
+        }
+
+        if ($this->status === self::STATUS_CONFIRMED && $this->start_date < $now) {
             $newStatus = self::STATUS_LATE_PICKUP;
         }
 

@@ -452,6 +452,7 @@ class RentalEditor extends Component
             Rental::STATUS_CANCELLED => 'gray',
             Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN => 'red',
             Rental::STATUS_PARTIAL_RETURN => 'amber',
+            Rental::STATUS_EXPIRED => 'gray',
             default => 'gray',
         };
     }
