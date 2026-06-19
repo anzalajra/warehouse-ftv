@@ -8,10 +8,11 @@
       - Sidebar / landscape (body:not(.gr-compact)): floating bottom-left, full
         pill (avatar + name/role + bell + QR). The old .fi-sidebar-footer island
         is hidden here.
-      - Compact / tablet-portrait + narrow (body.gr-compact): the bottom bar owns
-        the bottom edge, so the capsule moves to the top-right and shrinks to
-        avatar + icons; its popups flip to open downward. (.fi-sidebar-footer is
-        already hidden in compact by the responsive-navigation hook.)
+      - Compact / tablet-portrait + narrow (body.gr-compact): the capsule stays at
+        the bottom-left but is lifted to sit just ABOVE the fixed bottom navigation
+        bar, and shrinks to avatar + icons. It expands rightward and its popups
+        open upward (same as the desktop anchor). (.fi-sidebar-footer is already
+        hidden in compact by the responsive-navigation hook.)
 --}}
 @php
     $user = auth()->user();
@@ -185,7 +186,7 @@
          (animated), then it auto-minimizes. On desktop it is always fully expanded. --}}
     <div class="zw-capsule" :class="{ 'is-expanded': expanded }" role="region" aria-label="Profile capsule">
         <button type="button" @click="expand()" class="zw-capsule__hint" aria-label="Buka menu" tabindex="-1">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
         </button>
         <button type="button" @click="avatarClick()" class="zw-capsule__avatar-btn" aria-label="Open profile menu">
             <span class="zw-capsule__avatar">{{ $initials ?: '?' }}</span>
@@ -377,18 +378,27 @@
 
     /* ───────────────────────────────────────────────────────
        RESPONSIVE: tablet portrait + mobile (compact mode) — COLLAPSIBLE capsule
-       In gr-compact the bottom bar owns the bottom edge, so the capsule sits at the
-       top-right. It starts MINIMIZED as just the avatar circle + a pulsing left
-       chevron hint; tapping expands it (animated) into the full pill with the icon
-       actions, then it auto-minimizes (4s, JS). Popups flip to open downward.
+       In gr-compact the capsule stays at the bottom-left but is lifted to sit just
+       ABOVE the fixed bottom navigation bar (.gr-bottombar — 64px phones / 76px
+       tablets, + safe-area). It starts MINIMIZED as just the avatar circle + a
+       pulsing right chevron hint; tapping expands it (animated) rightward into the
+       full pill with the icon actions, then it auto-minimizes (4s, JS). Popups open
+       upward, same as the desktop anchor.
        ─────────────────────────────────────────────────────── */
     body.gr-compact .zw-capsule-root {
-        bottom: auto;
-        left: auto;
-        top: calc(0.6rem + env(safe-area-inset-top, 0px));
-        right: 0.75rem;
-        flex-direction: column-reverse;
-        align-items: flex-end;
+        top: auto;
+        right: auto;
+        left: 0.75rem;
+        /* Clear the 64px bottom bar (+ safe area) with a small gap. */
+        bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px);
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    /* Portrait tablets (>=768px) get the taller 76px bottom bar — lift to match. */
+    @media (min-width: 768px) {
+        body.gr-compact .zw-capsule-root {
+            bottom: calc(76px + env(safe-area-inset-bottom, 0px) + 12px);
+        }
     }
     body.gr-compact .zw-capsule {
         min-width: 0;
@@ -430,7 +440,7 @@
 
     @keyframes zw-hint-pulse {
         0%, 100% { transform: translateX(0); opacity: 0.5; }
-        50%      { transform: translateX(-3px); opacity: 1; }
+        50%      { transform: translateX(3px); opacity: 1; }
     }
 </style>
 @endonce

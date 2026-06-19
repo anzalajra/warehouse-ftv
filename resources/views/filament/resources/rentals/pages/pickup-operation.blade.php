@@ -1216,6 +1216,16 @@
         body.gr-compact.fi-body.fi-body { padding-bottom: 0 !important; }
         body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom: 0 !important; }
 
+        /* Keep the floating profile capsule pinned TOP-RIGHT on this immersive page —
+           its own sticky bottom action bar owns the bottom-left zone (where the capsule
+           sits on normal pages). Doubled class outranks the capsule's own body.end
+           compact rule (equal base specificity, later in source order). */
+        body.gr-compact .zw-capsule-root.zw-capsule-root {
+            top: calc(0.6rem + env(safe-area-inset-top, 0px));
+            right: 0.75rem; bottom: auto; left: auto;
+            flex-direction: column-reverse; align-items: flex-end;
+        }
+
         /* Blend with Filament content — drop the inset "window" page background */
         #op-console { background: transparent; }
         /* Sticky operation toolbar hugs the top of the content area (was 60px) */

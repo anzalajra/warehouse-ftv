@@ -173,9 +173,10 @@ class AdminPanelProvider extends PanelProvider
             // Replace Filament's built-in sidebar-footer "island" (user menu +
             // notifications) with the custom floating profile capsule. Used on all
             // devices in sidebar mode: full pill (desktop/landscape) or a compact
-            // top-right pill on phones/portrait tablets (see the blade's gr-compact
-            // styles). The capsule hides the old .fi-sidebar-footer and provides the
-            // QR-scanner trigger.
+            // bottom-left pill sitting above the bottom nav bar on phones/portrait
+            // tablets (see the blade's gr-compact styles; immersive pages with their
+            // own bottom action bar re-pin it top-right). The capsule hides the old
+            // .fi-sidebar-footer and provides the QR-scanner trigger.
             $panel->renderHook(
                 'panels::body.end',
                 fn () => view('filament.hooks.floating-profile-capsule')

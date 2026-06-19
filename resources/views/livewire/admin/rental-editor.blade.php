@@ -1554,6 +1554,16 @@
         body.gr-compact.fi-body.fi-body { padding-bottom: 0 !important; }
         body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom: 0 !important; }
 
+        /* Keep the floating profile capsule pinned TOP-RIGHT on this immersive page —
+           its own sticky bottom dock (.mdock) owns the bottom-left zone (where the capsule
+           sits on normal pages). Doubled class outranks the capsule's own body.end
+           compact rule (equal base specificity, later in source order). */
+        body.gr-compact .zw-capsule-root.zw-capsule-root {
+            top: calc(0.6rem + env(safe-area-inset-top, 0px));
+            right: 0.75rem; bottom: auto; left: auto;
+            flex-direction: column-reverse; align-items: flex-end;
+        }
+
         /* ----- Edit action bar (Opsi B) ----- */
         .rent-app .mobile-view .editbar {
             position: fixed; left: 0; right: 0;
