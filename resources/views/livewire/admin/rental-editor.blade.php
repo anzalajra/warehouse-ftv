@@ -136,9 +136,10 @@
         .rent-app .pill-red { background: var(--danger-100); color: var(--danger-700); }
         .rent-app .pill-gray { background: var(--gray-100); color: var(--fg-2); }
 
-        .rent-app .topbar { position: sticky; top: 0; z-index: 30; background: rgba(255,255,255,0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border-1); margin: -1.5rem -1.5rem 0; }
-        .dark .rent-app .topbar { background: rgba(24,24,27,0.92); }
-        .rent-app .topbar-inner { padding:12px 24px; display:flex; align-items:center; gap:16px; }
+        /* Modern capsule sticky header (matches Pickup/Return op-toolbar) */
+        .rent-app .topbar { position: sticky; top: 8px; z-index: 30; background: rgba(255,255,255,0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--border-1); border-radius: 14px; box-shadow: 0 1px 2px rgba(17,24,39,0.06), 0 10px 28px -16px rgba(17,24,39,0.18); margin: 0 0 14px; }
+        .dark .rent-app .topbar { background: rgba(17,20,26,0.85); border-color: #2e333d; box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 10px 28px -16px rgba(0,0,0,0.6); }
+        .rent-app .topbar-inner { padding:10px 16px; display:flex; align-items:center; gap:16px; }
         .rent-app .crumbs { display:flex; align-items:center; gap:6px; min-width:0; font-size:12.5px; color: var(--fg-3); }
         .rent-app .crumbs a { color: var(--fg-3); text-decoration:none; }
         .rent-app .crumbs a:hover { color: var(--fg-1); }
@@ -167,11 +168,13 @@
         @media (max-width: 1023px), (orientation: portrait) {
             .rent-app .mobile-subhead {
                 display: flex; align-items: center; gap: 8px;
-                padding: 10px 12px;
-                background: #fff; border-bottom: 1px solid var(--border-1);
-                position: sticky; top: 0; z-index: 25;
+                padding: 9px 12px;
+                background: rgba(255,255,255,0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+                border: 1px solid var(--border-1); border-radius: 13px;
+                box-shadow: 0 1px 2px rgba(17,24,39,0.06), 0 8px 22px -14px rgba(17,24,39,0.18);
+                margin: 8px 10px; position: sticky; top: 6px; z-index: 25;
             }
-            .dark .rent-app .mobile-subhead { background: var(--bg-surface); }
+            .dark .rent-app .mobile-subhead { background: rgba(17,20,26,0.85); border-color: #2e333d; box-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 22px -14px rgba(0,0,0,0.6); }
             .rent-app .mobile-subhead .msh-back,
             .rent-app .mobile-subhead .msh-kebab {
                 display:inline-flex; align-items:center; justify-content:center;
@@ -205,7 +208,8 @@
         .rent-app .search-result { display:grid; grid-template-columns: 36px 1fr auto auto; gap:12px; align-items:center; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--gray-100); }
         .rent-app .search-result:last-child { border-bottom: 0; }
         .rent-app .search-result:hover { background: var(--danger-50); }
-        .rent-app .search-result .thumb { width:36px; height:36px; border-radius:6px; background: var(--gray-100); display:flex; align-items:center; justify-content:center; font-size:16px; }
+        .rent-app .search-result .thumb { width:36px; height:36px; border-radius:6px; background: var(--gray-100); display:flex; align-items:center; justify-content:center; font-size:16px; overflow:hidden; flex:0 0 36px; }
+        .rent-app .search-result .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
         .rent-app .search-result .name { font-size:13.5px; font-weight:500; color: var(--fg-1); }
         .rent-app .search-result .meta { font-size:11.5px; color: var(--fg-3); font-family: var(--font-mono); }
         .rent-app .search-result .stock { font-size:11.5px; font-weight:600; padding:2px 8px; border-radius: var(--radius-full); background: var(--success-50); color: var(--success-700); white-space: nowrap; }
@@ -537,6 +541,12 @@
             font-size: 12.5px;
         }
         .rent-app .mobile-view .duration-row strong { color: var(--danger-700); font-weight: 700; }
+        .dark .rent-app .mobile-view .duration-row {
+            background: color-mix(in srgb, var(--danger-500) 16%, transparent);
+            border-top-color: color-mix(in srgb, var(--danger-500) 30%, transparent);
+            color: var(--fg-2);
+        }
+        .dark .rent-app .mobile-view .duration-row strong { color: color-mix(in srgb, var(--danger-500) 45%, #ffffff); }
 
         .rent-app .mobile-view .date-input-wrap {
             position: relative; cursor: pointer;
@@ -1058,7 +1068,13 @@
                                     <div class="search-result"
                                          wire:click="addFromSearch('{{ $r['composite_id'] }}')"
                                          @click="open=false">
-                                        <div class="thumb">📦</div>
+                                        <div class="thumb {{ !empty($r['image']) ? 'has-img' : '' }}">
+                                            @if(!empty($r['image']))
+                                                <img src="{{ $r['image'] }}" alt="" loading="lazy">
+                                            @else
+                                                📦
+                                            @endif
+                                        </div>
                                         <div>
                                             <div class="name">{{ $r['name'] }}</div>
                                             <div class="meta"><span>{{ $r['cat'] }}</span></div>
@@ -1554,14 +1570,13 @@
         body.gr-compact.fi-body.fi-body { padding-bottom: 0 !important; }
         body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom: 0 !important; }
 
-        /* Keep the floating profile capsule pinned TOP-RIGHT on this immersive page —
-           its own sticky bottom dock (.mdock) owns the bottom-left zone (where the capsule
-           sits on normal pages). Doubled class outranks the capsule's own body.end
-           compact rule (equal base specificity, later in source order). */
+        /* Keep the floating profile capsule bottom-LEFT (consistent with admin home),
+           lifted to float just above this page's own sticky editbar.
+           Doubled class outranks the capsule's own body.end compact rule. */
         body.gr-compact .zw-capsule-root.zw-capsule-root {
-            top: calc(0.6rem + env(safe-area-inset-top, 0px));
-            right: 0.75rem; bottom: auto; left: auto;
-            flex-direction: column-reverse; align-items: flex-end;
+            top: auto; right: auto; left: 0.75rem;
+            bottom: calc(80px + env(safe-area-inset-bottom, 0px) + 12px);
+            flex-direction: column; align-items: flex-start;
         }
 
         /* ----- Edit action bar (Opsi B) ----- */

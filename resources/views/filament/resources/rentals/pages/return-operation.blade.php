@@ -260,6 +260,9 @@
       box-shadow: var(--shadow-sm);
     }
     .op-toolbar .op-spacer { flex: 1; }
+    /* Crumb + title now live inside the toolbar capsule (left side) */
+    .op-toolbar .page-title { gap: 2px; }
+    .op-toolbar .page-title h1 { font-size: clamp(16px, 1.8vw, 18px); }
     .view-seg button { padding: 7px 16px; }
     .op-status {
       display: inline-flex; align-items: center; gap: 6px;
@@ -648,6 +651,7 @@
       color: var(--muted-2); overflow: hidden; position: relative;
     }
     .row .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .row .thumb.has-img { background: #fff; }
     .row .thumb .ic { width: 20px; height: 20px; }
     .row .thumb.has-photo { border-color: var(--success-bd); }
     .row .thumb .cam-badge {
@@ -1206,14 +1210,13 @@
         body.gr-compact.fi-body.fi-body { padding-bottom: 0 !important; }
         body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom: 0 !important; }
 
-        /* Keep the floating profile capsule pinned TOP-RIGHT on this immersive page —
-           its own sticky bottom action bar owns the bottom-left zone (where the capsule
-           sits on normal pages). Doubled class outranks the capsule's own body.end
-           compact rule (equal base specificity, later in source order). */
+        /* Keep the floating profile capsule bottom-LEFT (consistent with admin home),
+           lifted to float just above this page's own sticky bottom action bar.
+           Doubled class outranks the capsule's own body.end compact rule. */
         body.gr-compact .zw-capsule-root.zw-capsule-root {
-            top: calc(0.6rem + env(safe-area-inset-top, 0px));
-            right: 0.75rem; bottom: auto; left: auto;
-            flex-direction: column-reverse; align-items: flex-end;
+            top: auto; right: auto; left: 0.75rem;
+            bottom: calc(76px + env(safe-area-inset-bottom, 0px) + 12px);
+            flex-direction: column; align-items: flex-start;
         }
 
         /* Blend with Filament content — drop the inset "window" page background */
@@ -1305,6 +1308,7 @@
         .dark #op-console .row .thumb {
             background: repeating-linear-gradient(45deg, #20242c, #20242c 6px, #262b34 6px, #262b34 12px);
         }
+        .dark #op-console .row .thumb.has-img { background: var(--card-2); }
         .dark #op-console .fc-photo {
             background: repeating-linear-gradient(45deg, #20242c, #20242c 8px, #262b34 8px, #262b34 16px);
         }
@@ -1356,8 +1360,8 @@
     <div id="op-console" data-density="comfortable"
          x-data="{ filter:'all', showProfile:false, showMore:false, showValidate:false, showPartial:false }">
         <div class="page" style="padding:0;max-width:none;">
-            {{-- Page head --}}
-            <div class="page-head">
+            {{-- Operation toolbar (desktop) — crumb + title + status + actions in one capsule bar --}}
+            <div class="op-toolbar">
                 <div class="page-title">
                     <span class="crumb">
                         <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('index') }}">Rentals</a>
@@ -1368,10 +1372,6 @@
                     </span>
                     <h1>{!! $icon('refresh') !!}Return Operation</h1>
                 </div>
-            </div>
-
-            {{-- Operation toolbar (desktop) --}}
-            <div class="op-toolbar">
                 <span class="op-spacer"></span>
                 <span class="op-status {{ $allChecked ? 'ok' : '' }}">
                     {!! $icon($allChecked ? 'checkCircle' : 'alertCircle') !!}
@@ -1468,14 +1468,19 @@
                             $sn = $isKit ? ($item->rentalItemKit->unitKit->serial_number ?? '-') : $item->rentalItem->productUnit->serial_number;
                             $issue = $isIssue($item);
                             $photoCount = is_array($item->photos) ? count($item->photos) : 0;
+                            $prodImg = ! $isKit ? optional(optional($item->rentalItem->productUnit)->product)->image : null;
                             $tone = $item->condition ? ($conditionMeta[$item->condition]['tone'] ?? null) : null;
                             $condLabel = $item->condition ? ($conditionMeta[$item->condition]['label'] ?? ucfirst($item->condition)) : null;
                         @endphp
                         <div class="row {{ $isKit ? 'is-kit' : '' }} {{ $item->is_checked ? 'checked' : '' }}"
                              wire:key="row-{{ $item->id }}"
                              x-show="filter==='all' || (filter==='unchecked' && {{ $item->is_checked ? 'false' : 'true' }}) || (filter==='issues' && {{ $issue ? 'true' : 'false' }})">
-                            <div class="thumb {{ $photoCount ? 'has-photo' : '' }}">
-                                {!! $icon($isKit ? 'cube' : 'layers') !!}
+                            <div class="thumb {{ $prodImg ? 'has-img' : '' }} {{ $photoCount ? 'has-photo' : '' }}">
+                                @if ($prodImg)
+                                    <img src="{{ \Illuminate\Support\Facades\Storage::url($prodImg) }}" loading="lazy" alt="">
+                                @else
+                                    {!! $icon($isKit ? 'cube' : 'layers') !!}
+                                @endif
                                 @if ($photoCount)<span class="cam-badge">{!! $icon('camera') !!}</span>@endif
                             </div>
                             <div class="main">

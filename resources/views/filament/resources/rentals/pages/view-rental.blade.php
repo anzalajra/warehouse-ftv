@@ -82,7 +82,7 @@
 @endphp
 
 <x-filament-panels::page>
-    <div class="rent-app rent-view" x-data="{ sendSheet:false, actSheet:false, custProfile:false }">
+    <div class="rent-app rent-view" x-data="{ actSheet:false, custProfile:false }">
         <style>
             .rent-app {
                 --danger-50:  var(--primary-50,  #f0f9ff);
@@ -136,10 +136,10 @@
 
             .rent-app [x-cloak] { display:none !important; }
 
-            /* === Sticky design topbar (replaces Filament header) === */
-            .rent-app .topbar { position:sticky; top:0; z-index:30; background:rgba(255,255,255,0.92); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); border-bottom:1px solid var(--border-1); margin:-1.5rem -1.5rem 0; }
-            .dark .rent-app .topbar { background:rgba(24,24,27,0.92); }
-            .rent-app .topbar-inner { padding:12px 24px; display:flex; align-items:center; gap:16px; }
+            /* === Sticky design topbar — modern capsule (matches Pickup/Return op-toolbar) === */
+            .rent-app .topbar { position:sticky; top:8px; z-index:30; background:rgba(255,255,255,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border:1px solid var(--border-1); border-radius:14px; box-shadow:0 1px 2px rgba(17,24,39,0.06), 0 10px 28px -16px rgba(17,24,39,0.18); margin:0 0 14px; }
+            .dark .rent-app .topbar { background:rgba(17,20,26,0.85); border-color:#2e333d; box-shadow:0 1px 2px rgba(0,0,0,0.4), 0 10px 28px -16px rgba(0,0,0,0.6); }
+            .rent-app .topbar-inner { padding:10px 16px; display:flex; align-items:center; gap:16px; }
             .rent-app .crumbs { display:flex; align-items:center; gap:6px; min-width:0; font-size:12.5px; color:var(--fg-3); }
             .rent-app .crumbs a { color:var(--fg-3); text-decoration:none; }
             .rent-app .crumbs a:hover { color:var(--fg-1); }
@@ -186,8 +186,8 @@
             .rent-app .menu-sep { height:1px; background:var(--gray-100); margin:5px 2px; }
 
             @media (max-width: 1023px), (orientation: portrait) {
-                .rent-app .topbar { margin:-1rem -1rem 0; }
-                .rent-app .topbar-inner { padding:10px 12px; gap:8px; }
+                .rent-app .topbar { margin:0 0 10px; top:6px; border-radius:13px; }
+                .rent-app .topbar-inner { padding:9px 12px; gap:8px; }
                 .rent-app .crumbs { display:none; }
                 .rent-app .topbar h1 { font-size:15px; }
                 .rent-app .topbar-actions .btn .text { display:none; }
@@ -297,14 +297,13 @@
             body.gr-compact.fi-body.fi-body { padding-bottom:0 !important; }
             body.gr-compact .fi-main.fi-main, body.gr-compact .fi-page.fi-page { padding-bottom:0 !important; }
 
-            /* Keep the floating profile capsule pinned TOP-RIGHT on this immersive page —
-               its own sticky bottom action bar owns the bottom-left zone (where the capsule
-               sits on normal pages). Doubled class outranks the capsule's own body.end
-               compact rule (equal base specificity, later in source order). */
+            /* Keep the floating profile capsule bottom-LEFT (consistent with admin home),
+               lifted to float just above this page's own sticky bottom action bar.
+               Doubled class outranks the capsule's own body.end compact rule. */
             body.gr-compact .zw-capsule-root.zw-capsule-root {
-                top:calc(0.6rem + env(safe-area-inset-top, 0px));
-                right:0.75rem; bottom:auto; left:auto;
-                flex-direction:column-reverse; align-items:flex-end;
+                top:auto; right:auto; left:0.75rem;
+                bottom:calc(84px + env(safe-area-inset-bottom, 0px) + 12px);
+                flex-direction:column; align-items:flex-start;
             }
 
             @media (max-width: 1023px), (orientation: portrait) {
@@ -616,11 +615,6 @@
                         </a>
                     @endif
                 </div>
-
-                {{-- Mobile-only kebab → opens the Actions bottom sheet --}}
-                <button type="button" class="btn btn-secondary btn-iconsq rv-kebab" @click="actSheet=true" aria-label="Actions">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
-                </button>
             </div>
         </div>
 
@@ -773,10 +767,9 @@
         {{-- ===================== Mobile sticky action bar ===================== --}}
         <div class="rv-mobilebar">
             <div class="ab-row">
-                <button type="button" class="ab-btn ghost" @click="sendSheet=true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7z"/><path d="M22 2 11 13"/></svg>
-                    <span>Send</span>
-                    <span class="cap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+                <button type="button" class="ab-btn ghost" @click="actSheet=true" aria-label="Actions">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>
+                    <span>Action</span>
                 </button>
                 @if($canConfirm)
                     <button type="button" class="ab-btn primary brand" wire:click="mountAction('confirm')">
@@ -797,21 +790,25 @@
             </div>
         </div>
 
-        {{-- ===================== Send bottom sheet ===================== --}}
-        <div class="rv-sheet-root" x-show="sendSheet" x-cloak>
-            <div class="rv-scrim" @click="sendSheet=false"></div>
+        {{-- ===================== Actions bottom sheet (incl. Send) ===================== --}}
+        <div class="rv-sheet-root" x-show="actSheet" x-cloak>
+            <div class="rv-scrim" @click="actSheet=false"></div>
             <div class="rv-sheet">
                 <div class="rv-grip"></div>
                 <div class="rv-sheet-head">
-                    <h3>Send</h3>
-                    <button type="button" class="rv-sheet-x" @click="sendSheet=false">
+                    <div>
+                        <h3>Actions</h3>
+                        <div class="sub">{{ $rental->rental_code }}</div>
+                    </div>
+                    <button type="button" class="rv-sheet-x" @click="actSheet=false">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
                     </button>
                 </div>
                 <div class="rv-sheet-list">
+                    <div class="rv-sheet-group">Kirim</div>
                     @if($waEnabled)
                         @if($waUrl)
-                            <a href="{{ $waUrl }}" target="_blank" rel="noopener" class="rv-act" @click="sendSheet=false">
+                            <a href="{{ $waUrl }}" target="_blank" rel="noopener" class="rv-act" @click="actSheet=false">
                                 <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
                                 <span class="lbl"><div class="a">via WhatsApp</div>@if($customer?->phone)<div class="b">Kirim ke {{ $customer->phone }}</div>@endif</span>
                                 <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
@@ -824,7 +821,7 @@
                         @endif
                     @endif
                     @if($orderConfirmUrl)
-                        <a href="{{ $orderConfirmUrl }}" target="_blank" rel="noopener" class="rv-act" @click="sendSheet=false">
+                        <a href="{{ $orderConfirmUrl }}" target="_blank" rel="noopener" class="rv-act" @click="actSheet=false">
                             <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3z"/></svg></span>
                             <span class="lbl"><div class="a">Order Confirmed</div></span>
                             <span class="chev"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
@@ -840,25 +837,7 @@
                         <span class="lbl"><div class="a">via Email</div></span>
                         <span class="tag">Soon</span>
                     </span>
-                </div>
-            </div>
-        </div>
 
-        {{-- ===================== Actions bottom sheet ===================== --}}
-        <div class="rv-sheet-root" x-show="actSheet" x-cloak>
-            <div class="rv-scrim" @click="actSheet=false"></div>
-            <div class="rv-sheet">
-                <div class="rv-grip"></div>
-                <div class="rv-sheet-head">
-                    <div>
-                        <h3>Actions</h3>
-                        <div class="sub">{{ $rental->rental_code }}</div>
-                    </div>
-                    <button type="button" class="rv-sheet-x" @click="actSheet=false">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                    </button>
-                </div>
-                <div class="rv-sheet-list">
                     <div class="rv-sheet-group">Dokumen</div>
                     <button type="button" class="rv-act" @click="actSheet=false" wire:click="mountAction('downloadChecklist')">
                         <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></svg></span>
