@@ -86,32 +86,40 @@ export function drawQR(ctx, text, opts = {}) {
   qr.addData(String(text));
   qr.make();
   const count = qr.getModuleCount();
-  const quiet = opts.quietZone ?? 2; // modul margin
+  const quiet = opts.quietZone ?? 2; // modul margin (quiet zone)
   const total = count + quiet * 2;
 
-  // Render modul tajam ke kanvas offscreen (1 px = 1 modul, termasuk quiet zone),
-  // lalu skalakan NEAREST-NEIGHBOR agar QR mengisi PERSIS ukuran kotak (target).
-  // Dulu ukuran di-snap ke kelipatan jumlah modul (cell*total) sehingga "loncat"
-  // saat di-resize; cara ini membuat ukuran dinamis tapi tepinya tetap tajam
-  // (tanpa abu-abu anti-alias) sehingga aman untuk cetak termal & tetap terbaca.
-  const off = document.createElement('canvas');
-  off.width = total; off.height = total;
-  const octx = off.getContext('2d');
-  octx.fillStyle = '#fff';
-  octx.fillRect(0, 0, total, total);
-  octx.fillStyle = '#000';
+  // KRITIS untuk scannability: setiap modul HARUS berukuran piksel SAMA. Versi lama
+  // menskalakan kanvas 1px/modul ke ukuran kotak bebas dengan nearest-neighbor —
+  // saat ukuran kotak bukan kelipatan bulat jumlah modul, sebagian modul jadi 2px
+  // sebagian 3px (atau hilang saat kotak kecil), pola finder (rasio 1:1:3:1:1)
+  // rusak, dan QR jadi "gepeng" / tidak terbaca.
+  //
+  // Solusi: SNAP ke ukuran modul bilangan bulat ("cell"). QR digambar langsung
+  // (fillRect per modul) sebesar cell*total (≤ kotak target) lalu dipusatkan.
+  // Konsekuensinya ukuran "loncat" per langkah-modul saat di-resize, tapi modul
+  // SELALU seragam = selalu terbaca pada cetak termal.
+  const box = Math.max(1, Math.round(target));
+  const cell = Math.max(1, Math.floor(box / total));
+  const drawn = cell * total;
+  const ox = Math.round(x + (box - drawn) / 2);
+  const oy = Math.round(y + (box - drawn) / 2);
+
+  // Latar putih penuh (termasuk quiet zone) agar kontras terjamin meski ada
+  // elemen lain di belakang QR.
+  const prevFill = ctx.fillStyle;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(ox, oy, drawn, drawn);
+  ctx.fillStyle = '#000';
   for (let r = 0; r < count; r++) {
     for (let c = 0; c < count; c++) {
-      if (qr.isDark(r, c)) octx.fillRect(c + quiet, r + quiet, 1, 1);
+      if (qr.isDark(r, c)) {
+        ctx.fillRect(ox + (c + quiet) * cell, oy + (r + quiet) * cell, cell, cell);
+      }
     }
   }
-
-  const sizePx = Math.max(1, Math.round(target));
-  const prevSmooth = ctx.imageSmoothingEnabled;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(off, x, y, sizePx, sizePx);
-  ctx.imageSmoothingEnabled = prevSmooth;
-  return { size: sizePx };
+  ctx.fillStyle = prevFill;
+  return { size: drawn, cell, moduleCount: count };
 }
 
 /**

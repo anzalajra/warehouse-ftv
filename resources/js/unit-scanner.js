@@ -59,7 +59,7 @@ const TIER_PROFILES = {
 // square before decoding; 1.5 ≈ the finder frame, up to 3× for tiny codes.
 const SOFT_ZOOM_MIN = 1.0;
 const SOFT_ZOOM_MAX = 3.0;
-const SOFT_ZOOM_DEFAULT = 1.5;
+const SOFT_ZOOM_DEFAULT = 2.0; // tighter default crop — labels are tiny (12 mm)
 
 function unitScanner(config = {}) {
     return {
@@ -108,6 +108,8 @@ function unitScanner(config = {}) {
         _profile: TIER_PROFILES.mid,   // resolved in init() from deviceTier()
         _pinchStart: 0,
         _pinchBase: 0,
+        _binCanvas: null,              // binarized retry buffer (small-QR decode)
+        _binCtx: null,
 
         // ---- derived ----
         get remaining() { return this.items.filter((i) => !i.checked).length; },
@@ -211,6 +213,11 @@ function unitScanner(config = {}) {
                     },
                     audio: false,
                 });
+                // Multi-camera phones (e.g. Samsung A14) often hand back the
+                // ULTRA-WIDE lens for `facingMode:environment`, which can't focus
+                // on a 12 mm label. Now that we hold a stream the device labels are
+                // readable, so switch to the MAIN back lens if a better one exists.
+                await this.preferMainBackCamera();
                 this.phase = 'live';
                 this.$nextTick(() => this.startDecode());
             } catch (e) {
@@ -233,6 +240,74 @@ function unitScanner(config = {}) {
                 }
             } catch (e) { /* unsupported */ }
             return false;
+        },
+
+        // If the OS picked a non-main back lens (ultra-wide/tele/depth), re-acquire
+        // the stream on the MAIN back camera. Best-effort — never throws; on any
+        // failure we keep the stream we already have.
+        async preferMainBackCamera() {
+            try {
+                const id = await this.pickMainBackCameraId();
+                const cur = this._track();
+                const curId = (cur && cur.getSettings) ? (cur.getSettings().deviceId || '') : '';
+                if (!id || id === curId) return;
+                // Stop the current stream before re-acquiring on the chosen lens.
+                try { this.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ }
+                this.stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        deviceId: { exact: id },
+                        width: { ideal: this._profile.width },
+                        height: { ideal: this._profile.height },
+                        focusMode: 'continuous',
+                        advanced: [{ focusMode: 'continuous' }],
+                    },
+                    audio: false,
+                });
+            } catch (e) {
+                // Re-acquire failed (deviceId rejected / stream gone) — make sure we
+                // still have a live stream; fall back to a plain environment request.
+                if (!this.stream || !this._track()) {
+                    try {
+                        this.stream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: { ideal: 'environment' } }, audio: false,
+                        });
+                    } catch (e2) { /* leave as-is; caller's catch handles a dead stream */ }
+                }
+            }
+        },
+
+        // Choose the deviceId of the MAIN back camera among multiple lenses.
+        // Heuristics (labels are only populated once a stream is granted):
+        //   1. keep back-facing cameras (label says back/rear/environment/belakang,
+        //      or simply isn't a front/user cam),
+        //   2. drop clearly non-main lenses (ultra-wide/tele/depth/macro/mono/tof),
+        //   3. among the rest prefer the LOWEST numeric index in the label
+        //      (Android exposes the main sensor as index 0).
+        // Returns null when there's nothing better to switch to.
+        async pickMainBackCameraId() {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return null;
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const cams = devices.filter((d) => d.kind === 'videoinput');
+                if (cams.length < 2) return null;   // single cam → nothing to choose
+
+                const isFront = (l) => /front|user|face|selfie|depan/i.test(l || '');
+                const isBackWord = (l) => /back|rear|environment|world|belakang/i.test(l || '');
+                const isNonMain = (l) => /ultra|wide.?angle|tele|zoom|depth|macro|mono|tof|infrared|\bir\b/i.test(l || '');
+                const lastIndex = (l) => {
+                    const m = (l || '').match(/(\d+)/g);
+                    return m ? parseInt(m[m.length - 1], 10) : 999;
+                };
+
+                let back = cams.filter((d) => isBackWord(d.label) || !isFront(d.label));
+                if (!back.length) back = cams;
+                let pool = back.filter((d) => !isNonMain(d.label));
+                if (!pool.length) pool = back;
+                pool = pool.slice().sort((a, b) => lastIndex(a.label) - lastIndex(b.label));
+                return pool[0] ? pool[0].deviceId : null;
+            } catch (e) {
+                return null;
+            }
         },
 
         startDecode() {
@@ -335,9 +410,9 @@ function unitScanner(config = {}) {
             const side = Math.min(vW, vH) / Math.min(SOFT_ZOOM_MAX, Math.max(SOFT_ZOOM_MIN, this.softZoom));
             const sx = (vW - side) / 2;
             const sy = (vH - side) / 2;
-            // Bound the canvas: upscale tight crops to ≥480 (more px per module),
-            // cap large ones at 1024 (CPU). Square, since the ROI is square.
-            const target = Math.min(1024, Math.max(480, Math.round(side)));
+            // Bound the canvas: upscale tight crops to ≥640 (more px per module so
+            // small QR have enough resolution), cap large ones at 1024 (CPU).
+            const target = Math.min(1024, Math.max(640, Math.round(side)));
 
             if (!this._canvas) {
                 this._canvas = document.createElement('canvas');
@@ -346,16 +421,64 @@ function unitScanner(config = {}) {
             if (this._canvas.width !== target) { this._canvas.width = target; this._canvas.height = target; }
             this._ctx.drawImage(video, sx, sy, side, side, 0, 0, target, target);
 
-            if (this.engine === 'native' && this._detector) {
-                const codes = await this._detector.detect(this._canvas);
-                if (codes && codes.length) return codes[0].rawValue || null;
-                return null;
-            }
+            // Primary decode on the upscaled ROI.
+            let text = await this._decodeCanvas(this._canvas);
+            if (text) return text;
 
-            // ZXing: decodeFromCanvas throws NotFoundException when no code is
-            // present — that's the common case, caught by runLoop().
-            const result = this.reader.decodeFromCanvas(this._canvas);
-            return result ? result.getText() : null;
+            // Second pass ONLY on a miss: binarize (global threshold) and retry.
+            // Faint/low-contrast thermal prints often fail the grayscale decode but
+            // succeed once pushed to pure black/white. Cheap because it skips the
+            // common "no code in frame" case (primary already returned a value then).
+            const bin = this._binarize(this._canvas);
+            if (bin) {
+                text = await this._decodeCanvas(bin);
+                if (text) return text;
+            }
+            return null;
+        },
+
+        // Decode a canvas with the active engine; returns text or null (never throws).
+        async _decodeCanvas(canvas) {
+            if (this.engine === 'native' && this._detector) {
+                try {
+                    const codes = await this._detector.detect(canvas);
+                    return (codes && codes.length) ? (codes[0].rawValue || null) : null;
+                } catch (e) { return null; }
+            }
+            // ZXing throws NotFoundException when no code is present — that's the
+            // common case; swallow it and report "no code".
+            try {
+                const result = this.reader.decodeFromCanvas(canvas);
+                return result ? result.getText() : null;
+            } catch (e) { return null; }
+        },
+
+        // Threshold the ROI to pure black/white using mean luminance. Returns a
+        // reusable canvas, or null if the pixels can't be read.
+        _binarize(src) {
+            const w = src.width, h = src.height;
+            if (!this._binCanvas) {
+                this._binCanvas = document.createElement('canvas');
+                this._binCtx = this._binCanvas.getContext('2d', { willReadFrequently: true });
+            }
+            if (this._binCanvas.width !== w) { this._binCanvas.width = w; this._binCanvas.height = h; }
+            let img;
+            try { img = this._ctx.getImageData(0, 0, w, h); } catch (e) { return null; }
+            const d = img.data, n = w * h;
+            let sum = 0;
+            for (let i = 0; i < n; i++) {
+                const p = i * 4;
+                sum += (d[p] * 299 + d[p + 1] * 587 + d[p + 2] * 114) / 1000;
+            }
+            const thr = sum / n;
+            for (let i = 0; i < n; i++) {
+                const p = i * 4;
+                const lum = (d[p] * 299 + d[p + 1] * 587 + d[p + 2] * 114) / 1000;
+                const v = lum < thr ? 0 : 255;
+                d[p] = d[p + 1] = d[p + 2] = v;
+            }
+            this._binCtx.putImageData(img, 0, 0);
+            return this._binCanvas;
         },
 
         // Tap-to-focus: point the autofocus at where the operator tapped, then

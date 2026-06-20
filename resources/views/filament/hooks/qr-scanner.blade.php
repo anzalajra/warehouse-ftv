@@ -92,13 +92,18 @@
                         ? [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128]
                         : undefined;
                     this.h5 = new Html5Qrcode('scn-reader', fmts ? { verbose: false, formatsToSupport: fmts } : { verbose: false });
+                    // Prefer the MAIN back lens: multi-camera phones (e.g. Samsung A14)
+                    // hand back the ultra-wide for facingMode:environment, which can't
+                    // focus on a 12 mm label. Fall back to facingMode when only one (or
+                    // zero) cameras are enumerable.
+                    const camId = await this.pickMainBackCameraId();
+                    const source = camId ? { deviceId: { exact: camId } } : { facingMode: { ideal: 'environment' } };
                     await this.h5.start(
-                        { facingMode: { ideal: 'environment' } },
-                        { fps: 10, videoConstraints: {
-                            facingMode: { ideal: 'environment' },
+                        source,
+                        { fps: 10, videoConstraints: Object.assign({
                             width: { ideal: 1920 }, height: { ideal: 1080 },
                             focusMode: 'continuous', advanced: [{ focusMode: 'continuous' }],
-                        } },
+                        }, camId ? { deviceId: { exact: camId } } : { facingMode: { ideal: 'environment' } }) },
                         (txt) => this.onDecode(txt),
                         () => {}
                     );
@@ -115,6 +120,26 @@
         async probeBlocked() {
             try { if (navigator.permissions && navigator.permissions.query) { const st = await navigator.permissions.query({ name: 'camera' }); return st.state === 'denied'; } } catch (e) {}
             return false;
+        },
+        // Pick the MAIN back camera among multiple lenses (drop ultra-wide/tele/
+        // depth/macro; among the rest prefer the lowest numeric index = main on
+        // Android). Returns null when there's nothing better to choose.
+        async pickMainBackCameraId() {
+            try {
+                if (!window.Html5Qrcode || typeof Html5Qrcode.getCameras !== 'function') return null;
+                const cams = await Html5Qrcode.getCameras();
+                if (!Array.isArray(cams) || cams.length < 2) return null;
+                const isFront = (l) => /front|user|face|selfie|depan/i.test(l || '');
+                const isBackWord = (l) => /back|rear|environment|world|belakang/i.test(l || '');
+                const isNonMain = (l) => /ultra|wide.?angle|tele|zoom|depth|macro|mono|tof|infrared|\bir\b/i.test(l || '');
+                const lastIndex = (l) => { const m = (l || '').match(/(\d+)/g); return m ? parseInt(m[m.length - 1], 10) : 999; };
+                let back = cams.filter((d) => isBackWord(d.label) || !isFront(d.label));
+                if (!back.length) back = cams;
+                let pool = back.filter((d) => !isNonMain(d.label));
+                if (!pool.length) pool = back;
+                pool = pool.slice().sort((a, b) => lastIndex(a.label) - lastIndex(b.label));
+                return pool[0] ? pool[0].id : null;
+            } catch (e) { return null; }
         },
         async stopCam() {
             if (this.h5) { try { await this.h5.stop(); } catch (e) {} try { this.h5.clear(); } catch (e) {} this.h5 = null; }

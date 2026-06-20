@@ -226,6 +226,7 @@ if (!$isInstalled) {
                         'name' => $unit->product->name ?? 'Unit',
                         'payload' => $codes->encode($unit->serial_number),
                         'type' => 'unit',
+                        'unit_id' => $unit->id,
                     ];
                 }
                 foreach ($unit->kits as $kit) {
@@ -235,6 +236,7 @@ if (!$isInstalled) {
                             'name' => $kit->name,
                             'payload' => $codes->encode($kit->serial_number),
                             'type' => 'kit',
+                            'unit_id' => $unit->id, // induk → "Unit + semua kit" bisa refetch ?ids=unit_id
                         ];
                     }
                 }

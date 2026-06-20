@@ -49,6 +49,59 @@ function bindElement(el, item) {
   return copy;
 }
 
+// ---------------- Halaman (pages) + override isi per-halaman ----------------
+// QUEUE adalah daftar HALAMAN. Tiap item: {name, serial, payload, type, overrides?}.
+// Tata letak (posisi/ukuran/font) dipakai bersama (state.elements = template).
+// `overrides` = { [elId]: {text?|data?} } → isi khusus halaman ini, menang atas bind.
+function currentPageItem() { return QUEUE.length ? QUEUE[queueIdx] : null; }
+
+function pageOverrideFor(el) {
+  const item = currentPageItem();
+  return (item && item.overrides && item.overrides[el.id]) || null;
+}
+
+// Isi efektif (text/data) untuk panel properti pada halaman aktif: override → bind → template.
+function effContent(el, key) {
+  const ov = pageOverrideFor(el);
+  if (ov && ov[key] != null) return ov[key];
+  const item = currentPageItem();
+  if (item && el.bind) {
+    if (key === 'text' && el.bind === 'name') return item.name ?? el.text ?? '';
+    if (key === 'text' && el.bind === 'serial') return item.serial ?? el.text ?? '';
+    if (key === 'data' && el.bind === 'payload') return item.payload ?? el.data ?? '';
+  }
+  return el[key] ?? '';
+}
+
+// Tulis isi per-halaman ke override (bukan ke template, supaya halaman lain tak berubah).
+function setPageOverride(el, key, value) {
+  const item = currentPageItem();
+  if (!item) { el[key] = value; return; }
+  item.overrides = item.overrides || {};
+  item.overrides[el.id] = Object.assign({}, item.overrides[el.id], { [key]: value });
+  // Jaga label panel antrian + navigasi tetap sinkron untuk elemen ber-bind.
+  if (key === 'text' && el.bind === 'name') item.name = value;
+  else if (key === 'text' && el.bind === 'serial') item.serial = value;
+  else if (key === 'data' && el.bind === 'payload') item.payload = value;
+  renderQueuePanel(); updateQueueNav();
+}
+
+// Elemen template di-bind ke item lalu di-override → dipakai untuk render & cetak.
+function boundElementsFor(item) {
+  return state.elements.map((el) => {
+    let e = bindElement(el, item);
+    const ov = item && item.overrides && item.overrides[el.id];
+    if (ov) e = Object.assign({}, e, ov);
+    return e;
+  });
+}
+
+// Elemen yang tampil/ dicetak untuk halaman saat ini (template apa adanya bila tak ada halaman).
+function effectiveElements() {
+  const item = currentPageItem();
+  return item ? boundElementsFor(item) : state.elements;
+}
+
 // ---------------- State ----------------
 const state = {
   label: { kind: 'normal', lengthMm: 40, widthMm: 14, printWidthDots: 96, cable: null },
@@ -96,7 +149,9 @@ function makeElement(type) {
       return { ...base, w: Math.min(140, W - base.x - 4), h: 28, text: 'Teks', fontFamily: 'sans-serif',
         fontSize: 22, bold: true, italic: false, align: 'left', lineHeight: 1.15 };
     case 'qr':
-      return { ...base, y: Math.round(H * 0.1), w: 64, h: 64, data: 'https://contoh.id', ecLevel: 'M' };
+      // Default 80×80 dots: untuk payload PREFIX:serial biasa ini memberi ≥3px/modul
+      // (~0.4 mm) sehingga andal discan di cetak termal. Jangan terlalu kecil.
+      return { ...base, y: Math.round(H * 0.1), w: 80, h: 80, data: 'https://contoh.id', ecLevel: 'M' };
     case 'barcode':
       return { ...base, w: Math.min(200, W - base.x - 4), h: 50, data: '012345678905', format: 'code128', showText: true };
     case 'image':
@@ -113,25 +168,25 @@ function makeElement(type) {
 }
 
 // ---------------- Rendering ----------------
-function renderToCtx(ctx, elements = state.elements) {
+function renderToCtx(ctx, elements = state.elements, opts = {}) {
   const W = designW(), H = designH();
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, W, H);
-  for (const el of elements) drawElement(ctx, el);
+  for (const el of elements) drawElement(ctx, el, opts);
 }
 
-function drawElement(ctx, el) {
+function drawElement(ctx, el, opts = {}) {
   ctx.save();
   ctx.translate(el.x + el.w / 2, el.y + el.h / 2);
   if (el.rotation) ctx.rotate((el.rotation * Math.PI) / 180);
   ctx.translate(-el.w / 2, -el.h / 2);
   ctx.fillStyle = '#000';
   ctx.strokeStyle = '#000';
-  drawElementLocal(ctx, el);
+  drawElementLocal(ctx, el, opts);
   ctx.restore();
 }
 
-function drawElementLocal(ctx, el) {
+function drawElementLocal(ctx, el, opts = {}) {
   switch (el.type) {
     case 'text': return drawTextLocal(ctx, el);
     case 'qr': {
@@ -143,6 +198,16 @@ function drawElementLocal(ctx, el) {
       drawBarcode(ctx, el.data || '', { x: 0, y: 0, w: el.w, h: el.h, format: el.format, showText: el.showText });
       return;
     case 'image': {
+      // LAYAR (hi-res): gambar dari sumber asli + smoothing → foto/logo tajam saat
+      // di-zoom (tidak pecah). CETAK / dither / negatif: pakai cache dots (kualitas
+      // termal + efek benar). 'invert' butuh manipulasi piksel → tetap lewat cache.
+      if (opts.screen && el.img && !el.dither && !el.invert) {
+        const prev = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = true;
+        drawImage(ctx, el.img, { x: 0, y: 0, w: el.w, h: el.h, fit: el.fit });
+        ctx.imageSmoothingEnabled = prev;
+        return;
+      }
       const c = imageCache(el);
       if (c) ctx.drawImage(c, 0, 0);
       else { ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4, 4]); ctx.strokeRect(0.5, 0.5, el.w - 1, el.h - 1); ctx.setLineDash([]); }
@@ -213,11 +278,25 @@ let labelCanvas, labelCtx, overlay;
 
 function render() {
   const W = designW(), H = designH(), z = state.zoom;
-  if (labelCanvas.width !== W) labelCanvas.width = W;
-  if (labelCanvas.height !== H) labelCanvas.height = H;
+  // Render kanvas layar pada resolusi TER-ZOOM (z × devicePixelRatio) lalu
+  // tampilkan pada ukuran CSS W*z. Tanpa ini, kanvas hanya seukuran dots desain
+  // (mis. 96px) lalu di-CSS-upscale → TEKS & FOTO pecah. (QR/barcode/garis tetap
+  // tajam karena hitam-putih.) Jalur CETAK tidak terpengaruh — makePrintCanvas
+  // tetap render pada dots asli.
+  const dpr = window.devicePixelRatio || 1;
+  let scale = z * dpr;
+  // Batasi resolusi backing agar tidak meledak di zoom tinggi × DPR tinggi.
+  const CAP = 4096;
+  if (Math.max(W, H) * scale > CAP) scale = CAP / Math.max(W, H);
+  const bw = Math.max(1, Math.round(W * scale));
+  const bh = Math.max(1, Math.round(H * scale));
+  if (labelCanvas.width !== bw) labelCanvas.width = bw;
+  if (labelCanvas.height !== bh) labelCanvas.height = bh;
   labelCanvas.style.width = W * z + 'px';
   labelCanvas.style.height = H * z + 'px';
-  renderToCtx(labelCtx);
+  labelCtx.setTransform(scale, 0, 0, scale, 0, 0);
+  renderToCtx(labelCtx, effectiveElements(), { screen: true });
+  labelCtx.setTransform(1, 0, 0, 1, 0, 0);
   syncOverlay();
   renderPrintPreview();
 }
@@ -311,7 +390,7 @@ function makePrintCanvas(elements = state.elements) {
 }
 
 function renderPrintPreview() {
-  const c = makePrintCanvas();
+  const c = makePrintCanvas(effectiveElements());
   const pv = $('printPreview');
   // Skalakan agar mengisi lebar panel (bukan menempel kiri), lalu dipusatkan via CSS.
   const wrap = pv.closest('.ppwrap');
@@ -442,7 +521,7 @@ function buildProps() {
     `<select data-k="bind">${opts.map(([v, t]) => `<option value="${v}" ${(el.bind || '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>`);
 
   if (el.type === 'text') {
-    html += field('Teks', `<textarea data-k="text" rows="2">${escapeHtml(el.text)}</textarea>`);
+    html += field('Teks', `<textarea data-k="text" rows="2">${escapeHtml(effContent(el, 'text'))}</textarea>`);
     html += `<div class="grid2">`
       + field('Font', `<select data-k="fontFamily">${FONTS.map(f => `<option ${f===el.fontFamily?'selected':''}>${f}</option>`).join('')}</select>`)
       + field('Ukuran', `<input type="number" data-k="fontSize" value="${el.fontSize}" min="6" max="120">`)
@@ -457,12 +536,12 @@ function buildProps() {
       + `</div>`;
     html += bindField([['', '— Statis —'], ['name', 'Nama unit'], ['serial', 'Serial']]);
   } else if (el.type === 'qr') {
-    html += field('Isi data', `<textarea data-k="data" rows="2">${escapeHtml(el.data)}</textarea>`);
+    html += field('Isi data', `<textarea data-k="data" rows="2">${escapeHtml(effContent(el, 'data'))}</textarea>`);
     if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">${ic('download')} Ambil dari sistem</button>`;
     html += field('Koreksi error', `<select data-k="ecLevel">${['L','M','Q','H'].map(l=>`<option ${l===el.ecLevel?'selected':''}>${l}</option>`).join('')}</select>`);
     html += bindField([['', '— Statis —'], ['payload', 'Kode unit (PREFIX:serial)']]);
   } else if (el.type === 'barcode') {
-    html += field('Isi data', `<input type="text" data-k="data" value="${escapeHtml(el.data)}">`);
+    html += field('Isi data', `<input type="text" data-k="data" value="${escapeHtml(effContent(el, 'data'))}">`);
     if (SYS_URL) html += `<button class="btn ghost sm" data-act="sys" style="width:100%;margin-top:6px">${ic('download')} Ambil dari sistem</button>`;
     html += field('Format', `<select data-k="format">${[['code128','CODE 128'],['ean13','EAN-13']].map(([v,t])=>`<option value="${v}" ${v===el.format?'selected':''}>${t}</option>`).join('')}</select>`);
     html += `<label class="chk"><input type="checkbox" data-k="showText" ${el.showText?'checked':''}> Tampilkan teks</label>`;
@@ -509,6 +588,13 @@ function wireProps(p, el) {
       if (inp.type === 'checkbox') v = inp.checked;
       else if (inp.type === 'number') v = parseFloat(inp.value) || 0;
       else v = inp.value;
+      // Isi (text/data) bersifat per-halaman saat ada antrian → simpan sebagai
+      // override; JANGAN ubah template agar halaman lain tidak ikut berubah.
+      if ((k === 'text' || k === 'data') && QUEUE.length) {
+        setPageOverride(el, k, v);
+        render();
+        return;
+      }
       el[k] = v;
       if (['w','h','fit','dither','invert'].includes(k)) el._cache = null;
       render();
@@ -653,9 +739,9 @@ function applyUnitToElement(el, item) {
 function insertUnitLabel(item) {
   const W = designW(), H = designH();
   state.elements = [
-    { ...makeElement('text'), id: nextId(), x: 6, y: 6, w: W - 78, h: 24, text: item.name, fontSize: 18, bold: true, align: 'left', bind: 'name' },
-    { ...makeElement('text'), id: nextId(), x: 6, y: 32, w: W - 78, h: 18, text: item.serial, fontSize: 12, bold: false, align: 'left', bind: 'serial' },
-    { ...makeElement('qr'), id: nextId(), x: W - 70, y: Math.round((H - 64) / 2), w: 64, h: 64, data: item.payload, ecLevel: 'M', bind: 'payload' },
+    { ...makeElement('text'), id: nextId(), x: 6, y: 6, w: W - 94, h: 24, text: item.name, fontSize: 18, bold: true, align: 'left', bind: 'name' },
+    { ...makeElement('text'), id: nextId(), x: 6, y: 32, w: W - 94, h: 18, text: item.serial, fontSize: 12, bold: false, align: 'left', bind: 'serial' },
+    { ...makeElement('qr'), id: nextId(), x: W - 86, y: Math.round((H - 80) / 2), w: 80, h: 80, data: item.payload, ecLevel: 'M', bind: 'payload' },
   ];
   state.selectedId = null;
   pushHistory(); buildProps(); render();
@@ -714,10 +800,94 @@ function updateQueueNav() {
 function previewQueueItem(i) {
   if (!QUEUE.length) return;
   queueIdx = clamp(i, 0, QUEUE.length - 1);
-  state.elements = state.elements.map((e) => bindElement(e, QUEUE[queueIdx]));
+  // Tidak mengubah template: isi per-halaman diterapkan saat render lewat
+  // effectiveElements() (bind + override). Aman maju-mundur tanpa kehilangan edit.
   state.selectedId = null;
   buildProps(); render();
   updateQueueNav();
+}
+
+// Tambah halaman custom kosong (tanpa data sistem). Isinya bisa diubah per-halaman
+// lewat panel Properti (disimpan sebagai override). Tata letak tetap dari template.
+function addCustomPage() {
+  QUEUE.push({ name: 'Label', serial: '', payload: '', type: 'custom', overrides: {} });
+  renderQueuePanel();
+  previewQueueItem(QUEUE.length - 1);
+  log('➕ Halaman baru ditambahkan (' + QUEUE.length + ').');
+}
+
+// Duplikat halaman saat ini beserta override isinya.
+function duplicateCurrentPage() {
+  if (!QUEUE.length) { addCustomPage(); return; }
+  const copy = JSON.parse(JSON.stringify(QUEUE[queueIdx]));
+  QUEUE.splice(queueIdx + 1, 0, copy);
+  renderQueuePanel();
+  previewQueueItem(queueIdx + 1);
+  log('⧉ Halaman diduplikat.');
+}
+
+// Hapus halaman saat ini. Bila habis, kembali ke desain template tunggal.
+function deleteCurrentPage() {
+  if (!QUEUE.length) return;
+  QUEUE.splice(queueIdx, 1);
+  if (!QUEUE.length) {
+    queueIdx = 0;
+    renderQueuePanel(); updateQueueNav();
+    state.selectedId = null; buildProps(); render();
+    log('🗑 Halaman dihapus. Kembali ke desain tunggal.');
+    return;
+  }
+  renderQueuePanel();
+  previewQueueItem(Math.min(queueIdx, QUEUE.length - 1));
+  log('🗑 Halaman dihapus.');
+}
+
+// Muat daftar item (unit/kit) sebagai halaman antrian, MENGIKUTI template default
+// bila ada (logo + binding) — dipakai oleh prefill awal (klik Print Label/bulk)
+// maupun import manual dari picker "Data Sistem".
+function loadPages(items) {
+  if (!Array.isArray(items) || !items.length) return;
+  QUEUE.length = 0;
+  for (const it of items) QUEUE.push(Object.assign({ overrides: {} }, it));
+  queueIdx = 0;
+  if (DEFAULT_TEMPLATE && Array.isArray(DEFAULT_TEMPLATE.elements)) {
+    // Pakai template default (logo + elemen terikat). deserialize() memuat ulang
+    // gambar dari src + ukuran kertas template.
+    deserialize(DEFAULT_TEMPLATE);
+    fitToPage();
+    ensureQueueBindings(); // jaga-jaga bila penulis template lupa set "Data terikat"
+    log('📄 Template default dipakai untuk antrian.');
+  } else {
+    // Tidak ada template default → layout bawaan (nama + serial + QR).
+    insertUnitLabel(QUEUE[0]);
+  }
+  renderQueuePanel();
+  previewQueueItem(0);
+  if (QUEUE.length > 1) log(`ℹ ${QUEUE.length} item di antrian. Pakai ‹ › di bawah kanvas atau klik item di "Antrian Cetak". Klik "Cetak semua antrian" untuk mencetak semuanya.`);
+}
+
+// Pilihan saat memilih sebuah UNIT di picker: hanya unit, atau unit + semua kit-nya
+// (otomatis membangun antrian/halaman seperti bulk dari halaman edit produk).
+function askUnitImportChoice(item) {
+  const back = document.createElement('div');
+  back.className = 'syspick-back';
+  back.innerHTML = '<div class="syspick" style="max-width:380px">'
+    + '<div class="syspick-head"><strong>Impor unit</strong><button class="x" data-close>' + ic('x') + '</button></div>'
+    + '<div class="muted small" style="padding:0 4px 10px">' + escapeHtml(item.name) + ' · ' + escapeHtml(item.serial) + '</div>'
+    + '<button class="btn pri" id="impUnitOnly" style="width:100%;margin-bottom:8px">Hanya unit ini</button>'
+    + '<button class="btn" id="impUnitKits" style="width:100%">Unit + semua kit-nya</button>'
+    + '</div>';
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener('click', (e) => { if (e.target === back || e.target.hasAttribute('data-close')) close(); });
+  back.querySelector('#impUnitOnly').addEventListener('click', () => { close(); loadPages([item]); });
+  back.querySelector('#impUnitKits').addEventListener('click', async () => {
+    close();
+    try {
+      const rows = item.unit_id ? await fetchUnits({ ids: String(item.unit_id) }) : [item];
+      loadPages(rows.length ? rows : [item]);
+    } catch (err) { log('❌ ' + err.message); loadPages([item]); }
+  });
 }
 
 async function printQueue() {
@@ -730,7 +900,7 @@ async function printQueue() {
     for (let i = 0; i < QUEUE.length; i++) {
       const item = QUEUE[i];
       const isLast = i === QUEUE.length - 1;
-      const els = state.elements.map((e) => bindElement(e, item));
+      const els = boundElementsFor(item);
       const raster = buildRaster(makePrintCanvas(els), { threshold: 128 });
       // feedDots=0 untuk item non-terakhir: GS FF sudah posisikan ke label berikutnya,
       // extra feed hanya dibutuhkan setelah label terakhir (agar mudah diambil).
@@ -916,7 +1086,8 @@ async function print() {
   try {
     const density = +document.querySelector('input[name=d]:checked').value;
     await printer.cmdDensity(density);
-    const canvas = makePrintCanvas();
+    // Cetak halaman yang sedang tampil (bind + override bila ada antrian).
+    const canvas = makePrintCanvas(effectiveElements());
     // threshold otomatis: 128 sudah tepat untuk teks/QR/barcode (murni hitam-putih);
     // gambar foto ditangani oleh dithering di properti elemen gambar.
     const raster = buildRaster(canvas, { threshold: 128 });
@@ -1139,6 +1310,11 @@ function init() {
   $('qnPrev')?.addEventListener('click', () => previewQueueItem(queueIdx - 1));
   $('qnNext')?.addEventListener('click', () => previewQueueItem(queueIdx + 1));
 
+  // halaman (pages): tambah / duplikat / hapus
+  $('btnAddPage')?.addEventListener('click', addCustomPage);
+  $('btnDupPage')?.addEventListener('click', duplicateCurrentPage);
+  $('btnDelPage')?.addEventListener('click', deleteCurrentPage);
+
   // import dari sistem (hanya aktif bila host memberi ?dataUrl=…)
   if (SYS_URL) {
     const sysSec = $('sysSec'); if (sysSec) sysSec.style.display = 'block';
@@ -1146,8 +1322,12 @@ function init() {
     if (sysBtn) sysBtn.addEventListener('click', () => {
       const sel = getSelected();
       openSystemPicker((item) => {
-        if (sel && (sel.type === 'qr' || sel.type === 'barcode')) applyUnitToElement(sel, item);
-        else insertUnitLabel(item);
+        // Elemen QR/barcode terpilih → isi elemen itu saja (template-level bind).
+        if (sel && (sel.type === 'qr' || sel.type === 'barcode')) { applyUnitToElement(sel, item); return; }
+        // Pilih UNIT → tanya: hanya unit / unit + semua kit (bangun halaman pakai
+        // template default). Pilih KIT → langsung satu halaman.
+        if (item.type === 'unit') askUnitImportChoice(item);
+        else loadPages([item]);
       });
     });
   }
@@ -1161,20 +1341,7 @@ function init() {
 
   // prefill dari antrian yang sudah di-resolve server-side (klik Print Label / bulk)
   if (QUEUE.length) {
-    if (DEFAULT_TEMPLATE && Array.isArray(DEFAULT_TEMPLATE.elements)) {
-      // Pakai template default (logo + elemen terikat). deserialize() memuat ulang
-      // gambar dari src + ukuran kertas template.
-      deserialize(DEFAULT_TEMPLATE);
-      fitToPage();
-      ensureQueueBindings(); // jaga-jaga bila penulis template lupa set "Data terikat"
-      log('📄 Template default dipakai untuk antrian.');
-    } else {
-      // Tidak ada template default → layout bawaan (nama + serial + QR).
-      insertUnitLabel(QUEUE[0]);
-    }
-    renderQueuePanel();
-    previewQueueItem(0); // isi kanvas dengan item pertama + munculkan navigasi ‹ ›
-    if (QUEUE.length > 1) log(`ℹ ${QUEUE.length} item di antrian. Pakai ‹ › di bawah kanvas untuk pratinjau tiap label, atau klik item di "Antrian Cetak". Klik "Cetak semua antrian" untuk mencetak semuanya.`);
+    loadPages(QUEUE.slice()); // pakai template default + bangun halaman
   } else {
     updateQueueNav(); // pastikan bar navigasi tersembunyi
   }
