@@ -74,18 +74,21 @@
         <div class="space-y-4">
             @php
                 $groupedItems = $rental->items->groupBy(function($item) {
-                    return $item->productUnit->product->id;
+                    // Ghost slots have a null productUnit; fall back to the
+                    // RentalItem's own product_id so the line still renders.
+                    return optional($item->productUnit)->product?->id ?? $item->product_id;
                 });
             @endphp
 
             @foreach($groupedItems as $items)
                 @php
                     $firstItem = $items->first();
-                    $product = $firstItem->productUnit->product;
+                    $product = optional($firstItem->productUnit)->product ?? $firstItem->product;
                     $quantity = $items->count();
                     $subtotal = $items->sum('subtotal');
                     $allKits = $items->flatMap->rentalItemKits;
                 @endphp
+                @continue(!$product)
                 <div class="border rounded-lg p-4">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div class="flex items-center">
