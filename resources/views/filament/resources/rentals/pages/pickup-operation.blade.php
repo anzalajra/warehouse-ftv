@@ -76,6 +76,24 @@
         $conflictCount = $unavailableItems->count();
         $ghostSlots = $availability['ghost_slots'] ?? [];
         $ghostCount = count($ghostSlots);
+
+        // Scheduling conflicts from checkAvailability(): a unit here is also assigned to
+        // another OVERLAPPING quotation/confirmed/late_pickup rental. Those statuses never
+        // flip the unit to RENTED (that only happens at the other rental's pickup), so the
+        // unit looks physically available and never appears in the $unavailableItems banner —
+        // yet it still blocks Validate. Surface it explicitly so the operator can Swap/resolve.
+        $unavailableUnitIds = $unavailableItems
+            ->map(fn ($it) => $it->rentalItem?->product_unit_id)
+            ->filter()
+            ->all();
+        $scheduleConflicts = collect($availability['conflicts'] ?? [])
+            ->filter(fn ($c) => ($c['product_unit'] ?? null) && ! in_array($c['product_unit']->id, $unavailableUnitIds, true))
+            ->values();
+        $scheduleConflictCount = $scheduleConflicts->count();
+        // Map unit id -> delivery item id so the conflict row can offer a Swap action.
+        $deliveryItemByUnit = $items
+            ->filter(fn ($it) => $it->rentalItem?->product_unit_id)
+            ->keyBy(fn ($it) => $it->rentalItem->product_unit_id);
         $uncheckedCount = $remaining;
         $issuesCount = $items->filter($isIssue)->count();
         $damagedItems = $items->filter(fn ($it) => $it->condition && in_array($it->condition, $issueConditions));
@@ -1389,7 +1407,7 @@
                     @if ($canValidate)
                         All checked
                     @else
-                        {{ $remaining }} left{{ $conflictCount ? " · {$conflictCount} conflict" : '' }}{{ $ghostCount ? " · {$ghostCount} slot kosong" : '' }}
+                        {{ $remaining }} left{{ $conflictCount ? " · {$conflictCount} conflict" : '' }}{{ $scheduleConflictCount ? " · {$scheduleConflictCount} bentrok jadwal" : '' }}{{ $ghostCount ? " · {$ghostCount} slot kosong" : '' }}
                     @endif
                 </span>
                 <div class="op-actions">
@@ -1503,6 +1521,52 @@
                                     </div>
                                 </div>
                                 <button class="btn btn-sm btn-primary cb-swap" wire:click="openSwap({{ $it->id }})">{!! $icon('swap') !!}Swap</button>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            {{-- Scheduling-conflict banner: unit ini juga ter-booking di rental lain (quotation/confirmed/late_pickup)
+                 yang periodenya overlap. Unit terlihat "available" secara fisik tapi tetap memblokir validasi. --}}
+            @if ($scheduleConflictCount)
+                <div class="conflict-banner">
+                    <div class="cb-head">
+                        <span class="cb-icon">{!! $icon('alert') !!}</span>
+                        <div class="cb-headtx">
+                            <strong>{{ $scheduleConflictCount }} unit bentrok jadwal</strong>
+                            <span>Unit ini juga dipesan rental lain di periode yang sama. Swap unit atau selesaikan bentrok sebelum validasi.</span>
+                        </div>
+                        <span class="cb-count">{{ $scheduleConflictCount }}</span>
+                    </div>
+                    <div class="cb-list">
+                        @foreach ($scheduleConflicts as $conflict)
+                            @php
+                                $unit = $conflict['product_unit'];
+                                $others = $conflict['conflicting_rentals'] ?? collect();
+                                $deliveryItem = $deliveryItemByUnit->get($unit->id);
+                            @endphp
+                            <div class="cb-row" wire:key="sched-{{ $unit->id }}">
+                                <div class="cb-info">
+                                    <div class="cb-name">{{ $unit->product->name ?? 'Unit' }}<span class="mono">{{ $unit->serial_number }}</span></div>
+                                    <div class="cb-detail">
+                                        <span class="cb-status">BENTROK JADWAL</span>
+                                        @if ($others->isNotEmpty())
+                                            <span>dipesan oleh
+                                                @foreach ($others as $r)
+                                                    <a href="{{ \App\Filament\Resources\Rentals\RentalResource::getUrl('edit', ['record' => $r->id]) }}" target="_blank" class="cb-link"><strong>{{ $r->rental_code }}</strong></a>@if ($r->customer) ({{ $r->customer->name }})@endif{{ $r->start_date ? ' · '.$r->start_date->format('d M').'–'.optional($r->end_date)->format('d M') : '' }}@if (! $loop->last), @endif
+                                                @endforeach
+                                            </span>
+                                        @else
+                                            <span>bentrok dengan rental lain di periode ini</span>
+                                        @endif
+                                    </div>
+                                </div>
+                                @if ($deliveryItem)
+                                    <button class="btn btn-sm btn-primary cb-swap" wire:click="openSwap({{ $deliveryItem->id }})">{!! $icon('swap') !!}Swap</button>
+                                @else
+                                    <a class="btn btn-sm btn-primary cb-swap" href="{{ $this->editRentalUrl() }}">{!! $icon('edit') !!}Edit Rental</a>
+                                @endif
                             </div>
                         @endforeach
                     </div>
