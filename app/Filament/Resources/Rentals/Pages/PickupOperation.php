@@ -12,6 +12,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\WithFileUploads;
 
@@ -24,6 +25,14 @@ class PickupOperation extends Page
     public ?Rental $rental = null;
 
     public ?Delivery $delivery = null;
+
+    /**
+     * Per-request memo for getAvailabilityStatus(). Livewire instantiates a fresh
+     * component object each request, so this protected prop starts null every time —
+     * it dedupes the (expensive) availability computation within a single render/action
+     * cycle without persisting stale data across requests.
+     */
+    protected ?array $availabilityCache = null;
 
     // ---- Item editor (bottom-sheet / modal) state ----
     public ?int $editingId = null;
@@ -119,6 +128,12 @@ class PickupOperation extends Page
 
     public function getAvailabilityStatus(): array
     {
+        // Memoized for the request — the blade reads this on every render and
+        // validatePickup() reads it again, so compute it at most once per cycle.
+        if ($this->availabilityCache !== null) {
+            return $this->availabilityCache;
+        }
+
         // $this->rental is a Livewire public model property: between requests its
         // `items` / `productUnit` relations are rehydrated from the dehydrated SNAPSHOT,
         // not re-queried. Without forcing a fresh load here the availability is computed
@@ -128,47 +143,54 @@ class PickupOperation extends Page
 
         $conflicts = $this->rental->checkAvailability();
 
+        $blockedStatuses = [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE];
         $unavailableUnits = [];
+        $seen = [];
+
+        // Pass 1 (in-memory, no queries): direct unit status + collect related unit ids.
+        // The kits relation is already eager-loaded above, so use it instead of re-querying
+        // per item (that was an N+1 that fired on every checklist tap).
+        $assignedUnitIds = [];
+        $componentIds = [];
         foreach ($this->rental->items as $item) {
-            if ($item->productUnit) {
-                // 1. Direct unit status
-                if (in_array($item->productUnit->status, [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE])) {
-                    $unavailableUnits[] = $item->productUnit;
+            $unit = $item->productUnit;
+            if (! $unit) {
+                continue;
+            }
+            $assignedUnitIds[] = $unit->id;
+
+            if (in_array($unit->status, $blockedStatuses, true) && ! isset($seen[$unit->id])) {
+                $unavailableUnits[] = $unit;
+                $seen[$unit->id] = true;
+            }
+
+            foreach ($unit->kits as $kit) {
+                if ($kit->linked_unit_id) {
+                    $componentIds[] = $kit->linked_unit_id;
                 }
+            }
+        }
 
-                // 2. Components (kits) of this unit
-                $componentIds = $item->productUnit->kits()
-                    ->whereNotNull('linked_unit_id')
-                    ->pluck('linked_unit_id')
-                    ->toArray();
+        // Pass 2: parent kits (units that use any assigned unit as a component) — one query.
+        $parentIds = [];
+        if (! empty($assignedUnitIds)) {
+            $parentIds = UnitKit::whereIn('linked_unit_id', array_unique($assignedUnitIds))
+                ->pluck('unit_id')
+                ->all();
+        }
 
-                if (! empty($componentIds)) {
-                    $unavailableComponents = ProductUnit::whereIn('id', $componentIds)
-                        ->whereIn('status', [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE])
-                        ->get();
+        // Pass 3: one batched status lookup for every related component/parent unit
+        // (replaces the previous two per-item ProductUnit::whereIn queries).
+        $relatedIds = array_values(array_unique(array_filter(array_merge($componentIds, $parentIds))));
+        if (! empty($relatedIds)) {
+            $blocked = ProductUnit::whereIn('id', $relatedIds)
+                ->whereIn('status', $blockedStatuses)
+                ->get();
 
-                    foreach ($unavailableComponents as $comp) {
-                        if (! collect($unavailableUnits)->contains('id', $comp->id)) {
-                            $unavailableUnits[] = $comp;
-                        }
-                    }
-                }
-
-                // 3. Parent kits (if this unit is a component)
-                $parentIds = UnitKit::where('linked_unit_id', $item->productUnit->id)
-                    ->pluck('unit_id')
-                    ->toArray();
-
-                if (! empty($parentIds)) {
-                    $unavailableParents = ProductUnit::whereIn('id', $parentIds)
-                        ->whereIn('status', [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE])
-                        ->get();
-
-                    foreach ($unavailableParents as $parent) {
-                        if (! collect($unavailableUnits)->contains('id', $parent->id)) {
-                            $unavailableUnits[] = $parent;
-                        }
-                    }
+            foreach ($blocked as $unit) {
+                if (! isset($seen[$unit->id])) {
+                    $unavailableUnits[] = $unit;
+                    $seen[$unit->id] = true;
                 }
             }
         }
@@ -183,7 +205,7 @@ class PickupOperation extends Page
             ->values()
             ->all();
 
-        return [
+        return $this->availabilityCache = [
             'available' => empty($conflicts) && empty($unavailableUnits) && empty($ghostSlots),
             'conflicts' => $conflicts,
             'unavailable_units' => $unavailableUnits,
@@ -777,7 +799,12 @@ class PickupOperation extends Page
         }
 
         try {
-            $this->rental->validatePickup();
+            // One transaction so the status flip, unit-status updates and the delivery
+            // completion commit together (fewer round-trips, atomic on failure).
+            DB::transaction(function () {
+                $this->rental->validatePickup();
+                $this->delivery->complete();
+            });
         } catch (\Throwable $e) {
             // Safety net: any guard inside Rental::validatePickup() (ghost slot, unit
             // maintenance, unchecked kit) must surface as a notification, never a 500.
@@ -790,8 +817,6 @@ class PickupOperation extends Page
 
             return;
         }
-
-        $this->delivery->complete();
 
         Notification::make()
             ->title('Pickup validated successfully')

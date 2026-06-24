@@ -560,8 +560,6 @@ class Rental extends Model
             $this->load(['items.productUnit.kits']);
         }
 
-        \Illuminate\Support\Facades\Log::info("Checking availability for Rental {$this->id} ({$this->rental_code})");
-
         $items = $this->items;
         if ($items->isEmpty()) {
             return [];
@@ -1617,6 +1615,18 @@ class Rental extends Model
      * Create delivery documents (Out and In) for this rental
      */
     public function createDeliveries(): void
+    {
+        // Runs on every Pickup/Return page mount and issues many firstOrCreate/
+        // updateOrCreate writes (kit sync + delivery item rows). Wrap them in one
+        // transaction so they commit together (one round-trip instead of dozens),
+        // which is the bulk of that page's load time. Nests safely under an outer
+        // transaction (e.g. CheckoutController) via savepoints.
+        \Illuminate\Support\Facades\DB::transaction(function () {
+            $this->createDeliveriesInternal();
+        });
+    }
+
+    protected function createDeliveriesInternal(): void
     {
         // Ensure all rental items have their kits attached first
         foreach ($this->items as $item) {

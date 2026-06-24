@@ -11,6 +11,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\WithFileUploads;
 
@@ -426,55 +427,58 @@ class ProcessReturn extends Page
                 ? (float) $data['manual_late_fee']
                 : $this->rental->calculateOverdueFee();
 
-            $this->rental->late_fee = $lateFee;
-            $this->rental->recalculateTotal();
+            // Whole settlement runs in one transaction: it commits together (one round-trip
+            // instead of ~a dozen) and rolls back cleanly if any journal/sync step fails.
+            DB::transaction(function () use ($data, $lateFee) {
+                // Complete the rental first — validateReturn() persists the late fee and runs
+                // the full recalculateTotal() (subtotal/discount/tax/deposit/total). Doing it
+                // here means we recalc ONCE instead of the previous recalc-then-validate (which
+                // ran recalculateTotal() twice). $this->rental->total is correct afterwards.
+                $this->rental->validateReturn($lateFee);
 
-            // Recognize rental revenue (excl. deposit + late fee).
-            $rentalRevenue = $this->rental->total - $this->rental->security_deposit_amount - $lateFee;
-            if ($rentalRevenue > 0) {
-                JournalService::recordSimpleTransaction(
-                    'RENTAL_COMPLETION',
-                    $this->rental,
-                    $rentalRevenue,
-                    'Revenue recognition for Rental '.$this->rental->rental_code
-                );
-            }
-
-            // Deposit settlement.
-            if (isset($data['final_deposit_action']) && $this->rental->security_deposit_amount > 0) {
-                $action = $data['final_deposit_action'];
-                $depositAmount = (float) $this->rental->security_deposit_amount;
-
-                if ($action === 'refund') {
-                    $this->rental->security_deposit_status = 'refunded';
-                    JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_OUT', $this->rental, $depositAmount, 'Full deposit refund');
-                } elseif ($action === 'forfeit') {
-                    $this->rental->security_deposit_status = 'forfeited';
-                    JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_DEDUCTION', $this->rental, $depositAmount, 'Full deposit forfeiture');
-                } elseif ($action === 'partial') {
-                    $this->rental->security_deposit_status = 'partial_refunded';
-                    $refundAmount = (float) ($data['refund_amount'] ?? 0);
-                    $forfeitAmount = $depositAmount - $refundAmount;
-
-                    if ($refundAmount > 0) {
-                        JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_OUT', $this->rental, $refundAmount, 'Partial deposit refund');
-                    }
-                    if ($forfeitAmount > 0) {
-                        JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_DEDUCTION', $this->rental, $forfeitAmount, 'Partial deposit forfeiture');
-                    }
+                // Recognize rental revenue (excl. deposit + late fee).
+                $rentalRevenue = $this->rental->total - $this->rental->security_deposit_amount - $lateFee;
+                if ($rentalRevenue > 0) {
+                    JournalService::recordSimpleTransaction(
+                        'RENTAL_COMPLETION',
+                        $this->rental,
+                        $rentalRevenue,
+                        'Revenue recognition for Rental '.$this->rental->rental_code
+                    );
                 }
-                $this->rental->save();
-            }
 
-            // Pass the resolved late fee so the model does NOT overwrite it with a fresh
-            // auto-calculation.
-            $this->rental->validateReturn($lateFee);
+                // Deposit settlement.
+                if (isset($data['final_deposit_action']) && $this->rental->security_deposit_amount > 0) {
+                    $action = $data['final_deposit_action'];
+                    $depositAmount = (float) $this->rental->security_deposit_amount;
 
-            // Keep finances trackable: sync the linked invoice with the new total/late fee,
-            // or issue an invoice when a balance is now owed but none was ever created.
-            $this->syncInvoiceAfterReturn();
+                    if ($action === 'refund') {
+                        $this->rental->security_deposit_status = 'refunded';
+                        JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_OUT', $this->rental, $depositAmount, 'Full deposit refund');
+                    } elseif ($action === 'forfeit') {
+                        $this->rental->security_deposit_status = 'forfeited';
+                        JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_DEDUCTION', $this->rental, $depositAmount, 'Full deposit forfeiture');
+                    } elseif ($action === 'partial') {
+                        $this->rental->security_deposit_status = 'partial_refunded';
+                        $refundAmount = (float) ($data['refund_amount'] ?? 0);
+                        $forfeitAmount = $depositAmount - $refundAmount;
 
-            $this->delivery->complete();
+                        if ($refundAmount > 0) {
+                            JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_OUT', $this->rental, $refundAmount, 'Partial deposit refund');
+                        }
+                        if ($forfeitAmount > 0) {
+                            JournalService::recordSimpleTransaction('SECURITY_DEPOSIT_DEDUCTION', $this->rental, $forfeitAmount, 'Partial deposit forfeiture');
+                        }
+                    }
+                    $this->rental->save();
+                }
+
+                // Keep finances trackable: sync the linked invoice with the new total/late fee,
+                // or issue an invoice when a balance is now owed but none was ever created.
+                $this->syncInvoiceAfterReturn();
+
+                $this->delivery->complete();
+            });
 
             Notification::make()
                 ->title('Return validated successfully')
@@ -488,57 +492,62 @@ class ProcessReturn extends Page
         }
 
         // ---- PARTIAL RETURN ----
-        $newDelivery = Delivery::create([
-            'rental_id' => $this->rental->id,
-            'type' => Delivery::TYPE_IN,
-            'date' => now(),
-            'status' => Delivery::STATUS_DRAFT,
-        ]);
-
-        $uncheckedItems = $this->delivery->items()->where('is_checked', false)->get();
-        foreach ($uncheckedItems as $item) {
-            $item->update(['delivery_id' => $newDelivery->id]);
-        }
-
-        $this->delivery->complete();
-
-        foreach ($this->delivery->items as $item) {
-            if ($item->rental_item_kit_id) {
-                continue;
-            }
-            if ($item->rentalItem && $item->rentalItem->productUnit) {
-                if (in_array($item->condition, DeliveryItem::getMaintenanceConditions())) {
-                    // Idempotent: reuses the ticket already opened at check time.
-                    $item->rentalItem->productUnit->sendToMaintenance(
-                        "Auto: {$item->condition} saat Partial Return {$this->rental->rental_code} (customer: ".($this->rental->customer?->name ?? 'Unknown').')',
-                        \App\Models\MaintenanceRecord::TYPE_CORRECTIVE,
-                        null,
-                        null,
-                        $this->rental->id,
-                    );
-                } else {
-                    $item->rentalItem->productUnit->refreshStatus();
-                }
-            }
-        }
-
-        // Settle finances for what came back so far, then keep AR in sync. The late
-        // fee is now per-item (items returned in this batch only accrue up to their
-        // own check-in time), so re-running this at a later batch / final completion
-        // never re-charges already-returned items. A manual value from the modal wins.
-        //
-        // NOTE: revenue-recognition (RENTAL_COMPLETION) and deposit settlement journals
-        // stay EXCLUSIVE to full completion — posting them per batch would double-count
-        // revenue. Partial settlement is late-fee + invoice (AR) only.
+        // Resolve the late fee before the transaction (a manual value from the modal wins).
         $lateFee = isset($data['manual_late_fee'])
             ? (float) $data['manual_late_fee']
             : $this->rental->calculateOverdueFee();
 
-        $this->rental->late_fee = $lateFee;
-        $this->rental->status = Rental::STATUS_PARTIAL_RETURN;
-        $this->rental->recalculateTotal(); // persists late_fee + status + recomputed total
+        // One transaction for the whole partial settlement (split delivery, unit-status
+        // refresh/maintenance, recalc + AR sync) — commits together, rolls back on failure.
+        DB::transaction(function () use ($lateFee) {
+            $newDelivery = Delivery::create([
+                'rental_id' => $this->rental->id,
+                'type' => Delivery::TYPE_IN,
+                'date' => now(),
+                'status' => Delivery::STATUS_DRAFT,
+            ]);
 
-        $this->syncInvoiceAfterReturn('partial return');
+            $uncheckedItems = $this->delivery->items()->where('is_checked', false)->get();
+            foreach ($uncheckedItems as $item) {
+                $item->update(['delivery_id' => $newDelivery->id]);
+            }
+
+            $this->delivery->complete();
+
+            foreach ($this->delivery->items as $item) {
+                if ($item->rental_item_kit_id) {
+                    continue;
+                }
+                if ($item->rentalItem && $item->rentalItem->productUnit) {
+                    if (in_array($item->condition, DeliveryItem::getMaintenanceConditions())) {
+                        // Idempotent: reuses the ticket already opened at check time.
+                        $item->rentalItem->productUnit->sendToMaintenance(
+                            "Auto: {$item->condition} saat Partial Return {$this->rental->rental_code} (customer: ".($this->rental->customer?->name ?? 'Unknown').')',
+                            \App\Models\MaintenanceRecord::TYPE_CORRECTIVE,
+                            null,
+                            null,
+                            $this->rental->id,
+                        );
+                    } else {
+                        $item->rentalItem->productUnit->refreshStatus();
+                    }
+                }
+            }
+
+            // Settle finances for what came back so far, then keep AR in sync. The late
+            // fee is now per-item (items returned in this batch only accrue up to their
+            // own check-in time), so re-running this at a later batch / final completion
+            // never re-charges already-returned items.
+            //
+            // NOTE: revenue-recognition (RENTAL_COMPLETION) and deposit settlement journals
+            // stay EXCLUSIVE to full completion — posting them per batch would double-count
+            // revenue. Partial settlement is late-fee + invoice (AR) only.
+            $this->rental->late_fee = $lateFee;
+            $this->rental->status = Rental::STATUS_PARTIAL_RETURN;
+            $this->rental->recalculateTotal(); // persists late_fee + status + recomputed total
+
+            $this->syncInvoiceAfterReturn('partial return');
+        });
 
         $this->rental->refresh();
 
