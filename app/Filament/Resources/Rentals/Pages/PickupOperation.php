@@ -173,10 +173,21 @@ class PickupOperation extends Page
             }
         }
 
+        // Ghost slots: product placeholders without an assigned unit serial (e.g. the
+        // only unit was in maintenance when the rental was built). These never surface
+        // in the loop above because they have no productUnit, yet Rental::validatePickup()
+        // rejects them — so flag them here so the Validate gate catches them gracefully
+        // instead of letting the model throw a raw 500.
+        $ghostSlots = $this->rental->items
+            ->filter(fn ($it) => ! $it->parent_item_id && ! $it->product_unit_id)
+            ->values()
+            ->all();
+
         return [
-            'available' => empty($conflicts) && empty($unavailableUnits),
+            'available' => empty($conflicts) && empty($unavailableUnits) && empty($ghostSlots),
             'conflicts' => $conflicts,
             'unavailable_units' => $unavailableUnits,
+            'ghost_slots' => $ghostSlots,
         ];
     }
 
@@ -748,6 +759,11 @@ class PickupOperation extends Page
                 }
             }
 
+            foreach ($status['ghost_slots'] as $slot) {
+                $name = $slot->product?->name ?? 'Produk';
+                $lines[] = '<strong>'.e($name).'</strong> — belum ada unit/serial yang ditugaskan (slot kosong, mungkin unit sedang maintenance). Assign unit atau hapus slot lewat editor rental.';
+            }
+
             Notification::make()
                 ->title('Cannot Validate Pickup')
                 ->body($lines
@@ -760,7 +776,21 @@ class PickupOperation extends Page
             return;
         }
 
-        $this->rental->validatePickup();
+        try {
+            $this->rental->validatePickup();
+        } catch (\Throwable $e) {
+            // Safety net: any guard inside Rental::validatePickup() (ghost slot, unit
+            // maintenance, unchecked kit) must surface as a notification, never a 500.
+            Notification::make()
+                ->title('Cannot Validate Pickup')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
+
         $this->delivery->complete();
 
         Notification::make()

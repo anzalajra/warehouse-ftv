@@ -74,6 +74,8 @@
 
         $unavailableItems = $items->filter($isUnavailable);
         $conflictCount = $unavailableItems->count();
+        $ghostSlots = $availability['ghost_slots'] ?? [];
+        $ghostCount = count($ghostSlots);
         $uncheckedCount = $remaining;
         $issuesCount = $items->filter($isIssue)->count();
         $damagedItems = $items->filter(fn ($it) => $it->condition && in_array($it->condition, $issueConditions));
@@ -1387,7 +1389,7 @@
                     @if ($canValidate)
                         All checked
                     @else
-                        {{ $remaining }} left{{ $conflictCount ? " · {$conflictCount} conflict" : '' }}
+                        {{ $remaining }} left{{ $conflictCount ? " · {$conflictCount} conflict" : '' }}{{ $ghostCount ? " · {$ghostCount} slot kosong" : '' }}
                     @endif
                 </span>
                 <div class="op-actions">
@@ -1501,6 +1503,34 @@
                                     </div>
                                 </div>
                                 <button class="btn btn-sm btn-primary cb-swap" wire:click="openSwap({{ $it->id }})">{!! $icon('swap') !!}Swap</button>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            {{-- Empty-slot (ghost) banner: produk tanpa unit/serial ter-assign (mis. unit sedang maintenance saat rental dibuat) --}}
+            @if ($ghostCount)
+                <div class="conflict-banner">
+                    <div class="cb-head">
+                        <span class="cb-icon">{!! $icon('alert') !!}</span>
+                        <div class="cb-headtx">
+                            <strong>{{ $ghostCount }} slot kosong (tanpa unit)</strong>
+                            <span>Assign unit/serial atau hapus slot lewat editor rental sebelum validasi pickup.</span>
+                        </div>
+                        <span class="cb-count">{{ $ghostCount }}</span>
+                    </div>
+                    <div class="cb-list">
+                        @foreach ($ghostSlots as $slot)
+                            <div class="cb-row" wire:key="ghost-{{ $slot->id }}">
+                                <div class="cb-info">
+                                    <div class="cb-name">{{ $slot->product?->name ?? 'Produk' }}</div>
+                                    <div class="cb-detail">
+                                        <span class="cb-status">SLOT KOSONG</span>
+                                        <span>belum ada unit yang ditugaskan (mungkin sedang maintenance)</span>
+                                    </div>
+                                </div>
+                                <a class="btn btn-sm btn-primary cb-swap" href="{{ $this->editRentalUrl() }}">{!! $icon('edit') !!}Edit Rental</a>
                             </div>
                         @endforeach
                     </div>
