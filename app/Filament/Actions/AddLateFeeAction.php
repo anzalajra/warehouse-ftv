@@ -62,6 +62,9 @@ class AddLateFeeAction extends Action
                 $rental->late_fee = ($rental->late_fee ?? 0) + $amount;
                 $rental->recalculateTotal();
 
+                // Recognize penalty income in the GL: Dr Piutang / Cr Pendapatan Denda (4-1200).
+                \App\Services\RentalAccountingService::postLateFee($rental, $amount);
+
                 // Audit in the rental activity log (not the free-text notes).
                 $rental->logActivity(
                     'Late fee Rp ' . number_format($amount, 0, ',', '.') . ' ditambahkan. Alasan: ' . $data['reason'],

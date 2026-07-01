@@ -8,6 +8,7 @@ use App\Services\JournalService;
 use App\Models\FinanceTransaction;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
@@ -131,6 +132,32 @@ class FinanceSettings extends Page implements HasForms
                                                     session()->put('show_sync_confirmation', true);
                                                 }
                                             }),
+                                    ]),
+
+                                Section::make('Accounting Standard')
+                                    ->description('Determines WHEN rental revenue is recognized in the double-entry ledger. Only applies in Advanced mode.')
+                                    ->visible(fn ($get) => $get('finance_mode') === 'advanced')
+                                    ->schema([
+                                        ToggleButtons::make('accounting_standard')
+                                            ->label('Standard')
+                                            ->options(\App\Services\RentalAccountingService::standardOptions())
+                                            ->icons([
+                                                \App\Services\RentalAccountingService::STANDARD_SAK => 'heroicon-o-building-library',
+                                                \App\Services\RentalAccountingService::STANDARD_IFRS => 'heroicon-o-globe-alt',
+                                            ])
+                                            ->default(\App\Services\RentalAccountingService::STANDARD_SAK)
+                                            ->inline()
+                                            ->helperText('SAK: pendapatan diakui saat invoice terbit (point-in-time). IFRS/ASC 606/PSAK 72: pendapatan ditangguhkan dan diakui saat sewa selesai (over-time).'),
+                                    ]),
+
+                                Section::make('Tutup Buku (Period Lock)')
+                                    ->description('Kunci periode akuntansi. Jurnal dengan tanggal SAMPAI DENGAN tanggal ini akan ditolak — mencegah perubahan periode yang sudah dilaporkan.')
+                                    ->visible(fn ($get) => $get('finance_mode') === 'advanced')
+                                    ->schema([
+                                        DatePicker::make('finance_locked_until')
+                                            ->label('Buku Terkunci Sampai')
+                                            ->helperText('Kosongkan untuk membuka semua periode. Isi mis. 2026-06-30 untuk mengunci sampai akhir Juni 2026.')
+                                            ->native(false),
                                     ]),
                             ]),
                         

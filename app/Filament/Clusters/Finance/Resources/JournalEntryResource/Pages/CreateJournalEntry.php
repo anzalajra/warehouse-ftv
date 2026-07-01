@@ -9,6 +9,13 @@ class CreateJournalEntry extends CreateRecord
 {
     protected static string $resource = JournalEntryResource::class;
 
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        JournalEntryResource::assertBalanced($data['items'] ?? []);
+
+        return $data;
+    }
+
     protected function getFormActions(): array
     {
         return [];

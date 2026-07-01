@@ -7,7 +7,6 @@ use App\Helpers\WhatsAppHelper;
 use App\Models\Quotation;
 use App\Models\Rental;
 use App\Models\Setting;
-use App\Services\JournalService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Filament\Actions\Action;
@@ -428,11 +427,13 @@ class ViewRental extends Page
                         $dpTransaction->reference()->associate($this->rental);
                         $dpTransaction->save();
 
-                        JournalService::recordSimpleTransaction(
-                            'RECEIVE_RENTAL_PAYMENT',
+                        // DP received before an invoice exists = customer advance (liability):
+                        // Dr Kas / Cr Uang Muka (2-1300). Reclassified against Piutang once the
+                        // invoice is issued below.
+                        \App\Services\RentalAccountingService::postAdvance(
                             $this->rental,
-                            $this->rental->down_payment_amount,
-                            'Down Payment for Rental '.$this->rental->rental_code
+                            (int) $data['finance_account_id'],
+                            (float) $this->rental->down_payment_amount
                         );
                     }
                 }
@@ -471,13 +472,9 @@ class ViewRental extends Page
                         'notes' => 'Generated from Rental '.$this->rental->rental_code,
                     ]);
 
-                    // Auto Journal: Rental Invoice Issued
-                    JournalService::recordSimpleTransaction(
-                        'RENTAL_INVOICE_ISSUED',
-                        $invoice,
-                        $invoice->total,
-                        'Invoice Generated for Rental '.$this->rental->rental_code
-                    );
+                    // Auto Journal: Dr Piutang / Cr Revenue-or-Deferred + PPN (2-1400)
+                    // + Denda (4-1200), standard-aware and idempotent.
+                    \App\Services\RentalAccountingService::postInvoiceIssued($invoice);
 
                     // Move all payments (DP, etc) from Rental/Quotation to Invoice
                     $existingTransactions = \App\Models\FinanceTransaction::where(function ($query) {
@@ -505,6 +502,10 @@ class ViewRental extends Page
 
                         $totalPaid += $transaction->amount;
                     }
+
+                    // Advances collected before the invoice existed now settle the
+                    // receivable they prepaid: Dr Uang Muka (2-1300) / Cr Piutang (1-1200).
+                    \App\Services\RentalAccountingService::reclassifyAdvanceToReceivable($invoice, (float) $totalPaid);
 
                     $invoice->paid_amount = $totalPaid;
 

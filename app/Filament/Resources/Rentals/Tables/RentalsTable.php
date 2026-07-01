@@ -364,132 +364,37 @@ class RentalsTable
                                 ->default(fn (Rental $record) => 'Payment for Rental ' . $record->rental_code),
                         ])
                         ->action(function (Rental $record, array $data) {
-                            FinanceTransaction::create([
+                            $transaction = new FinanceTransaction([
                                 'finance_account_id' => $data['finance_account_id'],
                                 'type' => 'income',
                                 'amount' => $data['amount'],
                                 'description' => $data['description'],
                                 'category' => 'Rental Payment',
-                                'reference_type' => Rental::class,
-                                'reference_id' => $record->id,
                                 'date' => $data['transaction_date'],
                             ]);
-                            
-                            // Auto Journal handled by Observer
+
+                            // GL posting: settle the receivable if an invoice already exists
+                            // (Dr Kas / Cr Piutang), otherwise treat as a customer advance
+                            // (Dr Kas / Cr Uang Muka 2-1300).
+                            if ($record->invoice_id && ($invoice = \App\Models\Invoice::find($record->invoice_id))) {
+                                $transaction->reference()->associate($invoice);
+                                $transaction->save();
+                                \App\Services\RentalAccountingService::postPayment($invoice, (int) $data['finance_account_id'], (float) $data['amount'], $data['transaction_date']);
+                                $invoice->recalculate();
+                            } else {
+                                $transaction->reference()->associate($record);
+                                $transaction->save();
+                                \App\Services\RentalAccountingService::postAdvance($record, (int) $data['finance_account_id'], (float) $data['amount'], $data['transaction_date']);
+                            }
 
                             Notification::make()->title('Payment Recorded')->success()->send();
                         }),
 
-                    // Receive Security Deposit
-                    Action::make('receive_deposit')
-                        ->label('Receive Deposit')
-                        ->icon('heroicon-o-shield-check')
-                        ->color('success')
-                        ->visible(fn (Rental $record) => $record->deposit > 0 && $record->security_deposit_status === 'pending')
-                        ->form([
-                            Select::make('finance_account_id')
-                                ->label('Account')
-                                ->options(FinanceAccount::pluck('name', 'id'))
-                                ->required(),
-                            TextInput::make('amount')
-                                ->label('Amount')
-                                ->numeric()
-                                ->prefix('Rp')
-                                ->default(fn (Rental $record) => $record->deposit)
-                                ->required(),
-                            DatePicker::make('transaction_date')
-                                ->default(now())
-                                ->required(),
-                        ])
-                        ->action(function (Rental $record, array $data) {
-                            FinanceTransaction::create([
-                                'finance_account_id' => $data['finance_account_id'],
-                                'type' => FinanceTransaction::TYPE_DEPOSIT_IN,
-                                'amount' => $data['amount'],
-                                'description' => 'Security Deposit for Rental ' . $record->rental_code,
-                                'category' => 'Security Deposit In',
-                                'reference_type' => Rental::class,
-                                'reference_id' => $record->id,
-                                'date' => $data['transaction_date'],
-                            ]);
-                            
-                            // Auto Journal handled by Observer
-
-                            $record->update([
-                                'security_deposit_status' => 'held',
-                                'security_deposit_amount' => $data['amount'],
-                            ]);
-                            Notification::make()->title('Deposit Received')->success()->send();
-                        }),
-
-                    // Refund Security Deposit
-                    Action::make('refund_deposit')
-                        ->label('Refund Deposit')
-                        ->icon('heroicon-o-arrow-path')
-                        ->color('warning')
-                        ->visible(fn (Rental $record) => $record->security_deposit_status === 'held')
-                        ->form([
-                            Select::make('finance_account_id')
-                                ->label('Account')
-                                ->options(FinanceAccount::pluck('name', 'id'))
-                                ->required(),
-                            TextInput::make('amount')
-                                ->label('Refund Amount')
-                                ->numeric()
-                                ->prefix('Rp')
-                                ->default(fn (Rental $record) => $record->security_deposit_amount > 0 ? $record->security_deposit_amount : $record->deposit)
-                                ->required(),
-                            TextInput::make('deduction')
-                                ->label('Deduction (Damage/Late)')
-                                ->numeric()
-                                ->prefix('Rp')
-                                ->default(0),
-                            DatePicker::make('transaction_date')
-                                ->default(now())
-                                ->required(),
-                            Textarea::make('notes')
-                                ->label('Refund Notes'),
-                        ])
-                        ->action(function (Rental $record, array $data) {
-                            $deduction = $data['deduction'] ?? 0;
-                            $refundAmount = $data['amount'];
-                            $notes = $data['notes'] ?? '';
-                            $transactionDate = $data['transaction_date'];
-
-                            // Outgoing Refund
-                            if ($refundAmount > 0) {
-                                FinanceTransaction::create([
-                                    'finance_account_id' => $data['finance_account_id'],
-                                    'type' => FinanceTransaction::TYPE_DEPOSIT_OUT,
-                                    'amount' => $refundAmount,
-                                    'description' => 'Deposit Refund: ' . $record->rental_code,
-                                    'category' => 'Security Deposit Refund',
-                                    'reference_type' => Rental::class,
-                                    'reference_id' => $record->id,
-                                    'date' => $transactionDate,
-                                ]);
-                            }
-
-                            // Record Deduction as Income if any
-                            if ($deduction > 0) {
-                                FinanceTransaction::create([
-                                    'finance_account_id' => $data['finance_account_id'],
-                                    'type' => FinanceTransaction::TYPE_INCOME,
-                                    'amount' => $deduction,
-                                    'description' => 'Deposit Deduction: ' . $record->rental_code,
-                                    'category' => 'Security Deposit Deduction',
-                                    'reference_type' => Rental::class,
-                                    'reference_id' => $record->id,
-                                    'date' => $transactionDate,
-                                ]);
-                            }
-
-                            $record->update([
-                                'security_deposit_status' => 'refunded',
-                                'security_deposit_amount' => 0, // Reset held amount
-                            ]);
-                            Notification::make()->title('Deposit Refunded')->success()->send();
-                        }),
+                    // Shared factories (identical GL posting as the Customer Deposits page):
+                    // Dr Kas / Cr Uang Jaminan (2-1200) on receive; reversed on refund;
+                    // Dr 2-1200 / Cr Pendapatan Denda (4-1200) on deduction.
+                    \App\Filament\Actions\ReceiveDepositAction::make(),
+                    \App\Filament\Actions\RefundDepositAction::make(),
 
                     // Add Late Fee
                     Action::make('add_late_fee')
@@ -505,8 +410,17 @@ class RentalsTable
                                 ->required(),
                         ])
                         ->action(function (Rental $record, array $data) {
+                            $previousFee = (float) ($record->late_fee ?? 0);
                             $record->update(['late_fee' => $data['late_fee']]);
                             $record->recalculateTotal();
+
+                            // Recognize only the incremental increase as penalty income
+                            // (Dr Piutang / Cr Pendapatan Denda 4-1200). A decrease would
+                            // need a manual reversing entry.
+                            $delta = (float) $data['late_fee'] - $previousFee;
+                            if ($delta > 0) {
+                                \App\Services\RentalAccountingService::postLateFee($record, $delta);
+                            }
 
                             $record->logActivity(
                                 'Late fee diset Rp ' . number_format((float) $data['late_fee'], 0, ',', '.'),

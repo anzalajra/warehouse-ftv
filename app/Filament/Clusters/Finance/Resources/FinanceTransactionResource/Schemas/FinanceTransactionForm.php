@@ -38,6 +38,19 @@ class FinanceTransactionForm
                     ->required()
                     ->numeric()
                     ->prefix('IDR'),
+                Select::make('currency')
+                    ->label('Mata Uang')
+                    ->options(fn () => \App\Services\CurrencyService::options())
+                    ->default(fn () => \App\Services\CurrencyService::baseCode())
+                    ->live()
+                    ->afterStateUpdated(fn ($state, $set) => $set('exchange_rate', \App\Services\CurrencyService::rate($state)))
+                    ->native(false),
+                TextInput::make('exchange_rate')
+                    ->label('Kurs ke Mata Uang Dasar')
+                    ->helperText('Nilai GL diposting = jumlah × kurs. Mata uang dasar = 1.')
+                    ->numeric()
+                    ->default(1)
+                    ->visible(fn ($get) => $get('currency') && $get('currency') !== \App\Services\CurrencyService::baseCode()),
                 TextInput::make('category')
                     ->maxLength(255)
                     ->datalist([

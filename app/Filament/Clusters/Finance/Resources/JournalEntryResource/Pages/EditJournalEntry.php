@@ -10,6 +10,13 @@ class EditJournalEntry extends EditRecord
 {
     protected static string $resource = JournalEntryResource::class;
 
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        JournalEntryResource::assertBalanced($data['items'] ?? []);
+
+        return $data;
+    }
+
     protected function getFormActions(): array
     {
         return [];

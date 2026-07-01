@@ -35,6 +35,7 @@ class Rental extends Model
         'deposit_type',
         'security_deposit_amount',
         'security_deposit_status',
+        'revenue_recognized_at',
         'down_payment_amount',
         'down_payment_status',
         'notes',
@@ -64,6 +65,7 @@ class Rental extends Model
         'late_fee' => 'decimal:2',
         'deposit' => 'decimal:2',
         'security_deposit_amount' => 'decimal:2',
+        'revenue_recognized_at' => 'datetime',
         'down_payment_amount' => 'decimal:2',
         'tax_base' => 'decimal:2',
         'ppn_rate' => 'decimal:2',
@@ -1489,6 +1491,9 @@ class Rental extends Model
 
         $this->status = self::STATUS_ACTIVE;
         $this->returned_date = null;
+        // Allow revenue to be recognized again when this rental is re-completed
+        // (IFRS mode); prevents a permanent gap in the ledger after a reopen.
+        $this->revenue_recognized_at = null;
         $this->save();
 
         // Reopen the final return so refreshStatus() no longer sees the items as checked-in.
@@ -1569,20 +1574,23 @@ class Rental extends Model
             'notes' => 'Generated ('.$noteContext.') for Rental '.$this->rental_code,
         ]);
 
-        \App\Services\JournalService::recordSimpleTransaction(
-            'RENTAL_INVOICE_ISSUED',
-            $invoice,
-            $invoice->total,
-            'Invoice generated ('.$noteContext.') for Rental '.$this->rental_code
-        );
+        // Dr Piutang / Cr Revenue-or-Deferred + PPN (2-1400) + Denda (4-1200),
+        // standard-aware and idempotent.
+        \App\Services\RentalAccountingService::postInvoiceIssued($invoice);
 
+        $advanceTotal = 0.0;
         foreach ($this->rentalIncomeTransactions()->get() as $transaction) {
             $transaction->reference()->associate($invoice);
             if (! str_contains((string) $transaction->description, 'Invoice #')) {
                 $transaction->description = $transaction->description.' (Inv #'.$invoice->number.')';
             }
             $transaction->save();
+            $advanceTotal += (float) $transaction->amount;
         }
+
+        // Any pre-invoice advance (Cr 2-1300) now settles the receivable it prepaid:
+        // Dr Uang Muka (2-1300) / Cr Piutang (1-1200).
+        \App\Services\RentalAccountingService::reclassifyAdvanceToReceivable($invoice, $advanceTotal);
 
         // Link first so the rental is included, then recalc paid_amount/status.
         $this->update(['invoice_id' => $invoice->id]);

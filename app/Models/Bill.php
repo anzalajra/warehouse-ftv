@@ -40,6 +40,15 @@ class Bill extends Model
     public const STATUS_PAID = 'paid';
     public const STATUS_OVERDUE = 'overdue';
 
+    protected static function booted(): void
+    {
+        // Accrue the AP double entry (Dr Beban / Cr Hutang Usaha 2-1100) so the
+        // GL Balance Sheet reflects the payable. No-op outside advanced mode.
+        static::created(function (Bill $bill) {
+            \App\Services\PayableAccountingService::postBillIssued($bill);
+        });
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

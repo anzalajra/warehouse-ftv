@@ -48,6 +48,26 @@ class JournalEntryResource extends Resource
         return Setting::get('finance_mode', 'advanced') === 'advanced';
     }
 
+    /**
+     * Reject a manual journal entry whose debits don't equal its credits — the same
+     * double-entry rule JournalService::createEntry enforces for automatic postings.
+     */
+    public static function assertBalanced(array $items): void
+    {
+        $debit = collect($items)->sum(fn ($i) => (float) ($i['debit'] ?? 0));
+        $credit = collect($items)->sum(fn ($i) => (float) ($i['credit'] ?? 0));
+
+        if (abs(round($debit - $credit, 2)) > 0.01) {
+            Notification::make()
+                ->title('Jurnal tidak balance')
+                ->body('Total debit (Rp '.number_format($debit, 2).') harus sama dengan total kredit (Rp '.number_format($credit, 2).').')
+                ->danger()
+                ->send();
+
+            throw new \Filament\Support\Exceptions\Halt();
+        }
+    }
+
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -133,6 +153,14 @@ class JournalEntryResource extends Resource
                 TextColumn::make('total_credit')
                     ->state(fn (JournalEntry $record) => $record->items->sum('credit'))
                     ->money('IDR'),
+                TextColumn::make('status')
+                    ->badge()
+                    ->state(fn (JournalEntry $record) => $record->isReversed() ? 'Reversed' : ($record->isReversal() ? 'Reversal' : 'Posted'))
+                    ->color(fn (string $state) => match ($state) {
+                        'Reversed' => 'danger',
+                        'Reversal' => 'warning',
+                        default => 'success',
+                    }),
             ])
             ->filters([
                 \Filament\Tables\Filters\SelectFilter::make('account')
@@ -148,7 +176,30 @@ class JournalEntryResource extends Resource
                     }),
             ])
             ->actions([
-                EditAction::make(),
+                Action::make('reverse')
+                    ->label('Reverse')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('warning')
+                    ->visible(fn (JournalEntry $record) => ! $record->isReversed() && ! $record->isReversal()
+                        && auth()->user()?->hasAnyRole(['super_admin', 'admin']))
+                    ->requiresConfirmation()
+                    ->modalHeading('Reverse Journal Entry')
+                    ->modalDescription('Membuat entri pembalik (debit/kredit ditukar) bertanggal hari ini. Entri asli tetap tersimpan sebagai jejak audit.')
+                    ->form([
+                        TextInput::make('reason')
+                            ->label('Alasan')
+                            ->required(),
+                    ])
+                    ->action(function (JournalEntry $record, array $data) {
+                        try {
+                            JournalService::reverseEntry($record, $data['reason']);
+                            Notification::make()->title('Journal entry reversed')->success()->send();
+                        } catch (\Throwable $e) {
+                            Notification::make()->title('Gagal membalik')->body($e->getMessage())->danger()->send();
+                        }
+                    }),
+                EditAction::make()
+                    ->visible(fn (JournalEntry $record) => ! $record->isReversed() && ! $record->isReversal()),
                 DeleteAction::make(),
             ])
             ->bulkActions([

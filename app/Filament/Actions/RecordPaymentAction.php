@@ -2,11 +2,10 @@
 
 namespace App\Filament\Actions;
 
-use App\Models\Account;
 use App\Models\FinanceAccount;
 use App\Models\FinanceTransaction;
 use App\Models\Invoice;
-use App\Services\JournalService;
+use App\Services\RentalAccountingService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -69,6 +68,19 @@ class RecordPaymentAction extends Action
                         'Credit Card' => 'Credit Card',
                     ])
                     ->required(),
+                \Filament\Forms\Components\Toggle::make('pph23_withheld')
+                    ->label('Customer withholds PPh 23?')
+                    ->helperText('Corporate customers may withhold PPh 23 (usually 2% of DPP). The withheld amount is recorded as a prepaid-tax credit.')
+                    ->live(),
+                TextInput::make('pph23_amount')
+                    ->label('PPh 23 Withheld')
+                    ->numeric()
+                    ->prefix('Rp')
+                    ->default(fn (Invoice $record): float => round((float) ($record->tax_base ?: $record->subtotal) * 0.02, 2))
+                    ->visible(fn ($get): bool => (bool) $get('pph23_withheld')),
+                TextInput::make('pph23_bukti_potong_number')
+                    ->label('No. Bukti Potong')
+                    ->visible(fn ($get): bool => (bool) $get('pph23_withheld')),
                 Textarea::make('notes')
                     ->label('Notes'),
             ])
@@ -87,26 +99,27 @@ class RecordPaymentAction extends Action
                 $transaction->reference()->associate($record);
                 $transaction->save();
 
-                // Recalculate invoice status (paid_amount + paid/partial/waiting).
+                // PPh 23 withheld by the customer (recorded as a prepaid-tax credit).
+                $withholding = ! empty($data['pph23_withheld']) ? (float) ($data['pph23_amount'] ?? 0) : 0.0;
+                if ($withholding > 0) {
+                    $record->pph23_withheld = true;
+                    $record->pph23_amount = (float) $record->pph23_amount + $withholding;
+                    $record->pph23_bukti_potong_number = $data['pph23_bukti_potong_number'] ?? $record->pph23_bukti_potong_number;
+                    $record->save();
+                }
+
+                // Recalculate invoice status (paid_amount + PPh23 credit vs total).
                 $record->recalculate();
 
-                // Journal Entry: Debit Kas/Bank (finance account's linked ledger),
-                // Credit 2-1300 Pendapatan Diterima Dimuka.
-                $financeAccount = FinanceAccount::find($data['finance_account_id']);
-                $debitAccountId = $financeAccount?->linked_account_id;
-                $creditAccountId = Account::where('code', '2-1300')->first()?->id;
-
-                if ($debitAccountId && $creditAccountId) {
-                    JournalService::createEntry(
-                        $record,
-                        'Payment for Invoice #' . $record->number,
-                        [
-                            ['account_id' => $debitAccountId, 'debit' => $data['amount'], 'credit' => 0],
-                            ['account_id' => $creditAccountId, 'debit' => 0, 'credit' => $data['amount']],
-                        ],
-                        $data['date']
-                    );
-                }
+                // Journal Entry: Dr Kas/Bank (+ Dr PPh23 Dibayar Dimuka if withheld)
+                // / Cr Piutang Usaha (settles the receivable). Single source of truth.
+                RentalAccountingService::postPayment(
+                    $record,
+                    (int) $data['finance_account_id'],
+                    (float) $data['amount'],
+                    $data['date'],
+                    $withholding
+                );
 
                 Notification::make()
                     ->title('Payment Recorded')

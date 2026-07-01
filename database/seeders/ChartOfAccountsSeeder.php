@@ -37,6 +37,7 @@ class ChartOfAccountsSeeder extends Seeder
                     ['1-1200', 'Piutang Usaha', 'asset', 'current_asset', true],
                     ['1-1300', 'Persediaan', 'asset', 'current_asset', true],
                     ['1-1400', 'Sewa Dibayar Dimuka', 'asset', 'current_asset', true],
+                    ['1-1500', 'PPh 23 Dibayar Dimuka', 'asset', 'current_asset', true],
                 ]
             ],
             [

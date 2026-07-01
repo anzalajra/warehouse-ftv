@@ -18,6 +18,8 @@ class Invoice extends Model
         'subtotal',
         'tax',
         'total',
+        'currency',
+        'exchange_rate',
         'paid_amount',
         'late_fee',
         'status',
@@ -28,6 +30,10 @@ class Invoice extends Model
         'ppn_amount',
         'pph_rate',
         'pph_amount',
+        'pph23_withheld',
+        'pph23_rate',
+        'pph23_amount',
+        'pph23_bukti_potong_number',
         'is_taxable',
         'price_includes_tax',
         'tax_invoice_number',
@@ -41,6 +47,7 @@ class Invoice extends Model
         'subtotal' => 'decimal:2',
         'tax' => 'decimal:2',
         'total' => 'decimal:2',
+        'exchange_rate' => 'decimal:6',
         'paid_amount' => 'decimal:2',
         'late_fee' => 'decimal:2',
         'tax_base' => 'decimal:2',
@@ -48,6 +55,9 @@ class Invoice extends Model
         'ppn_amount' => 'decimal:2',
         'pph_rate' => 'decimal:2',
         'pph_amount' => 'decimal:2',
+        'pph23_withheld' => 'boolean',
+        'pph23_rate' => 'decimal:2',
+        'pph23_amount' => 'decimal:2',
         'is_taxable' => 'boolean',
         'price_includes_tax' => 'boolean',
     ];
@@ -134,7 +144,9 @@ class Invoice extends Model
      */
     public function getBalanceAttribute(): float
     {
-        return (float) $this->total - (float) $this->paid_amount;
+        // PPh 23 withheld by the customer settles the receivable as a tax credit, so it
+        // reduces the cash still owed just like a payment does.
+        return (float) $this->total - (float) $this->paid_amount - (float) $this->pph23_amount;
     }
 
     public function recalculate(): void
@@ -172,10 +184,11 @@ class Invoice extends Model
             ->where('type', FinanceTransaction::TYPE_INCOME)
             ->sum('amount');
             
-        // Update status based on payment
-        if ($this->paid_amount >= $this->total - 0.01) {
+        // Update status based on settlement (cash paid + PPh 23 withheld as a tax credit).
+        $settled = (float) $this->paid_amount + (float) $this->pph23_amount;
+        if ($settled >= $this->total - 0.01) {
             $this->status = self::STATUS_PAID;
-        } elseif ($this->paid_amount > 0) {
+        } elseif ($settled > 0) {
             $this->status = self::STATUS_PARTIAL;
         } else {
             $this->status = self::STATUS_WAITING_FOR_PAYMENT;

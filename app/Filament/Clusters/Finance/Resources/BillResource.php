@@ -139,18 +139,29 @@ class BillResource extends Resource
                         Forms\Components\Textarea::make('notes'),
                     ])
                     ->action(function (Bill $record, array $data) {
-                        // Create transaction
+                        // Create transaction (cash out; updates the account balance).
+                        // Category 'Bill Payment' is on the observer denylist so it does
+                        // not also auto-journal — the GL entry is posted explicitly below.
                         $transaction = \App\Models\FinanceTransaction::create([
                             'finance_account_id' => $data['finance_account_id'],
                             'type' => \App\Models\FinanceTransaction::TYPE_EXPENSE,
                             'amount' => $data['amount'],
                             'date' => $data['payment_date'],
+                            'category' => 'Bill Payment',
                             'description' => 'Payment for Bill ' . ($record->bill_number ?? $record->id) . ' to ' . $record->vendor_name,
                             'reference_type' => Bill::class,
                             'reference_id' => $record->id,
                             'notes' => $data['notes'] ?? null,
                             'user_id' => Auth::id(),
                         ]);
+
+                        // GL: Dr Hutang Usaha (2-1100) / Cr Kas — settles the payable.
+                        \App\Services\PayableAccountingService::postBillPayment(
+                            $record,
+                            (int) $data['finance_account_id'],
+                            (float) $data['amount'],
+                            $data['payment_date']
+                        );
 
                         // Update Bill
                         $record->paid_amount += $data['amount'];
@@ -160,7 +171,7 @@ class BillResource extends Resource
                             $record->status = Bill::STATUS_PARTIAL;
                         }
                         $record->save();
-                        
+
                         \Filament\Notifications\Notification::make()
                             ->title('Payment Recorded')
                             ->success()

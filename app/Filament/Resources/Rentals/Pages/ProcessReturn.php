@@ -7,6 +7,7 @@ use App\Models\Delivery;
 use App\Models\DeliveryItem;
 use App\Models\Rental;
 use App\Services\JournalService;
+use App\Services\RentalAccountingService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
@@ -436,16 +437,11 @@ class ProcessReturn extends Page
                 // ran recalculateTotal() twice). $this->rental->total is correct afterwards.
                 $this->rental->validateReturn($lateFee);
 
-                // Recognize rental revenue (excl. deposit + late fee).
-                $rentalRevenue = $this->rental->total - $this->rental->security_deposit_amount - $lateFee;
-                if ($rentalRevenue > 0) {
-                    JournalService::recordSimpleTransaction(
-                        'RENTAL_COMPLETION',
-                        $this->rental,
-                        $rentalRevenue,
-                        'Revenue recognition for Rental '.$this->rental->rental_code
-                    );
-                }
+                // Recognize rental revenue — ONCE, and only under IFRS/ASC (SAK recognizes
+                // it at invoice issuance). Idempotent via rentals.revenue_recognized_at, so
+                // reopening + re-completing never double-posts. Deposit + PPN + late fee are
+                // excluded (they have their own journals).
+                RentalAccountingService::postRevenueRecognition($this->rental);
 
                 // Deposit settlement.
                 if (isset($data['final_deposit_action']) && $this->rental->security_deposit_amount > 0) {

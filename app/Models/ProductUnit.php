@@ -19,6 +19,7 @@ class ProductUnit extends Model
         'purchase_price',
         'residual_value',
         'useful_life',
+        'accumulated_depreciation',
         'notes',
         'last_checked_at',
         'maintenance_status',
@@ -28,6 +29,7 @@ class ProductUnit extends Model
         'purchase_date' => 'date',
         'purchase_price' => 'decimal:2',
         'residual_value' => 'decimal:2',
+        'accumulated_depreciation' => 'decimal:2',
         'useful_life' => 'integer',
         'last_checked_at' => 'datetime',
     ];
@@ -93,6 +95,16 @@ class ProductUnit extends Model
         }
 
         $residual = $this->residual_value ?? 0;
+
+        // Prefer the depreciation actually POSTED (finance:run-depreciation). This keeps
+        // book value historical — editing useful-life later no longer rewrites the past.
+        $accumulated = (float) ($this->accumulated_depreciation ?? 0);
+        if ($accumulated > 0) {
+            return max($residual, round($cost - $accumulated, 2));
+        }
+
+        // Fallback estimate (units never processed by a depreciation run): straight-line
+        // from purchase date.
         $lifeMonths = $this->useful_life ?? 60;
         $purchaseDate = $this->purchase_date;
 
