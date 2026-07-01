@@ -238,6 +238,7 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 'Rentals',
                 'Sales',
+                'Reports',
                 'Inventory',
                 'Page & Post',
                 'Setting',
