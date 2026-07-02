@@ -43,6 +43,10 @@ class Reports extends Page
     #[Url]
     public string $mainTab = 'recommendations';
 
+    /** this_month | last_month | 3_month | 6_month | yearly | all_time | custom */
+    #[Url]
+    public string $datePreset = '3_month';
+
     #[Url]
     public ?string $startDate = null;
 
@@ -62,8 +66,58 @@ class Reports extends Page
 
     public function mount(): void
     {
-        $this->startDate = $this->startDate ?: now()->startOfMonth()->toDateString();
-        $this->endDate = $this->endDate ?: now()->endOfMonth()->toDateString();
+        // Apply the default preset (year-to-date) unless an explicit custom range was
+        // passed via the URL. A current-month default previously showed a blank report
+        // whenever the latest data was older, hence YTD as the sensible default.
+        if (! $this->startDate || ! $this->endDate) {
+            $this->applyPreset($this->datePreset === 'custom' ? '3_month' : $this->datePreset);
+        }
+    }
+
+    /** Preset button handler — sets the concrete date window the services consume. */
+    public function setPreset(string $preset): void
+    {
+        $this->datePreset = $preset;
+
+        if ($preset !== 'custom') {
+            $this->applyPreset($preset);
+        }
+    }
+
+    /** Editing either date picker directly switches the selector to "custom". */
+    public function updatedStartDate(): void
+    {
+        $this->datePreset = 'custom';
+    }
+
+    public function updatedEndDate(): void
+    {
+        $this->datePreset = 'custom';
+    }
+
+    protected function applyPreset(string $preset): void
+    {
+        $now = now();
+
+        [$start, $end] = match ($preset) {
+            'this_month' => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()],
+            'last_month' => [$now->copy()->subMonthNoOverflow()->startOfMonth(), $now->copy()->subMonthNoOverflow()->endOfMonth()],
+            '3_month' => [$now->copy()->subMonthsNoOverflow(3)->startOfDay(), $now->copy()->endOfDay()],
+            '6_month' => [$now->copy()->subMonthsNoOverflow(6)->startOfDay(), $now->copy()->endOfDay()],
+            'all_time' => [$this->allTimeStart(), $now->copy()->endOfDay()],
+            default => [$now->copy()->startOfYear(), $now->copy()->endOfDay()], // 'yearly'
+        };
+
+        $this->startDate = $start->toDateString();
+        $this->endDate = $end->toDateString();
+    }
+
+    /** Earliest data date for the "all time" preset (falls back to 3 years back). */
+    protected function allTimeStart(): Carbon
+    {
+        $min = \App\Models\Rental::min('created_at');
+
+        return $min ? Carbon::parse($min)->startOfDay() : now()->subYears(3)->startOfYear();
     }
 
     // ---- Recommendations ----------------------------------------------------
@@ -171,6 +225,16 @@ class Reports extends Page
     public function getLostDamaged(): Collection
     {
         return InventoryReportService::lostDamaged();
+    }
+
+    public function getPerformanceProducts(): Collection
+    {
+        return InventoryReportService::productPerformance($this->startDate, $this->endDate);
+    }
+
+    public function getPerformanceUnits(): Collection
+    {
+        return $this->filteredUnits()->sortByDesc('period_revenue')->take(50)->values();
     }
 
     public function getDepreciationTotals(): array
@@ -337,6 +401,20 @@ class Reports extends Page
                 ])->toArray();
 
                 return [['Unit', 'Harga Beli', 'Akumulasi Depresiasi', 'Nilai Buku', 'Nilai Residu'], $rows, 'Depresiasi & Nilai Aset'];
+
+            case 'performance_products':
+                $rows = $this->getPerformanceProducts()->map(fn ($p) => [
+                    $p['product'], $p['unit_count'], $p['avg_utilization'], $p['total_days'], $p['period_revenue'], $p['revenue_per_unit'], $p['avg_roi'],
+                ])->toArray();
+
+                return [['Produk', 'Jumlah Unit', 'Utilisasi %', 'Total Hari', 'Pendapatan', 'Pendapatan/Unit', 'ROI %'], $rows, 'Performa Produk'];
+
+            case 'performance_units':
+                $rows = $this->getPerformanceUnits()->map(fn ($u) => [
+                    $u['name'], $u['utilization_rate'], $u['days_rented'], $u['period_revenue'], $u['lifetime_revenue'], $u['roi'],
+                ])->toArray();
+
+                return [['Unit', 'Utilisasi %', 'Hari Tersewa', 'Pendapatan Periode', 'Pendapatan Total', 'ROI %'], $rows, 'Performa per Unit'];
 
             default:
                 return [['Info'], [['Bagian tidak dikenali: '.$section]], 'Report'];

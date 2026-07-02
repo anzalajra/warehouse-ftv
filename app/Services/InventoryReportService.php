@@ -18,6 +18,9 @@ use Illuminate\Support\Collection;
  */
 class InventoryReportService
 {
+    /** Per-request memo for unitMetrics(), keyed by the date window. */
+    protected static array $unitCache = [];
+
     /**
      * @return array{0: Carbon, 1: Carbon}
      */
@@ -86,27 +89,40 @@ class InventoryReportService
     public static function unitMetrics(?string $start = null, ?string $end = null): Collection
     {
         [$s, $e] = self::window($start, $end);
+        $cacheKey = $s->toDateString().'|'.$e->toDateString();
+        if (isset(self::$unitCache[$cacheKey])) {
+            return self::$unitCache[$cacheKey];
+        }
+
         $daysInPeriod = max(1, $s->diffInDays($e) + 1);
+        $sDate = $s->toDateString();
+        $eDate = $e->toDateString();
+
+        // All figures resolved as SQL aggregate subqueries (withSum/withCount) — one
+        // query for every unit, no per-unit method calls (which previously caused an
+        // N+1 storm through calculateTotalRevenue/Maintenance/Profitability).
+        $periodItem = fn ($q) => $q->whereBetween('created_at', [$s, $e])
+            ->whereHas('rental', fn ($r) => $r->whereNotIn('status', [Rental::STATUS_CANCELLED, Rental::STATUS_EXPIRED]));
+        $lifetimeItem = fn ($q) => $q->whereHas('rental', fn ($r) => $r->whereNotIn('status', [Rental::STATUS_CANCELLED]));
+        $periodMaint = fn ($q) => $q->whereBetween('date', [$sDate, $eDate]);
 
         $units = ProductUnit::query()
-            ->with([
-                'product:id,name',
-                'rentalItems' => function ($q) use ($s, $e) {
-                    $q->whereBetween('created_at', [$s, $e])
-                        ->whereHas('rental', fn ($r) => $r->whereNotIn('status', [Rental::STATUS_CANCELLED, Rental::STATUS_EXPIRED]));
-                },
-                'maintenanceRecords' => function ($q) use ($s, $e) {
-                    $q->whereBetween('date', [$s->toDateString(), $e->toDateString()]);
-                },
-            ])
+            ->with('product:id,name')
+            ->withSum(['rentalItems as period_days' => $periodItem], 'days')
+            ->withSum(['rentalItems as period_revenue' => $periodItem], 'subtotal')
+            ->withSum(['rentalItems as lifetime_revenue' => $lifetimeItem], 'subtotal')
+            ->withSum(['maintenanceRecords as period_maintenance' => $periodMaint], 'cost')
+            ->withCount(['maintenanceRecords as maintenance_freq' => $periodMaint])
+            ->withSum('maintenanceRecords as lifetime_maintenance', 'cost')
             ->get();
 
-        return $units->map(function (ProductUnit $unit) use ($daysInPeriod) {
-            $daysRented = (int) $unit->rentalItems->sum('days');
+        $result = $units->map(function (ProductUnit $unit) use ($daysInPeriod) {
+            $daysRented = (int) ($unit->period_days ?? 0);
             $utilization = min(100.0, round(($daysRented / $daysInPeriod) * 100, 1));
 
-            $periodRevenue = round((float) $unit->rentalItems->sum('subtotal'), 2);
-            $periodMaintenance = round((float) $unit->maintenanceRecords->sum('cost'), 2);
+            $periodRevenue = round((float) ($unit->period_revenue ?? 0), 2);
+            $lifetimeRevenue = round((float) ($unit->lifetime_revenue ?? 0), 2);
+            $lifetimeMaintenance = round((float) ($unit->lifetime_maintenance ?? 0), 2);
 
             $purchase = (float) ($unit->purchase_price ?? 0);
             $residual = (float) ($unit->residual_value ?? 0);
@@ -123,17 +139,20 @@ class InventoryReportService
                 'days_rented' => $daysRented,
                 'utilization_rate' => $utilization,
                 'period_revenue' => $periodRevenue,
-                'lifetime_revenue' => $unit->calculateTotalRevenue(),
-                'period_maintenance' => $periodMaintenance,
-                'maintenance_freq' => $unit->maintenanceRecords->count(),
-                'lifetime_maintenance' => $unit->calculateTotalMaintenanceCost(),
-                'profitability' => round($unit->calculateProfitability(), 2),
+                'lifetime_revenue' => $lifetimeRevenue,
+                'period_maintenance' => round((float) ($unit->period_maintenance ?? 0), 2),
+                'maintenance_freq' => (int) ($unit->maintenance_freq ?? 0),
+                'lifetime_maintenance' => $lifetimeMaintenance,
+                'profitability' => round($lifetimeRevenue - $lifetimeMaintenance - $purchase, 2),
+                'roi' => $purchase > 0 ? round(($lifetimeRevenue / $purchase) * 100, 1) : 0.0,
                 'purchase_price' => round($purchase, 2),
                 'residual_value' => round($residual, 2),
                 'accumulated_depreciation' => $accumulated,
                 'book_value' => round($bookValue, 2),
             ];
         })->values();
+
+        return self::$unitCache[$cacheKey] = $result;
     }
 
     /**
@@ -160,6 +179,33 @@ class InventoryReportService
                 'active_units' => $grp->where('status', ProductUnit::STATUS_RENTED)->count(),
                 'period_revenue' => round($grp->sum('period_revenue'), 2),
                 'period_maintenance' => round($grp->sum('period_maintenance'), 2),
+            ];
+        })->sortByDesc('period_revenue')->values();
+    }
+
+    /**
+     * Product Performance report — utilization + revenue per product (and revenue per
+     * unit), sorted by period revenue. The per-unit rows live in unitMetrics().
+     *
+     * @return Collection<int, array>
+     */
+    public static function productPerformance(?string $start = null, ?string $end = null): Collection
+    {
+        return self::unitMetrics($start, $end)->groupBy('product_id')->map(function ($grp) {
+            $productName = explode(' (', $grp->first()['name'])[0];
+            $unitCount = $grp->count();
+            $periodRevenue = round($grp->sum('period_revenue'), 2);
+
+            return [
+                'product_id' => $grp->first()['product_id'],
+                'product' => $productName,
+                'unit_count' => $unitCount,
+                'avg_utilization' => round($grp->avg('utilization_rate'), 1),
+                'total_days' => (int) $grp->sum('days_rented'),
+                'period_revenue' => $periodRevenue,
+                'revenue_per_unit' => $unitCount > 0 ? round($periodRevenue / $unitCount, 2) : 0.0,
+                'lifetime_revenue' => round($grp->sum('lifetime_revenue'), 2),
+                'avg_roi' => round($grp->avg('roi'), 1),
             ];
         })->sortByDesc('period_revenue')->values();
     }

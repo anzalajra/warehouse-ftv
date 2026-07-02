@@ -1,36 +1,62 @@
 <x-filament-panels::page>
     @php
-        $recCounts = $this->getRecommendationCounts();
-        $recTotal = array_sum($recCounts);
+        // Only compute recommendations on their own tab — they touch every aggregate,
+        // so eagerly running them for the badge on other tabs would negate the lazy
+        // per-tab rendering below.
+        $recTotal = $mainTab === 'recommendations' ? count($this->getRecommendations()) : null;
         $priorityBadge = ['high' => 'danger', 'medium' => 'warning', 'low' => 'gray'];
         $priorityLabel = ['high' => 'Tinggi', 'medium' => 'Sedang', 'low' => 'Rendah'];
     @endphp
 
-    <div x-data="{ tab: @entangle('mainTab'), rentalSub: 'summary', invSub: 'stock' }" class="space-y-5">
+    <div x-data="{ rentalSub: 'summary', invSub: 'stock' }" class="space-y-5">
 
-        {{-- Date range filter --}}
+        {{-- Date range filter (preset buttons + custom range) --}}
         <x-filament::section>
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div class="flex flex-col gap-3 sm:flex-row">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dari Tanggal</label>
-                        <input type="date" wire:model.live="startDate"
-                            class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm" />
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Sampai Tanggal</label>
-                        <input type="date" wire:model.live="endDate"
-                            class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm" />
-                    </div>
+            <div class="flex flex-col gap-3">
+                <div class="flex flex-wrap items-center gap-2">
+                    @foreach ([
+                        'this_month' => 'Bulan Ini',
+                        'last_month' => 'Bulan Lalu',
+                        '3_month' => '3 Bulan',
+                        '6_month' => '6 Bulan',
+                        'yearly' => 'Tahun Ini',
+                        'all_time' => 'Semua Waktu',
+                        'custom' => 'Kustom',
+                    ] as $key => $label)
+                        <button type="button" wire:click="setPreset('{{ $key }}')" wire:loading.attr="disabled"
+                            @class([
+                                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                                'bg-primary-600 text-white' => $datePreset === $key,
+                                'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700' => $datePreset !== $key,
+                            ])>{{ $label }}</button>
+                    @endforeach
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400" wire:loading.remove>
-                    Periode: {{ \Carbon\Carbon::parse($startDate)->format('d M Y') }} – {{ \Carbon\Carbon::parse($endDate)->format('d M Y') }}
+
+                @if ($datePreset === 'custom')
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dari Tanggal</label>
+                            <input type="date" wire:model.live="startDate"
+                                class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Sampai Tanggal</label>
+                            <input type="date" wire:model.live="endDate"
+                                class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-sm" />
+                        </div>
+                    </div>
+                @endif
+
+                <div class="flex items-center gap-3 text-xs">
+                    <span class="text-gray-500 dark:text-gray-400" wire:loading.remove wire:target="startDate,endDate,mainTab,datePreset,setPreset">
+                        Periode: {{ \Carbon\Carbon::parse($startDate)->format('d M Y') }} – {{ \Carbon\Carbon::parse($endDate)->format('d M Y') }}
+                    </span>
+                    <span class="text-primary-600 dark:text-primary-400" wire:loading wire:target="startDate,endDate,mainTab,datePreset,setPreset">Memuat…</span>
                 </div>
-                <div class="text-xs text-primary-600 dark:text-primary-400" wire:loading>Memuat…</div>
             </div>
         </x-filament::section>
 
-        {{-- Main tabs --}}
+        {{-- Main tabs (server-driven so only the active tab's data is computed) --}}
         <div class="border-b border-gray-200 dark:border-gray-700">
             <nav class="-mb-px flex gap-6 overflow-x-auto" aria-label="Tabs">
                 @foreach ([
@@ -39,11 +65,12 @@
                     'inventory' => 'Inventory',
                     'finance' => 'Finance',
                 ] as $key => $label)
-                    <button @click="tab = '{{ $key }}'"
-                        :class="tab === '{{ $key }}'
-                            ? 'border-primary-500 text-primary-600 dark:border-primary-400 dark:text-primary-400'
-                            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400'"
-                        class="whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium transition-colors flex items-center gap-2">
+                    <button wire:click="$set('mainTab', '{{ $key }}')" wire:loading.attr="disabled"
+                        @class([
+                            'whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium transition-colors flex items-center gap-2',
+                            'border-primary-500 text-primary-600 dark:border-primary-400 dark:text-primary-400' => $mainTab === $key,
+                            'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400' => $mainTab !== $key,
+                        ])>
                         {{ $label }}
                         @if ($key === 'recommendations' && $recTotal > 0)
                             <span class="inline-flex items-center justify-center rounded-full bg-danger-100 text-danger-700 dark:bg-danger-900/40 dark:text-danger-300 text-xs font-semibold h-5 min-w-5 px-1.5">{{ $recTotal }}</span>
@@ -53,8 +80,16 @@
             </nav>
         </div>
 
+        {{-- loading shimmer while a tab is fetched --}}
+        <div wire:loading.flex wire:target="startDate,endDate,mainTab,setPreset" class="items-center justify-center py-8 text-sm text-primary-600 dark:text-primary-400">
+            <x-filament::loading-indicator class="h-6 w-6 mr-2" /> Memuat data…
+        </div>
+
+        <div wire:loading.remove wire:target="startDate,endDate,mainTab,setPreset">
+
         {{-- ============================ RECOMMENDATIONS ============================ --}}
-        <div x-show="tab === 'recommendations'" x-cloak class="space-y-4">
+        @if ($mainTab === 'recommendations')
+        <div x-data="{ showAll: false }" class="space-y-4">
             @php $recs = $this->getRecommendations(); @endphp
             <div class="flex items-center justify-between">
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Rekomendasi Bisnis</h3>
@@ -72,13 +107,15 @@
                 </x-filament::section>
             @else
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    @foreach ($recs as $rec)
-                        <div @class([
-                            'rounded-xl p-4 ring-1 shadow-sm bg-white dark:bg-gray-800',
-                            'ring-danger-300 dark:ring-danger-500/40' => $rec['priority'] === 'high',
-                            'ring-warning-300 dark:ring-warning-500/40' => $rec['priority'] === 'medium',
-                            'ring-gray-200 dark:ring-white/10' => $rec['priority'] === 'low',
-                        ])>
+                    @foreach ($recs as $i => $rec)
+                        <div
+                            @if ($i >= 6) x-show="showAll" x-cloak @endif
+                            @class([
+                                'rounded-xl p-4 ring-1 shadow-sm bg-white dark:bg-gray-800',
+                                'ring-danger-300 dark:ring-danger-500/40' => $rec['priority'] === 'high',
+                                'ring-warning-300 dark:ring-warning-500/40' => $rec['priority'] === 'medium',
+                                'ring-gray-200 dark:ring-white/10' => $rec['priority'] === 'low',
+                            ])>
                             <div class="flex items-start justify-between gap-3">
                                 <h4 class="font-semibold text-gray-900 dark:text-white">{{ $rec['title'] }}</h4>
                                 <x-filament::badge :color="$priorityBadge[$rec['priority']] ?? 'gray'">
@@ -96,11 +133,26 @@
                         </div>
                     @endforeach
                 </div>
+
+                @if (count($recs) > 6)
+                    <div class="text-center pt-1">
+                        <button type="button" x-show="!showAll" @click="showAll = true"
+                            class="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-medium text-primary-600 dark:text-primary-400 ring-1 ring-primary-200 dark:ring-primary-500/40 hover:bg-primary-50 dark:hover:bg-primary-500/10">
+                            Lihat {{ count($recs) - 6 }} rekomendasi lainnya
+                        </button>
+                        <button type="button" x-show="showAll" x-cloak @click="showAll = false"
+                            class="inline-flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 ring-1 ring-gray-200 dark:ring-white/10 hover:bg-gray-50 dark:hover:bg-gray-800">
+                            Tampilkan lebih sedikit
+                        </button>
+                    </div>
+                @endif
             @endif
         </div>
+        @endif
 
         {{-- ============================ RENTAL ============================ --}}
-        <div x-show="tab === 'rental'" x-cloak class="space-y-4">
+        @if ($mainTab === 'rental')
+        <div class="space-y-4">
             {{-- rental sub-tabs --}}
             <div class="flex flex-wrap gap-2">
                 @foreach ([
@@ -361,12 +413,14 @@
                 </x-filament::section>
             </div>
         </div>
+        @endif
 
         {{-- ============================ INVENTORY ============================ --}}
-        <div x-show="tab === 'inventory'" x-cloak class="space-y-4">
+        @if ($mainTab === 'inventory')
+        <div class="space-y-4">
             <div class="flex flex-wrap items-center gap-2 justify-between">
                 <div class="flex flex-wrap gap-2">
-                    @foreach (['stock' => 'Status & Stok', 'utilization' => 'Utilisasi', 'maintenance' => 'Maintenance', 'depreciation' => 'Depresiasi'] as $key => $label)
+                    @foreach (['stock' => 'Status & Stok', 'performance' => 'Performa Produk', 'utilization' => 'Utilisasi', 'maintenance' => 'Maintenance', 'depreciation' => 'Depresiasi'] as $key => $label)
                         <button @click="invSub = '{{ $key }}'"
                             :class="invSub === '{{ $key }}' ? 'bg-primary-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'"
                             class="rounded-lg px-3 py-1.5 text-xs font-medium">{{ $label }}</button>
@@ -403,6 +457,52 @@
                                 <td class="py-2 px-2 text-right">{{ $p['retired'] }}</td>
                             </tr>
                         @endforeach
+                    </x-reports.table>
+                </x-filament::section>
+            </div>
+
+            {{-- Product Performance (utilization & revenue per product / per unit) --}}
+            <div x-show="invSub === 'performance'" x-cloak class="space-y-4">
+                <x-filament::section>
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="font-medium text-gray-900 dark:text-white">Performa per Produk</h4>
+                        <x-filament::button size="xs" color="gray" wire:click="export('performance_products','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+                    </div>
+                    <x-reports.table :head="['Produk', 'Unit', 'Utilisasi', 'Total Hari', 'Pendapatan', 'Pendapatan/Unit', 'ROI']">
+                        @forelse ($this->getPerformanceProducts() as $p)
+                            <tr class="border-t border-gray-100 dark:border-gray-700">
+                                <td class="py-2 px-2">{{ $p['product'] }}</td>
+                                <td class="py-2 px-2 text-right">{{ $p['unit_count'] }}</td>
+                                <td class="py-2 px-2 text-right">{{ $p['avg_utilization'] }}%</td>
+                                <td class="py-2 px-2 text-right">{{ $p['total_days'] }}</td>
+                                <td class="py-2 px-2 text-right">{{ $this->money($p['period_revenue']) }}</td>
+                                <td class="py-2 px-2 text-right">{{ $this->money($p['revenue_per_unit']) }}</td>
+                                <td class="py-2 px-2 text-right">{{ $p['avg_roi'] }}%</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="7" class="py-4 px-2 text-center text-gray-400">Belum ada data produk.</td></tr>
+                        @endforelse
+                    </x-reports.table>
+                </x-filament::section>
+
+                <x-filament::section>
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="font-medium text-gray-900 dark:text-white">Performa per Unit</h4>
+                        <x-filament::button size="xs" color="gray" wire:click="export('performance_units','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+                    </div>
+                    <x-reports.table :head="['Unit', 'Utilisasi', 'Hari Tersewa', 'Pendapatan Periode', 'Pendapatan Total', 'ROI']">
+                        @forelse ($this->getPerformanceUnits() as $u)
+                            <tr class="border-t border-gray-100 dark:border-gray-700">
+                                <td class="py-2 px-2">{{ $u['name'] }}</td>
+                                <td class="py-2 px-2 text-right">{{ $u['utilization_rate'] }}%</td>
+                                <td class="py-2 px-2 text-right">{{ $u['days_rented'] }}</td>
+                                <td class="py-2 px-2 text-right">{{ $this->money($u['period_revenue']) }}</td>
+                                <td class="py-2 px-2 text-right">{{ $this->money($u['lifetime_revenue']) }}</td>
+                                <td class="py-2 px-2 text-right">{{ $u['roi'] }}%</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="6" class="py-4 px-2 text-center text-gray-400">Belum ada data unit.</td></tr>
+                        @endforelse
                     </x-reports.table>
                 </x-filament::section>
             </div>
@@ -495,9 +595,11 @@
                 </x-filament::section>
             </div>
         </div>
+        @endif
 
         {{-- ============================ FINANCE ============================ --}}
-        <div x-show="tab === 'finance'" x-cloak class="space-y-4">
+        @if ($mainTab === 'finance')
+        <div class="space-y-4">
             @php $fk = $this->getFinanceKpis(); @endphp
             <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 <x-reports.stat label="Revenue Rental (bersih)" :value="$this->money($fk['rental_net'])" />
@@ -521,5 +623,8 @@
                 </div>
             </x-filament::section>
         </div>
+        @endif
+
+        </div> {{-- /wire:loading.remove wrapper --}}
     </div>
 </x-filament-panels::page>

@@ -48,7 +48,9 @@
       "PowerShell($php='C:\\\\xampp\\\\php\\\\php.exe'; \"vendor exists: $\\(Test-Path vendor\\)\"; \"autoload exists: $\\(Test-Path vendor/autoload.php\\)\"; Get-ChildItem vendor -Directory -ErrorAction SilentlyContinue | Measure-Object | Select-Object -ExpandProperty Count)",
       "Bash(git --no-pager diff --stat)",
       "WebFetch(domain:accurate.id)",
-      "WebFetch(domain:www.odoo.com)"
+      "WebFetch(domain:www.odoo.com)",
+      "PowerShell(& 'C:\\\\xampp\\\\php\\\\php.exe' -l \"D:\\\\6. Kints\\\\Projects\\\\warehouse-ftv\\\\app\\\\Services\\\\InventoryReportService.php\")",
+      "PowerShell(& 'C:\\\\xampp\\\\php\\\\php.exe' -l \"D:\\\\6. Kints\\\\Projects\\\\warehouse-ftv\\\\app\\\\Filament\\\\Pages\\\\Reports.php\")"
     ]
   }
 }
