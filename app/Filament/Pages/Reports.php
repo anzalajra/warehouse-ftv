@@ -15,6 +15,8 @@ use BackedEnum;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Filament\Pages\Page;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Url;
 use UnitEnum;
@@ -56,6 +58,14 @@ class Reports extends Page
     #[Url]
     public string $inventorySearch = '';
 
+    /** Top customer ranking metric: count | total | avg */
+    #[Url]
+    public string $custSort = 'total';
+
+    /** Top product ranking metric: count | days | revenue */
+    #[Url]
+    public string $prodSort = 'revenue';
+
     /** Per-request memo so unitMetrics()/productSummary() aren't recomputed per getter. */
     protected array $memo = [];
 
@@ -82,17 +92,27 @@ class Reports extends Page
         if ($preset !== 'custom') {
             $this->applyPreset($preset);
         }
+
+        $this->resetReportPages();
     }
 
     /** Editing either date picker directly switches the selector to "custom". */
     public function updatedStartDate(): void
     {
         $this->datePreset = 'custom';
+        $this->resetReportPages();
     }
 
     public function updatedEndDate(): void
     {
         $this->datePreset = 'custom';
+        $this->resetReportPages();
+    }
+
+    protected function resetReportPages(): void
+    {
+        $this->resetPage('cust_page');
+        $this->resetPage('prod_page');
     }
 
     protected function applyPreset(string $preset): void
@@ -139,14 +159,51 @@ class Reports extends Page
         return RentalReportService::summary($this->startDate, $this->endDate);
     }
 
-    public function getTopCustomers(): Collection
+    public function getTopCustomers(): LengthAwarePaginator
     {
-        return RentalReportService::topCustomers($this->startDate, $this->endDate);
+        return $this->paginateCollection(
+            RentalReportService::topCustomers($this->startDate, $this->endDate, null, $this->custSort),
+            15,
+            'cust_page',
+        );
     }
 
-    public function getTopProducts(): Collection
+    public function getTopProducts(): LengthAwarePaginator
     {
-        return RentalReportService::topProducts($this->startDate, $this->endDate);
+        return $this->paginateCollection(
+            RentalReportService::topProducts($this->startDate, $this->endDate, null, $this->prodSort),
+            15,
+            'prod_page',
+        );
+    }
+
+    public function updatedCustSort(): void
+    {
+        $this->resetPage('cust_page');
+    }
+
+    public function updatedProdSort(): void
+    {
+        $this->resetPage('prod_page');
+    }
+
+    /**
+     * Paginate an in-memory ranked collection (top customers/products) so the tables
+     * are not capped and get real next/prev pages. Grouped SQL queries can't be
+     * paginate()'d reliably (the count subquery misbehaves on GROUP BY), so we slice
+     * the full ordered collection instead.
+     */
+    protected function paginateCollection(Collection $items, int $perPage, string $pageName): LengthAwarePaginator
+    {
+        $page = Paginator::resolveCurrentPage($pageName);
+
+        return new LengthAwarePaginator(
+            $items->forPage($page, $perPage)->values(),
+            $items->count(),
+            $perPage,
+            $page,
+            ['pageName' => $pageName, 'path' => Paginator::resolveCurrentPath()],
+        );
     }
 
     public function getLatePenalty(): array
@@ -342,18 +399,18 @@ class Reports extends Page
                 return [['Status', 'Jumlah', 'Subtotal', 'Total'], $rows, 'Ringkasan Rental'];
 
             case 'top_customers':
-                $rows = $this->getTopCustomers()->map(fn ($c) => [
+                $rows = RentalReportService::topCustomers($this->startDate, $this->endDate, null, $this->custSort)->map(fn ($c) => [
                     $c['name'], $c['email'], $c['rental_count'], $c['total_value'], $c['avg_value'],
                 ])->toArray();
 
-                return [['Pelanggan', 'Email', 'Jumlah Sewa', 'Total', 'Rata-rata'], $rows, 'Top Pelanggan'];
+                return [['Pelanggan', 'Email', 'Jumlah Rental', 'Total', 'Rata-rata'], $rows, 'Top Pelanggan'];
 
             case 'top_products':
-                $rows = $this->getTopProducts()->map(fn ($p) => [
+                $rows = RentalReportService::topProducts($this->startDate, $this->endDate, null, $this->prodSort)->map(fn ($p) => [
                     $p['name'], $p['line_count'], $p['unit_days'], $p['revenue'],
                 ])->toArray();
 
-                return [['Produk', 'Baris Sewa', 'Total Hari', 'Pendapatan'], $rows, 'Top Produk'];
+                return [['Produk', 'Rental', 'Total Hari', 'Pendapatan'], $rows, 'Top Produk'];
 
             case 'late':
                 $rows = $this->getLatePenalty()['rows']->map(fn ($r) => [

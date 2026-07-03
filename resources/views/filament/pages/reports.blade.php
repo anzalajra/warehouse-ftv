@@ -197,43 +197,77 @@
 
             {{-- Top customers --}}
             <div x-show="rentalSub === 'customers'" x-cloak>
+                @php $customers = $this->getTopCustomers(); @endphp
                 <x-filament::section>
-                    <div class="flex items-center justify-between mb-3">
-                        <h4 class="font-medium text-gray-900 dark:text-white">Top Pelanggan</h4>
-                        <x-filament::button size="xs" color="gray" wire:click="export('top_customers','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <h4 class="font-medium text-gray-900 dark:text-white">Top Pelanggan <span class="text-xs font-normal text-gray-400">({{ $customers->total() }})</span></h4>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">Urut:</span>
+                            @foreach (['total' => 'Total', 'count' => 'Jumlah Rental', 'avg' => 'Rata-rata'] as $key => $label)
+                                <button type="button" wire:click="$set('custSort', '{{ $key }}')"
+                                    @class([
+                                        'rounded-md px-2.5 py-1 text-xs font-medium',
+                                        'bg-primary-600 text-white' => $custSort === $key,
+                                        'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700' => $custSort !== $key,
+                                    ])>{{ $label }}</button>
+                            @endforeach
+                            <x-filament::button size="xs" color="gray" wire:click="export('top_customers','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+                        </div>
                     </div>
-                    <x-reports.table :head="['#', 'Pelanggan', 'Jumlah', 'Total', 'Rata-rata']">
-                        @foreach ($this->getTopCustomers() as $i => $c)
+                    <x-reports.table :head="['#', 'Pelanggan', 'Jumlah Rental', 'Total', 'Rata-rata']">
+                        @forelse ($customers as $i => $c)
                             <tr class="border-t border-gray-100 dark:border-gray-700">
-                                <td class="py-2 px-2">{{ $i + 1 }}</td>
+                                <td class="py-2 px-2">{{ $customers->firstItem() + $i }}</td>
                                 <td class="py-2 px-2">{{ $c['name'] }}<div class="text-xs text-gray-400">{{ $c['email'] }}</div></td>
                                 <td class="py-2 px-2 text-right">{{ $c['rental_count'] }}</td>
                                 <td class="py-2 px-2 text-right">{{ $this->money($c['total_value']) }}</td>
                                 <td class="py-2 px-2 text-right">{{ $this->money($c['avg_value']) }}</td>
                             </tr>
-                        @endforeach
+                        @empty
+                            <tr><td colspan="5" class="py-4 px-2 text-center text-gray-400">Belum ada data pelanggan di periode ini.</td></tr>
+                        @endforelse
                     </x-reports.table>
+                    @if ($customers->hasPages())
+                        <div class="mt-3">{{ $customers->links() }}</div>
+                    @endif
                 </x-filament::section>
             </div>
 
             {{-- Top products --}}
             <div x-show="rentalSub === 'products'" x-cloak>
+                @php $products = $this->getTopProducts(); @endphp
                 <x-filament::section>
-                    <div class="flex items-center justify-between mb-3">
-                        <h4 class="font-medium text-gray-900 dark:text-white">Top Produk</h4>
-                        <x-filament::button size="xs" color="gray" wire:click="export('top_products','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <h4 class="font-medium text-gray-900 dark:text-white">Top Produk <span class="text-xs font-normal text-gray-400">({{ $products->total() }})</span></h4>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">Urut:</span>
+                            @foreach (['revenue' => 'Pendapatan', 'count' => 'Total Sewa', 'days' => 'Total Hari'] as $key => $label)
+                                <button type="button" wire:click="$set('prodSort', '{{ $key }}')"
+                                    @class([
+                                        'rounded-md px-2.5 py-1 text-xs font-medium',
+                                        'bg-primary-600 text-white' => $prodSort === $key,
+                                        'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700' => $prodSort !== $key,
+                                    ])>{{ $label }}</button>
+                            @endforeach
+                            <x-filament::button size="xs" color="gray" wire:click="export('top_products','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+                        </div>
                     </div>
-                    <x-reports.table :head="['#', 'Produk', 'Baris Sewa', 'Total Hari', 'Pendapatan']">
-                        @foreach ($this->getTopProducts() as $i => $p)
+                    <x-reports.table :head="['#', 'Produk', 'Rental', 'Total Hari', 'Pendapatan']">
+                        @forelse ($products as $i => $p)
                             <tr class="border-t border-gray-100 dark:border-gray-700">
-                                <td class="py-2 px-2">{{ $i + 1 }}</td>
+                                <td class="py-2 px-2">{{ $products->firstItem() + $i }}</td>
                                 <td class="py-2 px-2">{{ $p['name'] }}</td>
                                 <td class="py-2 px-2 text-right">{{ $p['line_count'] }}</td>
                                 <td class="py-2 px-2 text-right">{{ $p['unit_days'] }}</td>
                                 <td class="py-2 px-2 text-right">{{ $this->money($p['revenue']) }}</td>
                             </tr>
-                        @endforeach
+                        @empty
+                            <tr><td colspan="5" class="py-4 px-2 text-center text-gray-400">Belum ada data produk di periode ini.</td></tr>
+                        @endforelse
                     </x-reports.table>
+                    @if ($products->hasPages())
+                        <div class="mt-3">{{ $products->links() }}</div>
+                    @endif
                 </x-filament::section>
             </div>
 

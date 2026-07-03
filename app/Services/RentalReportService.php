@@ -94,19 +94,28 @@ class RentalReportService
     }
 
     /**
-     * Top customers by realized rental value in the window.
+     * Top customers in the window. $sortBy = count|total|avg (default total) picks the
+     * ranking metric. Pass $limit = null for the full ranked list (paginated table +
+     * CSV export); a positive $limit caps it (recommendation engine top-N).
      */
-    public static function topCustomers(?string $start = null, ?string $end = null, int $limit = 10): Collection
+    public static function topCustomers(?string $start = null, ?string $end = null, ?int $limit = null, ?string $sortBy = null): Collection
     {
         [$s, $e] = self::window($start, $end);
+
+        $sortKey = match ($sortBy) {
+            'count' => 'rental_count',
+            'avg' => 'avg_value',
+            default => 'total_value',
+        };
 
         $rows = Rental::query()
             ->whereBetween('created_at', [$s, $e])
             ->whereIn('status', self::REALIZED_STATUSES)
             ->selectRaw('user_id, COUNT(*) as rental_count, SUM(total) as total_value')
             ->groupBy('user_id')
-            ->orderByDesc('total_value')
-            ->limit($limit)
+            // Order in SQL by the same metric so a capped $limit takes the true top-N.
+            ->orderByDesc($sortKey === 'avg_value' ? 'total_value' : $sortKey)
+            ->when($limit, fn ($q) => $q->limit($limit))
             ->get();
 
         $users = User::whereIn('id', $rows->pluck('user_id')->filter())->get()->keyBy('id');
@@ -118,15 +127,23 @@ class RentalReportService
             'rental_count' => (int) $r->rental_count,
             'total_value' => round((float) $r->total_value, 2),
             'avg_value' => $r->rental_count > 0 ? round((float) $r->total_value / $r->rental_count, 2) : 0.0,
-        ]);
+        ])->sortByDesc($sortKey)->values();
     }
 
     /**
-     * Top products by realized rental revenue (line subtotal) in the window.
+     * Top products in the window. $sortBy = count|days|revenue (default revenue):
+     * count = number of rentals (rows), days = total rental-days, revenue = line
+     * subtotal. $limit = null returns the full ranked list (paginated + CSV export).
      */
-    public static function topProducts(?string $start = null, ?string $end = null, int $limit = 10): Collection
+    public static function topProducts(?string $start = null, ?string $end = null, ?int $limit = null, ?string $sortBy = null): Collection
     {
         [$s, $e] = self::window($start, $end);
+
+        $sortKey = match ($sortBy) {
+            'count' => 'line_count',
+            'days' => 'unit_days',
+            default => 'revenue',
+        };
 
         $rows = RentalItem::query()
             ->whereHas('rental', function ($q) use ($s, $e) {
@@ -135,8 +152,8 @@ class RentalReportService
             })
             ->selectRaw('product_id, COUNT(*) as line_count, SUM(subtotal) as revenue, SUM(days) as unit_days')
             ->groupBy('product_id')
-            ->orderByDesc('revenue')
-            ->limit($limit)
+            ->orderByDesc($sortKey)
+            ->when($limit, fn ($q) => $q->limit($limit))
             ->with('product:id,name')
             ->get();
 
@@ -146,7 +163,7 @@ class RentalReportService
             'line_count' => (int) $r->line_count,
             'unit_days' => (int) $r->unit_days,
             'revenue' => round((float) $r->revenue, 2),
-        ]);
+        ])->sortByDesc($sortKey)->values();
     }
 
     /**
