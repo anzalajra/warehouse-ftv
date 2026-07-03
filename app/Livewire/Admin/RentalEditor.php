@@ -358,31 +358,60 @@ class RentalEditor extends Component
     }
 
     // ─── Derived ───
+
+    /**
+     * Automatic multi-tier pricing: pick the cheapest billing tier for the current
+     * duration + line-up (no manual period toggle). Everything price-related derives
+     * from this — the chosen period, the number of billing periods ("days"), each
+     * line's effective rate, and the comparison shown in the ringkasan.
+     *
+     * @return array{period:string, periods:int, total:float, totals:array<string,float>, counts:array<string,int>, candidates:array<int,string>}
+     */
+    #[Computed]
+    public function autoPricing(): array
+    {
+        $lines = [];
+        foreach ($this->items as $it) {
+            $lines[] = [
+                'rates' => is_array($it['rates'] ?? null) ? $it['rates'] : [],
+                'quantity' => (int) ($it['quantity'] ?? 1),
+            ];
+        }
+
+        return Rental::optimalPricing($lines, $this->start_date, $this->end_date);
+    }
+
+    /** The auto-selected billing period (hour|day|week|month). */
+    #[Computed]
+    public function pricingPeriod(): string
+    {
+        return $this->autoPricing['period'];
+    }
+
+    /** Number of billing periods at the auto-selected tier (the generalized "days"). */
     #[Computed]
     public function days(): int
     {
-        if (! $this->start_date || ! $this->end_date) {
-            return 1;
-        }
-        try {
-            // "days" is generalized to "number of billing periods" for the selected
-            // pricing_period; the subtotal formula (rate × periods) is unchanged.
-            return Rental::periodsBetween($this->start_date, $this->end_date, $this->pricing_period);
-        } catch (\Throwable $e) {
-            return 1;
-        }
+        return max(1, (int) $this->autoPricing['periods']);
     }
 
-    /** Indonesian label for the current billing period (jam/hari/minggu/bulan). */
+    /** Indonesian label for the auto-selected billing period (jam/hari/minggu/bulan). */
     #[Computed]
     public function periodLabel(): string
     {
-        return [
-            'hour' => 'jam',
-            'day' => 'hari',
-            'week' => 'minggu',
-            'month' => 'bulan',
-        ][$this->pricing_period] ?? 'hari';
+        return Rental::periodLabelFor($this->autoPricing['period']);
+    }
+
+    /**
+     * The per-line rate at the auto-selected tier. Public so the Blade line-subtotal
+     * math and rate display can call it. Falls back to the stored daily_rate when a
+     * line has no rate map (legacy rows).
+     */
+    public function effectiveRate(array $it): float
+    {
+        $period = $this->autoPricing['period'];
+
+        return (float) ($it['rates'][$period] ?? ($it['daily_rate'] ?? 0));
     }
 
     /** Admin-defined rental custom field definitions (from Settings → Rental Settings). */
@@ -406,26 +435,6 @@ class RentalEditor extends Component
 
         $this->delivery_address = $customer->address ?: $this->delivery_address;
         $this->delivery_contact = $customer->phone ?: $this->delivery_contact;
-    }
-
-    /**
-     * Re-price every line when the billing period changes. Uses the per-row rate
-     * map captured at add/load time so no product query is needed here.
-     */
-    public function setPricingPeriod($value): void
-    {
-        $this->pricing_period = in_array($value, Product::PERIODS, true) ? $value : 'day';
-        $this->isDirty = true;
-
-        foreach ($this->items as &$it) {
-            if (! empty($it['rates']) && isset($it['rates'][$this->pricing_period])) {
-                $it['daily_rate'] = (float) $it['rates'][$this->pricing_period];
-            }
-        }
-        unset($it);
-
-        // Catalog prices are period-dependent — drop the cached rows so they re-render.
-        $this->invalidateAvailabilityCaches();
     }
 
     #[Computed]
@@ -633,7 +642,7 @@ class RentalEditor extends Component
         $availMap = $this->availableCountMap();
         $totalMap = $this->totalOwnedMap();
 
-        $period = $this->pricing_period;
+        $period = $this->pricingPeriod;
         $rows = [];
         foreach ($products as $p) {
             $cat = optional($p->category)->name ?? 'Other';
@@ -946,7 +955,9 @@ class RentalEditor extends Component
             ? (Product::find($productId)?->name.' ('.$product->name.')')
             : $product->name;
         $rates = $this->buildRatesMap($productId, $variationId);
-        $dailyRate = (float) ($rates[$this->pricing_period] ?? ($product->daily_rate ?? 0));
+        // Seed the stored rate with the plain daily rate; the effective per-line rate
+        // is derived live from the rates map at the auto-selected tier (effectiveRate).
+        $dailyRate = (float) ($rates['day'] ?? ($product->daily_rate ?? 0));
 
         // Hard cap: a rental can never hold more units of a product than physically
         // owned. Anything beyond available is allowed (becomes empty slots → Transfer),
@@ -1636,7 +1647,7 @@ class RentalEditor extends Component
             'user_id' => $this->customer_id,
             'start_date' => $this->start_date,
             'end_date' => $this->end_date,
-            'pricing_period' => $this->pricing_period,
+            'pricing_period' => $this->pricingPeriod,
             'status' => $this->status,
             'subtotal' => $totals['subtotal'],
             ...$this->discountFields(),
@@ -1669,11 +1680,11 @@ class RentalEditor extends Component
                 'product_id' => $it['composite_id'],
                 'quantity' => (int) $it['quantity'],
                 'unit_ids' => json_encode($it['unit_ids']),
-                'daily_rate' => (float) $it['daily_rate'],
+                'daily_rate' => $this->effectiveRate($it),
                 'days' => $days,
-                'rate_type' => $this->pricing_period,
+                'rate_type' => $this->pricingPeriod,
                 'discount' => (float) $it['discount'],
-                'subtotal' => max(0, ((float) $it['daily_rate'] * $days) - ((float) $it['daily_rate'] * $days) * ((float) $it['discount'] / 100)),
+                'subtotal' => max(0, ($this->effectiveRate($it) * $days) - ($this->effectiveRate($it) * $days) * ((float) $it['discount'] / 100)),
             ];
         }
 
@@ -1759,7 +1770,7 @@ class RentalEditor extends Component
         $days = $this->days;
         $sum = 0;
         foreach ($this->items as $it) {
-            $gross = (float) $it['daily_rate'] * (int) $it['quantity'] * $days;
+            $gross = $this->effectiveRate($it) * (int) $it['quantity'] * $days;
             $sum += max(0, $gross - ($gross * ((float) $it['discount'] / 100)));
         }
 
@@ -2035,7 +2046,7 @@ class RentalEditor extends Component
             'user_id' => $this->customer_id,
             'start_date' => $this->start_date,
             'end_date' => $this->end_date,
-            'pricing_period' => $this->pricing_period,
+            'pricing_period' => $this->pricingPeriod,
             'status' => $this->status,
             'subtotal' => $totals['subtotal'],
             ...$this->discountFields(),
@@ -2074,11 +2085,11 @@ class RentalEditor extends Component
                 'product_id' => $it['composite_id'],
                 'quantity' => (int) $it['quantity'],
                 'unit_ids' => json_encode($it['unit_ids']),
-                'daily_rate' => (float) $it['daily_rate'],
+                'daily_rate' => $this->effectiveRate($it),
                 'days' => $days,
-                'rate_type' => $this->pricing_period,
+                'rate_type' => $this->pricingPeriod,
                 'discount' => (float) $it['discount'],
-                'subtotal' => max(0, ((float) $it['daily_rate'] * $days) - ((float) $it['daily_rate'] * $days) * ((float) $it['discount'] / 100)),
+                'subtotal' => max(0, ($this->effectiveRate($it) * $days) - ($this->effectiveRate($it) * $days) * ((float) $it['discount'] / 100)),
             ];
         }
 

@@ -40,6 +40,9 @@ class CheckoutController extends Controller
                 ->with('error', 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout. Silakan lengkapi dokumen yang diperlukan.');
         }
 
+        // Auto-price the cart to the cheapest tier before summing the totals.
+        \App\Models\Cart::repriceForUser($customer);
+
         $cartItems = $customer->carts()->with(['productUnit.product', 'productUnit.variation'])->get();
 
         if ($cartItems->isEmpty()) {
@@ -250,6 +253,9 @@ class CheckoutController extends Controller
         $fulfillmentMethod = $request->input('fulfillment_method') === 'delivery' ? 'delivery' : 'pickup';
         $deliveryAddress = $fulfillmentMethod === 'delivery' ? $request->input('delivery_address') : null;
         $deliveryContact = $fulfillmentMethod === 'delivery' ? $request->input('delivery_contact') : null;
+
+        // Auto-price the cart to the cheapest tier before building the rental.
+        \App\Models\Cart::repriceForUser($customer);
 
         $cartItems = $customer->carts()->with(['productUnit.product'])->get();
 

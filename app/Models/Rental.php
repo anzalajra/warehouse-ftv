@@ -144,12 +144,73 @@ class Rental extends Model
     /** Human (Indonesian) label for the rental's billing period. */
     public function periodLabel(): string
     {
+        return self::periodLabelFor($this->pricing_period ?? 'day');
+    }
+
+    /** Human (Indonesian) label for a given billing period. */
+    public static function periodLabelFor(?string $period): string
+    {
         return [
             'hour' => 'jam',
             'day' => 'hari',
             'week' => 'minggu',
             'month' => 'bulan',
-        ][$this->pricing_period ?? 'day'] ?? 'hari';
+        ][$period ?? 'day'] ?? 'hari';
+    }
+
+    /**
+     * Auto-select the cheapest billing tier for a whole rental/cart given each line's
+     * per-period rate map. This replaces the old manual period toggle: the customer
+     * just picks dates and the system charges whichever tier costs the least for that
+     * duration — so a 1-day booking is billed daily, and a 7-day booking is billed
+     * weekly only when the weekly rate actually beats 7× the daily rate. There is no
+     * more "1 day charged as a full week".
+     *
+     * The `hour` tier is only a candidate for sub-day rentals; day/week/month apply
+     * to anything from a full day up. Ties resolve to the finer (earlier) period, so
+     * an exactly-break-even duration keeps the smaller, more intuitive unit.
+     *
+     * @param  array<int,array{rates:array<string,float>, quantity?:int}>  $lines
+     * @return array{period:string, periods:int, total:float, totals:array<string,float>, counts:array<string,int>, candidates:array<int,string>}
+     */
+    public static function optimalPricing(array $lines, $start, $end): array
+    {
+        $hours = 24;
+        try {
+            $hours = max(1, (int) \Carbon\Carbon::parse($start)->diffInHours(\Carbon\Carbon::parse($end)));
+        } catch (\Throwable $e) {
+            // Fall back to a day-length window on unparseable dates.
+        }
+
+        $candidates = $hours < 24 ? ['hour', 'day'] : ['day', 'week', 'month'];
+
+        $counts = [];
+        $totals = [];
+        foreach ($candidates as $p) {
+            $counts[$p] = self::periodsBetween($start, $end, $p);
+            $sum = 0.0;
+            foreach ($lines as $line) {
+                $rate = (float) ($line['rates'][$p] ?? 0);
+                $sum += $rate * max(1, (int) ($line['quantity'] ?? 1)) * $counts[$p];
+            }
+            $totals[$p] = round($sum, 2);
+        }
+
+        $period = $candidates[0];
+        foreach ($candidates as $p) {
+            if ($totals[$p] < $totals[$period]) {
+                $period = $p;
+            }
+        }
+
+        return [
+            'period' => $period,
+            'periods' => $counts[$period] ?? 1,
+            'total' => $totals[$period] ?? 0.0,
+            'totals' => $totals,
+            'counts' => $counts,
+            'candidates' => $candidates,
+        ];
     }
 
     /**

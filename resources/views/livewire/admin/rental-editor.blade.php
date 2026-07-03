@@ -1030,19 +1030,21 @@
                             </div>
                         </div>
                         <div class="field" style="grid-column: span 2;">
-                            <label class="label">Periode Tarif</label>
-                            @php $periods = ['hour' => 'Jam', 'day' => 'Hari', 'week' => 'Minggu', 'month' => 'Bulan']; @endphp
-                            <div style="display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg-surface);">
-                                @foreach($periods as $pk => $plabel)
-                                    <button type="button"
-                                        wire:click="setPricingPeriod('{{ $pk }}')"
-                                        style="padding:7px 12px; font-size:12.5px; font-weight:600; border:0; cursor:pointer; border-left:{{ $loop->first ? '0' : '1px solid var(--border)' }};
-                                            {{ $pricing_period === $pk ? 'background:var(--danger-600); color:#fff;' : 'background:transparent; color:var(--fg-2);' }}">
-                                        {{ $plabel }}
-                                    </button>
-                                @endforeach
-                            </div>
-                            <div class="help" style="margin-top:4px; color:var(--fg-3);">Tarif produk & jumlah periode mengikuti pilihan ini.</div>
+                            <label class="label">Tarif Otomatis</label>
+                            @php $ap = $this->autoPricing; $periodNames = ['hour' => 'Jam', 'day' => 'Harian', 'week' => 'Mingguan', 'month' => 'Bulanan']; @endphp
+                            @if(count($items))
+                                <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                                    @foreach($ap['totals'] as $pk => $ptotal)
+                                        <span style="padding:6px 10px; border-radius:8px; font-size:12px; font-weight:600; border:1px solid var(--border);
+                                            {{ $pk === $ap['period'] ? 'background:var(--danger-600); color:#fff; border-color:var(--danger-600);' : 'background:transparent; color:var(--fg-2);' }}">
+                                            {{ $periodNames[$pk] ?? $pk }} ×{{ $ap['counts'][$pk] ?? 1 }}: Rp {{ number_format($ptotal, 0, ',', '.') }}@if($pk === $ap['period']) · termurah @endif
+                                        </span>
+                                    @endforeach
+                                </div>
+                                <div class="help" style="margin-top:4px; color:var(--fg-3);">Tarif dipilih otomatis dari durasi — sistem memakai tier termurah. Atur tarif jam/minggu/bulan di halaman produk.</div>
+                            @else
+                                <div class="help" style="color:var(--fg-3);">Tambahkan produk untuk melihat tarif otomatis.</div>
+                            @endif
                         </div>
                         <div class="field" style="grid-column: span 2;">
                             <label class="label">Status<span class="req">*</span></label>
@@ -1139,7 +1141,8 @@
                             @php
                                 $assigned = count($it['unit_ids']);
                                 $missing = max(0, (int) $it['quantity'] - $assigned);
-                                $gross = (float) $it['daily_rate'] * (int) $it['quantity'] * $days;
+                                $rate = $this->effectiveRate($it);
+                                $gross = $rate * (int) $it['quantity'] * $days;
                                 $rowSubtotal = max(0, $gross - $gross * ((float) $it['discount'] / 100));
                                 $unitLabels = collect($it['unit_ids'])->map(fn($id) => $serialMap[$id] ?? '?')->all();
                                 $avail = $this->availableCount($it['product_id'], $it['variation_id']) + $assigned;
@@ -1204,12 +1207,10 @@
                                     </div>
                                 </div>
                                 <div class="price-cell">
-                                    <div class="cell-input-wrap">
-                                        <span class="unit">Rp</span>
-                                        <input type="number" min="0" class="cell-input"
-                                            value="{{ $it['daily_rate'] }}"
-                                            wire:change="updateItem('{{ $it['key'] }}', 'daily_rate', $event.target.value)">
+                                    <div style="font-weight:600; color:var(--fg-1); white-space:nowrap;" title="Tarif otomatis per {{ $periodLabel }} (tier termurah)">
+                                        Rp {{ number_format($rate, 0, ',', '.') }}
                                     </div>
+                                    <div style="font-size:10.5px; color:var(--fg-3);">/{{ $periodLabel }}</div>
                                 </div>
                                 <div class="disc-cell">
                                     <div class="cell-input-wrap">
@@ -1950,18 +1951,21 @@
                     <strong>{{ $days }} {{ $periodLabel }}</strong>
                 </div>
                 <div style="padding:10px 14px; border-top:1px solid var(--border);">
-                    <div style="font-size:12.5px; color:var(--fg-3); font-weight:600; margin-bottom:6px;">Periode Tarif</div>
-                    @php $periodsM = ['hour' => 'Jam', 'day' => 'Hari', 'week' => 'Minggu', 'month' => 'Bulan']; @endphp
-                    <div style="display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
-                        @foreach($periodsM as $pk => $plabel)
-                            <button type="button"
-                                wire:click="setPricingPeriod('{{ $pk }}')"
-                                style="flex:1; padding:9px 4px; font-size:12.5px; font-weight:600; border:0; cursor:pointer; border-left:{{ $loop->first ? '0' : '1px solid var(--border)' }};
-                                    {{ $pricing_period === $pk ? 'background:var(--danger-600); color:#fff;' : 'background:transparent; color:var(--fg-2);' }}">
-                                {{ $plabel }}
-                            </button>
-                        @endforeach
-                    </div>
+                    <div style="font-size:12.5px; color:var(--fg-3); font-weight:600; margin-bottom:6px;">Tarif Otomatis</div>
+                    @php $apM = $this->autoPricing; $periodNamesM = ['hour' => 'Jam', 'day' => 'Harian', 'week' => 'Mingguan', 'month' => 'Bulanan']; @endphp
+                    @if(count($items))
+                        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                            @foreach($apM['totals'] as $pk => $ptotal)
+                                <span style="padding:6px 9px; border-radius:8px; font-size:11.5px; font-weight:600; border:1px solid var(--border);
+                                    {{ $pk === $apM['period'] ? 'background:var(--danger-600); color:#fff; border-color:var(--danger-600);' : 'background:transparent; color:var(--fg-2);' }}">
+                                    {{ $periodNamesM[$pk] ?? $pk }} ×{{ $apM['counts'][$pk] ?? 1 }}: Rp {{ number_format($ptotal, 0, ',', '.') }}
+                                </span>
+                            @endforeach
+                        </div>
+                        <div style="font-size:11px; color:var(--fg-3); margin-top:5px;">Tier termurah dipilih otomatis dari durasi.</div>
+                    @else
+                        <div style="font-size:11.5px; color:var(--fg-3);">Tambahkan produk untuk melihat tarif otomatis.</div>
+                    @endif
                 </div>
             </div>
 
@@ -1994,7 +1998,8 @@
                             @php
                                 $assigned = count($it['unit_ids']);
                                 $missing = max(0, (int) $it['quantity'] - $assigned);
-                                $gross = (float) $it['daily_rate'] * (int) $it['quantity'] * $days;
+                                $rate = $this->effectiveRate($it);
+                                $gross = $rate * (int) $it['quantity'] * $days;
                                 $rowSubtotal = max(0, $gross - $gross * ((float) $it['discount'] / 100));
                                 $unitLabels = collect($it['unit_ids'])->map(fn($id) => $serialMap[$id] ?? '?')->all();
                                 $avail = $this->availableCount($it['product_id'], $it['variation_id']) + $assigned;
@@ -2049,7 +2054,7 @@
                                 </div>
 
                                 <div class="item-money">
-                                    <span class="item-rate"><b>Rp {{ number_format($it['daily_rate'], 0, ',', '.') }}</b>/{{ $periodLabel }}</span>
+                                    <span class="item-rate"><b>Rp {{ number_format($rate, 0, ',', '.') }}</b>/{{ $periodLabel }}</span>
                                     <span class="item-total">Rp {{ number_format($rowSubtotal, 0, ',', '.') }}</span>
                                 </div>
 

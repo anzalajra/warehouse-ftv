@@ -29,6 +29,10 @@ class CartController extends Controller
     public function index()
     {
         $customer = Auth::guard('customer')->user();
+
+        // Keep cart pricing in sync with the cheapest tier for the current duration.
+        Cart::repriceForUser($customer);
+
         $cartItems = $customer->carts()->with(['productUnit.product', 'productUnit.variation'])->get();
 
         // Cart prices are now stored gross (no baked-in category discount), so the
@@ -144,29 +148,15 @@ class CartController extends Controller
             return back()->with('error', $msg);
         }
 
-        // Billing period (multi-tier pricing) — one period per cart.
-        $period = $request->input('pricing_period', 'day');
-        if (! in_array($period, \App\Models\Product::PERIODS, true)) {
-            $period = 'day';
-        }
+        // Billing period is auto-selected from duration (multi-tier pricing). The cart
+        // is stored at the plain daily tier here and repriced to the cheapest tier
+        // across all lines by Cart::repriceForUser() at the end of this method (and on
+        // the cart + checkout pages). No manual period picker, no "one period per cart".
+        $period = 'day';
 
         // Check for existing cart items and handle date synchronization
         $cartItems = $customer->carts()->with('productUnit.product')->get();
         $firstItem = $cartItems->first();
-
-        // Enforce a single billing period across the whole cart — mixing hour/day/week
-        // rates in one rental has no coherent subtotal. Ask the customer to clear the
-        // cart (or keep the existing period) before adding a differently-priced item.
-        if ($firstItem && ($firstItem->pricing_period ?? 'day') !== $period) {
-            $periodLabels = ['hour' => 'Jam', 'day' => 'Hari', 'week' => 'Minggu', 'month' => 'Bulan'];
-            $existingLabel = $periodLabels[$firstItem->pricing_period ?? 'day'] ?? 'Hari';
-            $msg = "Keranjang Anda memakai periode sewa {$existingLabel}. Kosongkan keranjang dulu untuk memakai periode berbeda.";
-            if ($request->expectsJson()) {
-                return response()->json(['message' => $msg], 422);
-            }
-
-            return back()->with('error', $msg);
-        }
 
         $days = \App\Models\Rental::periodsBetween($startDate, $endDate, $period);
 
@@ -285,6 +275,9 @@ class CartController extends Controller
                 'subtotal' => $dailyRate * $days,
             ]);
         }
+
+        // Reprice the whole cart to the cheapest billing tier for the current duration.
+        Cart::repriceForUser($customer);
 
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Item berhasil ditambahkan ke keranjang.']);

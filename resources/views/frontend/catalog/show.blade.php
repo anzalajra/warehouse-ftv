@@ -239,21 +239,21 @@
                         </div>
 
                         <div class="mb-6">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Periode Sewa</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Tarif Sewa</label>
                             @php
-                                $periodOptions = [
-                                    'hour' => ['Per Jam', $product->rateFor('hour')],
-                                    'day' => ['Per Hari', $product->rateFor('day')],
-                                    'week' => ['Per Minggu', $product->rateFor('week')],
-                                    'month' => ['Per Bulan', $product->rateFor('month')],
-                                ];
+                                $periodOptions = array_filter([
+                                    'hour' => ['Per Jam', $product->hourly_rate],
+                                    'day' => ['Per Hari', $product->daily_rate],
+                                    'week' => ['Per Minggu', $product->weekly_rate],
+                                    'month' => ['Per Bulan', $product->monthly_rate],
+                                ], fn($o) => $o[1] !== null && $o[1] !== '');
                             @endphp
-                            <select name="pricing_period" id="pricing_period" class="w-full border rounded-lg px-3 py-2 bg-white">
+                            <div class="flex flex-wrap gap-2">
                                 @foreach($periodOptions as $pk => $opt)
-                                    <option value="{{ $pk }}" @selected($pk === 'day')>{{ $opt[0] }} — Rp {{ number_format($opt[1], 0, ',', '.') }}</option>
+                                    <span class="inline-flex items-center rounded-lg border px-2.5 py-1 text-xs text-gray-700 bg-gray-50">{{ $opt[0] }}:&nbsp;<b>Rp {{ number_format($opt[1], 0, ',', '.') }}</b></span>
                                 @endforeach
-                            </select>
-                            <p class="text-xs text-gray-500 mt-1">Satu keranjang hanya bisa memakai satu periode sewa.</p>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Harga dihitung otomatis dari durasi — sistem memakai tarif tier termurah.</p>
                         </div>
 
                         <div class="mb-6">
