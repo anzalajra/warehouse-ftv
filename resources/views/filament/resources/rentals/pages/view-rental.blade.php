@@ -711,6 +711,23 @@
                     @endif
                 @endif
 
+                @if($rental->is_recurring)
+                    <div class="info-cell">
+                        <span class="il">Langganan / Recurring</span>
+                        <span class="iv">{{ $rental->recurrence_interval === 'weekly' ? 'Mingguan' : 'Bulanan' }}@if($rental->recurrence_next_date) · berikutnya {{ $rental->recurrence_next_date->format('d M Y') }}@endif</span>
+                        @if($rental->recurrence_end_date)
+                            <span class="isub">Berhenti setelah {{ $rental->recurrence_end_date->format('d M Y') }}</span>
+                        @endif
+                    </div>
+                @endif
+
+                @if($rental->recurrence_parent_id && $rental->recurrenceParent)
+                    <div class="info-cell">
+                        <span class="il">Dari Langganan</span>
+                        <span class="iv"><a href="{{ url("/admin/rentals/{$rental->recurrence_parent_id}/view") }}" style="color:var(--primary-600,#4f46e5); text-decoration:underline;">{{ $rental->recurrenceParent->rental_code }}</a></span>
+                    </div>
+                @endif
+
                 @if($realStatus === 'cancelled' && $rental->cancel_reason)
                     <div class="info-cell span2">
                         <span class="il">Cancel Reason</span>

@@ -64,6 +64,13 @@ class RentalsTable
                     ->icon('heroicon-o-arrow-path-rounded-square')
                     ->getStateUsing(fn (Rental $record): ?string => $record->hasPendingPartialReturn() ? 'Partial return' : null)
                     ->toggleable(),
+                TextColumn::make('recurring_flag')
+                    ->label('')
+                    ->badge()
+                    ->color('info')
+                    ->icon('heroicon-o-arrow-path')
+                    ->getStateUsing(fn (Rental $record): ?string => $record->is_recurring ? 'Recurring' : null)
+                    ->toggleable(),
                 TextColumn::make('total')
                     ->money('IDR')
                     ->sortable()
@@ -84,6 +91,10 @@ class RentalsTable
                             ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('start_date', '>=', $date))
                             ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('start_date', '<=', $date));
                     }),
+                \Filament\Tables\Filters\Filter::make('is_recurring')
+                    ->label('Recurring only')
+                    ->toggle()
+                    ->query(fn ($query) => $query->where('is_recurring', true)),
             ])
             ->actions([
                 // Confirm Button

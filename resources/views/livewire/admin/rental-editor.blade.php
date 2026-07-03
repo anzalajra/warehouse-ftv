@@ -1353,6 +1353,41 @@
                 </div>
             </div>
 
+            {{-- Langganan / Recurring --}}
+            <div class="card" style="margin-top:20px;">
+                <div class="card-head"><h3>Langganan / Recurring</h3></div>
+                <div class="card-body">
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                        <input type="checkbox" wire:model.live="is_recurring">
+                        <div>
+                            <div style="font-weight:600; font-size:13px;">Jadikan rental berulang</div>
+                            <div style="font-size:11px; color:var(--fg-3,#6b7280);">Sistem membuat draft quotation baru tiap periode untuk direview admin (tanpa auto-charge).</div>
+                        </div>
+                    </label>
+
+                    @if($is_recurring)
+                        <div style="margin-top:16px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px;">
+                            <div>
+                                <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Interval</label>
+                                <select class="input" wire:model.blur="recurrence_interval">
+                                    <option value="weekly">Mingguan</option>
+                                    <option value="monthly">Bulanan</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Tanggal berikutnya</label>
+                                <input type="date" class="input" wire:model.blur="recurrence_next_date">
+                                <div style="font-size:10px; color:var(--fg-3,#6b7280); margin-top:2px;">Kosongkan = otomatis dari tanggal selesai + 1 hari.</div>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Berhenti setelah (opsional)</label>
+                                <input type="date" class="input" wire:model.blur="recurrence_end_date">
+                            </div>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
             {{-- Totals / Notes / Deposit --}}
             <div class="totals-grid">
                 <div class="card">
@@ -2287,6 +2322,34 @@
                     <div>
                         <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Catatan Pengiriman</label>
                         <input type="text" class="input" wire:model.blur="delivery_notes" placeholder="Patokan, jam kirim…">
+                    </div>
+                @endif
+            </div>
+        </div>
+
+        {{-- Langganan / Recurring — mobile --}}
+        <div class="card" style="margin:0 14px 16px;">
+            <div class="card-head"><h3>Langganan / Recurring</h3></div>
+            <div class="card-body" style="display:flex; flex-direction:column; gap:12px;">
+                <label style="display:flex; align-items:center; gap:10px;">
+                    <input type="checkbox" wire:model.live="is_recurring">
+                    <span style="font-size:13px; font-weight:600;">Jadikan rental berulang</span>
+                </label>
+                @if($is_recurring)
+                    <div>
+                        <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Interval</label>
+                        <select class="input" wire:model.blur="recurrence_interval">
+                            <option value="weekly">Mingguan</option>
+                            <option value="monthly">Bulanan</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Tanggal berikutnya</label>
+                        <input type="date" class="input" wire:model.blur="recurrence_next_date">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Berhenti setelah (opsional)</label>
+                        <input type="date" class="input" wire:model.blur="recurrence_end_date">
                     </div>
                 @endif
             </div>

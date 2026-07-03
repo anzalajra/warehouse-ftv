@@ -45,6 +45,11 @@ class Rental extends Model
         'down_payment_status',
         'notes',
         'custom_fields',
+        'is_recurring',
+        'recurrence_interval',
+        'recurrence_next_date',
+        'recurrence_end_date',
+        'recurrence_parent_id',
         'activity_log',
         'tax_base',
         'ppn_rate',
@@ -84,6 +89,9 @@ class Rental extends Model
         'permit_template_clicked_at' => 'datetime',
         'activity_log' => 'array',
         'custom_fields' => 'array',
+        'is_recurring' => 'boolean',
+        'recurrence_next_date' => 'date',
+        'recurrence_end_date' => 'date',
     ];
 
     public const STATUS_QUOTATION = 'quotation';
@@ -356,6 +364,58 @@ class Rental extends Model
     public function deliveries(): HasMany
     {
         return $this->hasMany(Delivery::class);
+    }
+
+    /** The recurring source rental this quotation was generated from (if any). */
+    public function recurrenceParent(): BelongsTo
+    {
+        return $this->belongsTo(Rental::class, 'recurrence_parent_id');
+    }
+
+    /** Quotations generated from this rental's recurrence schedule. */
+    public function recurrenceChildren(): HasMany
+    {
+        return $this->hasMany(Rental::class, 'recurrence_parent_id');
+    }
+
+    /**
+     * Clone this recurring rental into a fresh QUOTATION for the next cycle.
+     *
+     * Dates shift to `recurrence_next_date` (preserving the original span);
+     * items are copied as ghost slots (product_unit_id null) so the admin
+     * assigns/validates units for the new period at confirm time — consistent
+     * with the ghost-slot pattern used by cross-rental transfers. Financials,
+     * recognition, and recurrence-source flags are reset on the child.
+     */
+    public function replicateForRecurrence(): self
+    {
+        $len = (int) abs($this->start_date->diffInDays($this->end_date));
+        $newStart = \Carbon\Carbon::parse($this->recurrence_next_date)
+            ->setTimeFrom($this->start_date);
+
+        $new = $this->replicate([
+            'rental_code', 'status', 'returned_date', 'activity_log',
+            'revenue_recognized_at', 'quotation_id', 'invoice_id',
+            'down_payment_status', 'security_deposit_status',
+        ]);
+        $new->status = self::STATUS_QUOTATION;
+        $new->start_date = $newStart;
+        $new->end_date = $newStart->copy()->addDays($len);
+        $new->recurrence_parent_id = $this->id;
+        $new->is_recurring = false;           // the child is not itself a recurring source
+        $new->recurrence_interval = null;
+        $new->recurrence_next_date = null;
+        $new->recurrence_end_date = null;
+        $new->save();                          // rental_code auto-generated in boot()
+
+        foreach ($this->items as $it) {
+            $copy = $it->replicate(['product_unit_id']); // ghost slot — assign at confirm time
+            $copy->product_unit_id = null;
+            $copy->rental_id = $new->id;
+            $copy->save();                     // subtotal via RentalItem hook, total via observer
+        }
+
+        return $new;
     }
 
     /**

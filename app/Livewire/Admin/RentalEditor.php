@@ -84,6 +84,15 @@ class RentalEditor extends Component
     /** Admin-defined rental custom field values, keyed by field name. */
     public array $custom_fields = [];
 
+    // Recurring / subscription rental (generates draft quotations, no auto-charge).
+    public bool $is_recurring = false;
+
+    public ?string $recurrence_interval = 'monthly'; // weekly | monthly
+
+    public ?string $recurrence_next_date = null;
+
+    public ?string $recurrence_end_date = null;
+
     // Search
     public string $searchTerm = '';
 
@@ -206,6 +215,12 @@ class RentalEditor extends Component
             $this->delivery_contact = $record->delivery_contact;
             $this->delivery_notes = $record->delivery_notes;
             $this->custom_fields = is_array($record->custom_fields) ? $record->custom_fields : [];
+            $this->is_recurring = (bool) $record->is_recurring;
+            $this->recurrence_interval = in_array($record->recurrence_interval, ['weekly', 'monthly'], true)
+                ? $record->recurrence_interval
+                : 'monthly';
+            $this->recurrence_next_date = $record->recurrence_next_date?->format('Y-m-d');
+            $this->recurrence_end_date = $record->recurrence_end_date?->format('Y-m-d');
             $this->loadItemsFromRecord();
         } else {
             $this->start_date = now()->format('Y-m-d\TH:i');
@@ -1638,6 +1653,7 @@ class RentalEditor extends Component
             'delivery_contact' => $this->fulfillment_method === 'delivery' ? $this->delivery_contact : null,
             'delivery_notes' => $this->fulfillment_method === 'delivery' ? $this->delivery_notes : null,
             'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
+            ...$this->recurrenceFields(),
         ];
 
         if (! $this->record || ! $this->record->exists) {
@@ -1860,6 +1876,40 @@ class RentalEditor extends Component
      * coupon overrides the free manual discount (both occupy the `discount`
      * column); daily/date amounts are the live-computed promo values.
      */
+    /**
+     * Recurrence payload for save/persist. When active and no next-date is set,
+     * defaults to the day after this rental's end date (admin can override).
+     *
+     * @return array<string, mixed>
+     */
+    protected function recurrenceFields(): array
+    {
+        if (! $this->is_recurring) {
+            return [
+                'is_recurring' => false,
+                'recurrence_interval' => null,
+                'recurrence_next_date' => null,
+                'recurrence_end_date' => null,
+            ];
+        }
+
+        $interval = in_array($this->recurrence_interval, ['weekly', 'monthly'], true)
+            ? $this->recurrence_interval : 'monthly';
+
+        $next = $this->recurrence_next_date;
+        if (empty($next)) {
+            $base = $this->end_date ? \Carbon\Carbon::parse($this->end_date) : now();
+            $next = $base->copy()->addDay()->toDateString();
+        }
+
+        return [
+            'is_recurring' => true,
+            'recurrence_interval' => $interval,
+            'recurrence_next_date' => $next,
+            'recurrence_end_date' => $this->recurrence_end_date ?: null,
+        ];
+    }
+
     protected function discountFields(): array
     {
         $applied = $this->appliedDiscounts;
@@ -2002,6 +2052,7 @@ class RentalEditor extends Component
             'delivery_contact' => $this->fulfillment_method === 'delivery' ? $this->delivery_contact : null,
             'delivery_notes' => $this->fulfillment_method === 'delivery' ? $this->delivery_notes : null,
             'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
+            ...$this->recurrenceFields(),
         ];
 
         if (! $this->record || ! $this->record->exists) {

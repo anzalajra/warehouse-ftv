@@ -48,3 +48,9 @@ Schedule::command('maintenance:flag-due')
     ->withoutOverlapping()
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/maintenance-due.log'));
+
+Schedule::command('rentals:generate-recurring')
+    ->dailyAt('06:00')
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/recurring-rentals.log'));
