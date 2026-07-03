@@ -72,6 +72,15 @@ class RentalEditor extends Component
 
     public ?string $notes = null;
 
+    // Fulfillment / delivery (routing MVP): pickup | delivery.
+    public string $fulfillment_method = 'pickup';
+
+    public ?string $delivery_address = null;
+
+    public ?string $delivery_contact = null;
+
+    public ?string $delivery_notes = null;
+
     /** Admin-defined rental custom field values, keyed by field name. */
     public array $custom_fields = [];
 
@@ -190,6 +199,12 @@ class RentalEditor extends Component
             $this->deposit = (float) ($record->deposit ?? 0);
             $this->down_payment_amount = (float) ($record->down_payment_amount ?? 0);
             $this->notes = $record->notes;
+            $this->fulfillment_method = in_array($record->fulfillment_method, ['pickup', 'delivery'], true)
+                ? $record->fulfillment_method
+                : 'pickup';
+            $this->delivery_address = $record->delivery_address;
+            $this->delivery_contact = $record->delivery_contact;
+            $this->delivery_notes = $record->delivery_notes;
             $this->custom_fields = is_array($record->custom_fields) ? $record->custom_fields : [];
             $this->loadItemsFromRecord();
         } else {
@@ -360,6 +375,22 @@ class RentalEditor extends Component
     public function customFieldDefs(): array
     {
         return \App\Support\CustomFields::definitions('rental_custom_fields');
+    }
+
+    /** Prefill the delivery address/contact from the selected customer's profile. */
+    public function useCustomerAddress(): void
+    {
+        if (! $this->customer_id) {
+            return;
+        }
+
+        $customer = \App\Models\User::find($this->customer_id);
+        if (! $customer) {
+            return;
+        }
+
+        $this->delivery_address = $customer->address ?: $this->delivery_address;
+        $this->delivery_contact = $customer->phone ?: $this->delivery_contact;
     }
 
     /**
@@ -1602,6 +1633,10 @@ class RentalEditor extends Component
             'ppn_rate' => $totals['ppn_rate'],
             'total' => $totals['total'],
             'notes' => $this->notes,
+            'fulfillment_method' => $this->fulfillment_method,
+            'delivery_address' => $this->fulfillment_method === 'delivery' ? $this->delivery_address : null,
+            'delivery_contact' => $this->fulfillment_method === 'delivery' ? $this->delivery_contact : null,
+            'delivery_notes' => $this->fulfillment_method === 'delivery' ? $this->delivery_notes : null,
             'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
         ];
 
@@ -1962,6 +1997,10 @@ class RentalEditor extends Component
             'ppn_rate' => $totals['ppn_rate'],
             'total' => $totals['total'],
             'notes' => $this->notes,
+            'fulfillment_method' => $this->fulfillment_method,
+            'delivery_address' => $this->fulfillment_method === 'delivery' ? $this->delivery_address : null,
+            'delivery_contact' => $this->fulfillment_method === 'delivery' ? $this->delivery_contact : null,
+            'delivery_notes' => $this->fulfillment_method === 'delivery' ? $this->delivery_notes : null,
             'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
         ];
 

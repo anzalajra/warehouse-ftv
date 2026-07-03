@@ -500,6 +500,8 @@ class ProcessReturn extends Page
                 'rental_id' => $this->rental->id,
                 'type' => Delivery::TYPE_IN,
                 'date' => now(),
+                'scheduled_at' => now(),
+                'address' => $this->rental->delivery_address,
                 'status' => Delivery::STATUS_DRAFT,
             ]);
 

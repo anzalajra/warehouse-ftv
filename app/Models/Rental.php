@@ -25,6 +25,10 @@ class Rental extends Model
         'start_date',
         'end_date',
         'pricing_period',
+        'fulfillment_method',
+        'delivery_address',
+        'delivery_contact',
+        'delivery_notes',
         'returned_date',
         'status',
         'subtotal',
@@ -1681,6 +1685,8 @@ class Rental extends Model
                 'rental_id' => $this->id,
                 'type' => Delivery::TYPE_OUT,
                 'date' => $this->start_date,
+                'scheduled_at' => $this->start_date,
+                'address' => $this->delivery_address,
                 'status' => Delivery::STATUS_DRAFT,
             ]);
         }
@@ -1727,6 +1733,8 @@ class Rental extends Model
                     'rental_id' => $this->id,
                     'type' => Delivery::TYPE_IN,
                     'date' => $this->end_date,
+                    'scheduled_at' => $this->end_date,
+                    'address' => $this->delivery_address,
                     'status' => Delivery::STATUS_DRAFT,
                 ]);
             } else {

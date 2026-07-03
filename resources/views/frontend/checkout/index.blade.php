@@ -74,6 +74,48 @@
                     </div>
                 </div>
 
+                <!-- Fulfillment / Delivery -->
+                <div class="bg-white rounded-lg shadow p-6 mb-6"
+                    x-data="{ method: '{{ old('fulfillment_method', 'pickup') }}' }">
+                    <h2 class="text-lg font-semibold mb-4">Metode Pengambilan</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label class="flex items-start gap-3 border rounded-lg px-4 py-3 cursor-pointer"
+                            :class="method === 'pickup' ? 'border-primary-500 ring-1 ring-primary-500' : 'border-gray-200'">
+                            <input type="radio" name="fulfillment_method" value="pickup" x-model="method" class="mt-1">
+                            <span>
+                                <span class="block font-medium">Ambil sendiri</span>
+                                <span class="block text-sm text-gray-500">Datang ke gudang</span>
+                            </span>
+                        </label>
+                        <label class="flex items-start gap-3 border rounded-lg px-4 py-3 cursor-pointer"
+                            :class="method === 'delivery' ? 'border-primary-500 ring-1 ring-primary-500' : 'border-gray-200'">
+                            <input type="radio" name="fulfillment_method" value="delivery" x-model="method" class="mt-1">
+                            <span>
+                                <span class="block font-medium">Diantar</span>
+                                <span class="block text-sm text-gray-500">Kirim ke alamat Anda</span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div x-show="method === 'delivery'" x-cloak class="mt-4 space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Alamat Pengiriman <span class="text-red-500">*</span></label>
+                            <textarea name="delivery_address" rows="3" class="w-full border rounded-lg px-3 py-2"
+                                placeholder="Alamat lengkap tujuan pengiriman…"
+                                x-bind:required="method === 'delivery'">{{ old('delivery_address', auth()->guard('customer')->user()?->address) }}</textarea>
+                            @error('delivery_address')
+                                <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                            @enderror
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Kontak Penerima</label>
+                            <input type="text" name="delivery_contact" class="w-full border rounded-lg px-3 py-2"
+                                placeholder="Nama / no. HP penerima"
+                                value="{{ old('delivery_contact', auth()->guard('customer')->user()?->phone) }}">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Notes -->
                 <div class="bg-white rounded-lg shadow p-6 mb-6">
                     <h2 class="text-lg font-semibold mb-4">Additional Notes</h2>

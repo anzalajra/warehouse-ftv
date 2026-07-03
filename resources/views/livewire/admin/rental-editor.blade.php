@@ -1310,6 +1310,49 @@
                 </div>
             @endif
 
+            {{-- Pengiriman (fulfillment / delivery routing) --}}
+            <div class="card" style="margin-top:20px;">
+                <div class="card-head"><h3>Pengiriman</h3></div>
+                <div class="card-body">
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <label style="flex:1; min-width:180px; display:flex; align-items:center; gap:10px; padding:12px 14px; border:1px solid var(--border, #e5e7eb); border-radius:10px; cursor:pointer; {{ $fulfillment_method === 'pickup' ? 'border-color:var(--primary-500,#6366f1); background:var(--primary-50,#eef2ff);' : '' }}">
+                            <input type="radio" value="pickup" wire:model.live="fulfillment_method">
+                            <div>
+                                <div style="font-weight:600; font-size:13px;">Ambil sendiri</div>
+                                <div style="font-size:11px; color:var(--fg-3,#6b7280);">Customer datang ke gudang</div>
+                            </div>
+                        </label>
+                        <label style="flex:1; min-width:180px; display:flex; align-items:center; gap:10px; padding:12px 14px; border:1px solid var(--border, #e5e7eb); border-radius:10px; cursor:pointer; {{ $fulfillment_method === 'delivery' ? 'border-color:var(--primary-500,#6366f1); background:var(--primary-50,#eef2ff);' : '' }}">
+                            <input type="radio" value="delivery" wire:model.live="fulfillment_method">
+                            <div>
+                                <div style="font-weight:600; font-size:13px;">Diantar</div>
+                                <div style="font-size:11px; color:var(--fg-3,#6b7280);">Kirim ke alamat customer</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    @if($fulfillment_method === 'delivery')
+                        <div style="margin-top:16px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px;">
+                            <div style="grid-column:1/-1;">
+                                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                                    <label style="font-size:12px; font-weight:600;">Alamat Pengiriman</label>
+                                    <button type="button" wire:click="useCustomerAddress" style="font-size:11px; color:var(--primary-600,#4f46e5); background:none; border:none; cursor:pointer;">Gunakan alamat customer</button>
+                                </div>
+                                <textarea class="input" rows="2" placeholder="Alamat lengkap tujuan pengiriman…" wire:model.blur="delivery_address"></textarea>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Kontak Penerima</label>
+                                <input type="text" class="input" placeholder="Nama / no. HP penerima" wire:model.blur="delivery_contact">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Catatan Pengiriman</label>
+                                <input type="text" class="input" placeholder="Patokan, jam kirim, dll." wire:model.blur="delivery_notes">
+                            </div>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
             {{-- Totals / Notes / Deposit --}}
             <div class="totals-grid">
                 <div class="card">
@@ -2214,6 +2257,40 @@
                 </div>
             </div>
         @endif
+
+        {{-- Pengiriman (fulfillment) — mobile --}}
+        <div class="card" style="margin:0 14px 16px;">
+            <div class="card-head"><h3>Pengiriman</h3></div>
+            <div class="card-body" style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; gap:8px;">
+                    <label style="flex:1; display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid var(--border,#e5e7eb); border-radius:10px; {{ $fulfillment_method === 'pickup' ? 'border-color:var(--primary-500,#6366f1);' : '' }}">
+                        <input type="radio" value="pickup" wire:model.live="fulfillment_method">
+                        <span style="font-size:13px; font-weight:600;">Ambil sendiri</span>
+                    </label>
+                    <label style="flex:1; display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid var(--border,#e5e7eb); border-radius:10px; {{ $fulfillment_method === 'delivery' ? 'border-color:var(--primary-500,#6366f1);' : '' }}">
+                        <input type="radio" value="delivery" wire:model.live="fulfillment_method">
+                        <span style="font-size:13px; font-weight:600;">Diantar</span>
+                    </label>
+                </div>
+                @if($fulfillment_method === 'delivery')
+                    <div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                            <label style="font-size:12px; font-weight:600;">Alamat Pengiriman</label>
+                            <button type="button" wire:click="useCustomerAddress" style="font-size:11px; color:var(--primary-600,#4f46e5); background:none; border:none;">Pakai alamat customer</button>
+                        </div>
+                        <textarea class="input" rows="2" wire:model.blur="delivery_address" placeholder="Alamat tujuan…"></textarea>
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Kontak Penerima</label>
+                        <input type="text" class="input" wire:model.blur="delivery_contact" placeholder="Nama / no. HP">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">Catatan Pengiriman</label>
+                        <input type="text" class="input" wire:model.blur="delivery_notes" placeholder="Patokan, jam kirim…">
+                    </div>
+                @endif
+            </div>
+        </div>
 
         @if($record && $record->exists)
             <div style="padding: 0 14px 16px;">

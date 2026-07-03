@@ -13,6 +13,11 @@ class Delivery extends Model
         'rental_id',
         'type',
         'date',
+        'scheduled_at',
+        'address',
+        'sort_order',
+        'driver_id',
+        'escort_id',
         'checked_by',
         'recipient_name',
         'recipient_signature',
@@ -23,6 +28,7 @@ class Delivery extends Model
 
     protected $casts = [
         'date' => 'date',
+        'scheduled_at' => 'datetime',
         'signed_at' => 'datetime',
     ];
 
@@ -104,6 +110,16 @@ class Delivery extends Model
     public function checkedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'checked_by');
+    }
+
+    public function driver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'driver_id');
+    }
+
+    public function escort(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'escort_id');
     }
 
     public function items(): HasMany

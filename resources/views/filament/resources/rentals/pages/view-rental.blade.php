@@ -689,6 +689,28 @@
                     </div>
                 @endforeach
 
+                <div class="info-cell">
+                    <span class="il">Metode Pengiriman</span>
+                    <span class="iv">{{ ($rental->fulfillment_method ?? 'pickup') === 'delivery' ? 'Diantar' : 'Ambil sendiri' }}</span>
+                </div>
+
+                @if(($rental->fulfillment_method ?? 'pickup') === 'delivery')
+                    <div class="info-cell span2">
+                        <span class="il">Alamat Pengiriman</span>
+                        <span class="iv {{ $rental->delivery_address ? '' : 'muted' }}">{{ $rental->delivery_address ?: '—' }}</span>
+                    </div>
+                    <div class="info-cell">
+                        <span class="il">Kontak Penerima</span>
+                        <span class="iv {{ $rental->delivery_contact ? '' : 'muted' }}">{{ $rental->delivery_contact ?: '—' }}</span>
+                    </div>
+                    @if($rental->delivery_notes)
+                        <div class="info-cell">
+                            <span class="il">Catatan Pengiriman</span>
+                            <span class="iv">{{ $rental->delivery_notes }}</span>
+                        </div>
+                    @endif
+                @endif
+
                 @if($realStatus === 'cancelled' && $rental->cancel_reason)
                     <div class="info-cell span2">
                         <span class="il">Cancel Reason</span>

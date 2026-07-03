@@ -213,6 +213,9 @@ class CheckoutController extends Controller
         $rules = [
             'notes' => 'nullable|string|max:500',
             'agree_terms' => 'required|accepted',
+            'fulfillment_method' => 'nullable|in:pickup,delivery',
+            'delivery_address' => 'required_if:fulfillment_method,delivery|nullable|string|max:1000',
+            'delivery_contact' => 'nullable|string|max:255',
         ];
 
         // Rental custom fields — collect values under a `custom_` prefix (mirrors the
@@ -242,6 +245,11 @@ class CheckoutController extends Controller
             }
         }
         $customFieldValues = $customFieldValues ?: null;
+
+        // Fulfillment / delivery (routing MVP). Address/contact only kept for delivery.
+        $fulfillmentMethod = $request->input('fulfillment_method') === 'delivery' ? 'delivery' : 'pickup';
+        $deliveryAddress = $fulfillmentMethod === 'delivery' ? $request->input('delivery_address') : null;
+        $deliveryContact = $fulfillmentMethod === 'delivery' ? $request->input('delivery_contact') : null;
 
         $cartItems = $customer->carts()->with(['productUnit.product'])->get();
 
@@ -411,6 +419,9 @@ class CheckoutController extends Controller
                     'deposit' => $deposit,
                     'notes' => $request->notes,
                     'custom_fields' => $customFieldValues,
+                    'fulfillment_method' => $fulfillmentMethod,
+                    'delivery_address' => $deliveryAddress,
+                    'delivery_contact' => $deliveryContact,
                 ]);
 
                 // Compute blocked units once for this date range (all items in group share dates).
