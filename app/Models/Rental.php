@@ -24,6 +24,7 @@ class Rental extends Model
         'discount_code',
         'start_date',
         'end_date',
+        'pricing_period',
         'returned_date',
         'status',
         'subtotal',
@@ -106,6 +107,35 @@ class Rental extends Model
                 $rental->rental_code = self::generateRentalCode();
             }
         });
+    }
+
+    /**
+     * Number of billing periods between two datetimes for a given period type.
+     * Used as "days" for the generalized subtotal formula (rate × periods).
+     */
+    public static function periodsBetween($start, $end, string $period): int
+    {
+        $s = \Carbon\Carbon::parse($start);
+        $e = \Carbon\Carbon::parse($end);
+        $hours = max(1, (int) $s->diffInHours($e));
+
+        return match ($period) {
+            'hour' => max(1, (int) ceil($hours)),
+            'week' => max(1, (int) ceil($hours / 24 / 7)),
+            'month' => max(1, (int) ceil($hours / 24 / 30)),
+            default => max(1, (int) ceil($hours / 24)),
+        };
+    }
+
+    /** Human (Indonesian) label for the rental's billing period. */
+    public function periodLabel(): string
+    {
+        return [
+            'hour' => 'jam',
+            'day' => 'hari',
+            'week' => 'minggu',
+            'month' => 'bulan',
+        ][$this->pricing_period ?? 'day'] ?? 'hari';
     }
 
     /**

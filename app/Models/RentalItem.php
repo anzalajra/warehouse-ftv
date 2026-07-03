@@ -18,6 +18,7 @@ class RentalItem extends Model
         'product_variation_id',
         'daily_rate',
         'days',
+        'rate_type',
         'subtotal',
         'discount',
         'sort_order',

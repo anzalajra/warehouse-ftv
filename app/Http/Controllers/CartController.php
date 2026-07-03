@@ -82,6 +82,7 @@ class CartController extends Controller
             'start_date' => 'required|date|after_or_equal:today',
             'end_date' => 'required|date|after:start_date',
             'quantity' => 'nullable|integer|min:1',
+            'pricing_period' => 'nullable|in:hour,day,week,month',
         ]);
 
         if ($validator->fails()) {
@@ -143,11 +144,31 @@ class CartController extends Controller
             return back()->with('error', $msg);
         }
 
-        $days = max(1, $startDate->diffInDays($endDate));
+        // Billing period (multi-tier pricing) — one period per cart.
+        $period = $request->input('pricing_period', 'day');
+        if (! in_array($period, \App\Models\Product::PERIODS, true)) {
+            $period = 'day';
+        }
 
         // Check for existing cart items and handle date synchronization
         $cartItems = $customer->carts()->with('productUnit.product')->get();
         $firstItem = $cartItems->first();
+
+        // Enforce a single billing period across the whole cart — mixing hour/day/week
+        // rates in one rental has no coherent subtotal. Ask the customer to clear the
+        // cart (or keep the existing period) before adding a differently-priced item.
+        if ($firstItem && ($firstItem->pricing_period ?? 'day') !== $period) {
+            $periodLabels = ['hour' => 'Jam', 'day' => 'Hari', 'week' => 'Minggu', 'month' => 'Bulan'];
+            $existingLabel = $periodLabels[$firstItem->pricing_period ?? 'day'] ?? 'Hari';
+            $msg = "Keranjang Anda memakai periode sewa {$existingLabel}. Kosongkan keranjang dulu untuk memakai periode berbeda.";
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $msg], 422);
+            }
+
+            return back()->with('error', $msg);
+        }
+
+        $days = \App\Models\Rental::periodsBetween($startDate, $endDate, $period);
 
         $updates = [];
         $conflicts = [];
@@ -239,15 +260,16 @@ class CartController extends Controller
         // Add the requested quantity
         $unitsToAdd = $availableForAdd->take($quantity);
 
-        // Store the GROSS (real) daily rate — the customer-category discount is no
-        // longer baked into the price here; it is applied as an explicit discount
-        // line at cart/checkout time (see CartController::index + CheckoutController).
-        $dailyRate = $product->daily_rate;
+        // Store the GROSS (real) rate for the selected period — the customer-category
+        // discount is no longer baked into the price here; it is applied as an
+        // explicit discount line at cart/checkout time (see CartController::index +
+        // CheckoutController). daily_rate is generalized to "rate per period".
+        $dailyRate = $product->rateFor($period);
 
         if ($request->filled('variation_id')) {
-            $variation = \App\Models\ProductVariation::find($request->variation_id);
-            if ($variation && $variation->daily_rate) {
-                $dailyRate = $variation->daily_rate;
+            $variation = \App\Models\ProductVariation::with('product')->find($request->variation_id);
+            if ($variation) {
+                $dailyRate = $variation->rateFor($period);
             }
         }
 
@@ -258,6 +280,7 @@ class CartController extends Controller
                 'start_date' => $startDate,
                 'end_date' => $endDate,
                 'days' => $days,
+                'pricing_period' => $period,
                 'daily_rate' => $dailyRate,
                 'subtotal' => $dailyRate * $days,
             ]);

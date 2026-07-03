@@ -13,6 +13,7 @@ class Cart extends Model
         'start_date',
         'end_date',
         'days',
+        'pricing_period',
         'daily_rate',
         'subtotal',
     ];
@@ -34,14 +35,15 @@ class Cart extends Model
         return $this->belongsTo(ProductUnit::class);
     }
 
-    public static function calculateDays($startDate, $endDate): int
+    public static function calculateDays($startDate, $endDate, string $period = 'day'): int
     {
-        return max(1, $startDate->diffInDays($endDate));
+        return Rental::periodsBetween($startDate, $endDate, $period);
     }
 
     public function recalculate(): void
     {
-        $this->days = self::calculateDays($this->start_date, $this->end_date);
+        // `days` = number of billing periods; `daily_rate` = rate per period.
+        $this->days = self::calculateDays($this->start_date, $this->end_date, $this->pricing_period ?? 'day');
         $this->subtotal = $this->daily_rate * $this->days;
         $this->save();
     }

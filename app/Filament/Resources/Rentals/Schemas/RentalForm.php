@@ -771,6 +771,7 @@ class RentalForm
                 $unitIds = json_decode($group['unit_ids'] ?? '[]', true) ?: [];
                 $days = (int) ($group['days'] ?? 1);
                 $dailyRate = (float) ($group['daily_rate'] ?? 0);
+                $rateType = (string) ($group['rate_type'] ?? 'day');
                 $discount = (float) ($group['discount'] ?? 0);
                 $quantity = (int) ($group['quantity'] ?? count($unitIds));
 
@@ -805,6 +806,7 @@ class RentalForm
                             'product_variation_id' => $rowVariationId,
                             'daily_rate' => $dailyRate,
                             'days' => $days,
+                            'rate_type' => $rateType,
                             'discount' => $discount,
                             'subtotal' => $perUnitSubtotal,
                             'sort_order' => $sortOrder,
@@ -817,6 +819,7 @@ class RentalForm
                             'product_variation_id' => $rowVariationId,
                             'daily_rate' => $dailyRate,
                             'days' => $days,
+                            'rate_type' => $rateType,
                             'discount' => $discount,
                             'subtotal' => $perUnitSubtotal,
                             'sort_order' => $sortOrder,
@@ -838,6 +841,7 @@ class RentalForm
                             $reused->update([
                                 'daily_rate' => $dailyRate,
                                 'days' => $days,
+                                'rate_type' => $rateType,
                                 'discount' => $discount,
                                 'subtotal' => $perUnitSubtotal,
                                 'sort_order' => $sortOrder,
@@ -850,6 +854,7 @@ class RentalForm
                                 'product_variation_id' => $rowVariationId,
                                 'daily_rate' => $dailyRate,
                                 'days' => $days,
+                                'rate_type' => $rateType,
                                 'discount' => $discount,
                                 'subtotal' => $perUnitSubtotal,
                                 'sort_order' => $sortOrder,

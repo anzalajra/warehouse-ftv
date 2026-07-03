@@ -1,5 +1,6 @@
 @php
     $days = $this->days;
+    $periodLabel = $this->periodLabel;
     $totals = $this->totals;
     $custInfo = $this->customerInfo;
     $waLink = null;
@@ -1025,8 +1026,23 @@
                             <input class="input" type="datetime-local" wire:model.live="end_date">
                             <div class="help" style="display:flex; align-items:center; gap:6px;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-                                <span>Durasi: <strong style="color: var(--fg-1)">{{ $this->durationLabel }}</strong> · ditagih <strong style="color: var(--fg-1)">{{ $days }} hari</strong></span>
+                                <span>Durasi: <strong style="color: var(--fg-1)">{{ $this->durationLabel }}</strong> · ditagih <strong style="color: var(--fg-1)">{{ $days }} {{ $periodLabel }}</strong></span>
                             </div>
+                        </div>
+                        <div class="field" style="grid-column: span 2;">
+                            <label class="label">Periode Tarif</label>
+                            @php $periods = ['hour' => 'Jam', 'day' => 'Hari', 'week' => 'Minggu', 'month' => 'Bulan']; @endphp
+                            <div style="display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg-surface);">
+                                @foreach($periods as $pk => $plabel)
+                                    <button type="button"
+                                        wire:click="updatedPricingPeriod('{{ $pk }}')"
+                                        style="padding:7px 12px; font-size:12.5px; font-weight:600; border:0; cursor:pointer; border-left:{{ $loop->first ? '0' : '1px solid var(--border)' }};
+                                            {{ $pricing_period === $pk ? 'background:var(--danger-600); color:#fff;' : 'background:transparent; color:var(--fg-2);' }}">
+                                        {{ $plabel }}
+                                    </button>
+                                @endforeach
+                            </div>
+                            <div class="help" style="margin-top:4px; color:var(--fg-3);">Tarif produk & jumlah periode mengikuti pilihan ini.</div>
                         </div>
                         <div class="field" style="grid-column: span 2;">
                             <label class="label">Status<span class="req">*</span></label>
@@ -1082,7 +1098,7 @@
                                         <span class="stock {{ $r['avail'] === 0 ? 'out' : ($r['avail'] <= 2 ? 'low' : '') }}">
                                             {{ $r['avail'] === 0 ? 'Habis' : $r['avail'].' tersedia' }}
                                         </span>
-                                        <span class="price">Rp {{ number_format($r['price'], 0, ',', '.') }}/hari</span>
+                                        <span class="price">Rp {{ number_format($r['price'], 0, ',', '.') }}/{{ $periodLabel }}</span>
                                     </div>
                                 @empty
                                     <div class="search-empty">Tidak ada produk yang cocok dengan "{{ $searchTerm }}"</div>
@@ -1114,7 +1130,7 @@
                             <div>Produk</div>
                             <div>Stok</div>
                             <div class="qty-head">Qty</div>
-                            <div class="right">Harga / hari</div>
+                            <div class="right">Harga / {{ $periodLabel }}</div>
                             <div class="right">Disc</div>
                             <div class="right">Subtotal</div>
                             <div></div>
@@ -1276,7 +1292,7 @@
                         <div class="card-head"><h3>Ringkasan</h3></div>
                         <div class="card-body" style="padding:8px 20px 16px;">
                             <div class="totals-row">
-                                <span class="lbl">Subtotal ({{ count($items) }} item × {{ $days }} hari)</span>
+                                <span class="lbl">Subtotal ({{ count($items) }} item × {{ $days }} {{ $periodLabel }})</span>
                                 <span class="val">Rp {{ number_format($totals['subtotal'], 0, ',', '.') }}</span>
                             </div>
                             @php
@@ -1818,7 +1834,21 @@
                 </div>
                 <div class="duration-row">
                     <span>Total durasi rental</span>
-                    <strong>{{ $days }} hari</strong>
+                    <strong>{{ $days }} {{ $periodLabel }}</strong>
+                </div>
+                <div style="padding:10px 14px; border-top:1px solid var(--border);">
+                    <div style="font-size:12.5px; color:var(--fg-3); font-weight:600; margin-bottom:6px;">Periode Tarif</div>
+                    @php $periodsM = ['hour' => 'Jam', 'day' => 'Hari', 'week' => 'Minggu', 'month' => 'Bulan']; @endphp
+                    <div style="display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+                        @foreach($periodsM as $pk => $plabel)
+                            <button type="button"
+                                wire:click="updatedPricingPeriod('{{ $pk }}')"
+                                style="flex:1; padding:9px 4px; font-size:12.5px; font-weight:600; border:0; cursor:pointer; border-left:{{ $loop->first ? '0' : '1px solid var(--border)' }};
+                                    {{ $pricing_period === $pk ? 'background:var(--danger-600); color:#fff;' : 'background:transparent; color:var(--fg-2);' }}">
+                                {{ $plabel }}
+                            </button>
+                        @endforeach
+                    </div>
                 </div>
             </div>
 
@@ -1906,7 +1936,7 @@
                                 </div>
 
                                 <div class="item-money">
-                                    <span class="item-rate"><b>Rp {{ number_format($it['daily_rate'], 0, ',', '.') }}</b>/hari</span>
+                                    <span class="item-rate"><b>Rp {{ number_format($it['daily_rate'], 0, ',', '.') }}</b>/{{ $periodLabel }}</span>
                                     <span class="item-total">Rp {{ number_format($rowSubtotal, 0, ',', '.') }}</span>
                                 </div>
 
@@ -2220,7 +2250,7 @@
                                 <div class="sub">
                                     <span x-text="localQty['{{ $r['composite_id'] }}'] ? localQty['{{ $r['composite_id'] }}'] + ' di cart' : '{{ $r['avail'] }} stok'"></span>
                                     <span style="color: var(--gray-300)">·</span>
-                                    <span>Rp {{ number_format($r['price'], 0, ',', '.') }}/hari</span>
+                                    <span>Rp {{ number_format($r['price'], 0, ',', '.') }}/{{ $periodLabel }}</span>
                                 </div>
                             </div>
                             <template x-if="(localQty['{{ $r['composite_id'] }}'] || 0) > 0">

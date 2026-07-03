@@ -124,6 +124,30 @@ class ProductForm
                             ->default(0)
                             ->columnSpan(1),
 
+                        TextInput::make('hourly_rate')
+                            ->label('Hourly Rate (Rp)')
+                            ->numeric()
+                            ->prefix('Rp')
+                            ->minValue(0)
+                            ->placeholder('Kosongkan = otomatis dari harga harian')
+                            ->columnSpan(1),
+
+                        TextInput::make('weekly_rate')
+                            ->label('Weekly Rate (Rp)')
+                            ->numeric()
+                            ->prefix('Rp')
+                            ->minValue(0)
+                            ->placeholder('Kosongkan = otomatis dari harga harian')
+                            ->columnSpan(1),
+
+                        TextInput::make('monthly_rate')
+                            ->label('Monthly Rate (Rp)')
+                            ->numeric()
+                            ->prefix('Rp')
+                            ->minValue(0)
+                            ->placeholder('Kosongkan = otomatis dari harga harian')
+                            ->columnSpan(1),
+
                         TextInput::make('buffer_time')
                             ->label('Buffer Time')
                             ->helperText('Minimum hours required between rentals for units of this product. The system will use the maximum of this value and the global buffer setting.')
@@ -174,6 +198,24 @@ class ProductForm
 
                                 TextInput::make('daily_rate')
                                     ->label('Override Daily Rate')
+                                    ->numeric()
+                                    ->prefix('Rp')
+                                    ->placeholder('Leave empty to use product rate'),
+
+                                TextInput::make('hourly_rate')
+                                    ->label('Override Hourly Rate')
+                                    ->numeric()
+                                    ->prefix('Rp')
+                                    ->placeholder('Leave empty to use product rate'),
+
+                                TextInput::make('weekly_rate')
+                                    ->label('Override Weekly Rate')
+                                    ->numeric()
+                                    ->prefix('Rp')
+                                    ->placeholder('Leave empty to use product rate'),
+
+                                TextInput::make('monthly_rate')
+                                    ->label('Override Monthly Rate')
                                     ->numeric()
                                     ->prefix('Rp')
                                     ->placeholder('Leave empty to use product rate'),

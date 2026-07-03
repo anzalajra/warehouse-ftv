@@ -23,6 +23,9 @@ class Product extends Model
         'slug',
         'description',
         'daily_rate',
+        'hourly_rate',
+        'weekly_rate',
+        'monthly_rate',
         'buffer_time',
         'late_fee_daily_amount',
         'image',
@@ -34,6 +37,9 @@ class Product extends Model
 
     protected $casts = [
         'daily_rate' => 'decimal:2',
+        'hourly_rate' => 'decimal:2',
+        'weekly_rate' => 'decimal:2',
+        'monthly_rate' => 'decimal:2',
         'buffer_time' => 'integer',
         'late_fee_daily_amount' => 'decimal:2',
         'is_active' => 'boolean',
@@ -41,6 +47,9 @@ class Product extends Model
         'price_includes_tax' => 'boolean',
         'is_visible_on_frontend' => 'boolean',
     ];
+
+    /** Supported billing periods (multi-tier pricing). */
+    public const PERIODS = ['hour', 'day', 'week', 'month'];
 
     protected static function boot()
     {
@@ -51,6 +60,34 @@ class Product extends Model
                 $product->slug = Str::slug($product->name);
             }
         });
+    }
+
+    /**
+     * Resolve the rate for a given billing period. When the period-specific column
+     * is empty it falls back to a sensible multiple of the daily rate, so a product
+     * that only has a daily_rate still prices correctly in every period.
+     */
+    public function rateFor(string $period): float
+    {
+        $daily = (float) ($this->daily_rate ?? 0);
+
+        return match ($period) {
+            'hour' => (float) ($this->hourly_rate ?? ($daily / 8)),   // fallback: 8 working hours/day
+            'week' => (float) ($this->weekly_rate ?? ($daily * 7)),
+            'month' => (float) ($this->monthly_rate ?? ($daily * 30)),
+            default => $daily,
+        };
+    }
+
+    /** Rate map for all periods: ['hour'=>..,'day'=>..,'week'=>..,'month'=>..]. */
+    public function rateMap(): array
+    {
+        $map = [];
+        foreach (self::PERIODS as $p) {
+            $map[$p] = $this->rateFor($p);
+        }
+
+        return $map;
     }
 
     /**

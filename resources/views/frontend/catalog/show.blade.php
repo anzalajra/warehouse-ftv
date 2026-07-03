@@ -239,8 +239,26 @@
                         </div>
 
                         <div class="mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Periode Sewa</label>
+                            @php
+                                $periodOptions = [
+                                    'hour' => ['Per Jam', $product->rateFor('hour')],
+                                    'day' => ['Per Hari', $product->rateFor('day')],
+                                    'week' => ['Per Minggu', $product->rateFor('week')],
+                                    'month' => ['Per Bulan', $product->rateFor('month')],
+                                ];
+                            @endphp
+                            <select name="pricing_period" id="pricing_period" class="w-full border rounded-lg px-3 py-2 bg-white">
+                                @foreach($periodOptions as $pk => $opt)
+                                    <option value="{{ $pk }}" @selected($pk === 'day')>{{ $opt[0] }} — Rp {{ number_format($opt[1], 0, ',', '.') }}</option>
+                                @endforeach
+                            </select>
+                            <p class="text-xs text-gray-500 mt-1">Satu keranjang hanya bisa memakai satu periode sewa.</p>
+                        </div>
+
+                        <div class="mb-6">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Quantity</label>
-                            <input type="number" name="quantity" id="quantity" value="1" min="1" max="{{ $availableUnits->count() }}" required 
+                            <input type="number" name="quantity" id="quantity" value="1" min="1" max="{{ $availableUnits->count() }}" required
                                 class="w-full border rounded-lg px-3 py-2 bg-white">
                             <p class="text-xs text-gray-500 mt-1">Maksimal: {{ $availableUnits->count() }} unit</p>
                         </div>

@@ -40,7 +40,11 @@ class RentalEditor extends Component
 
     public ?string $end_date = null;
 
-    // Items: ordered array; each: composite_id, product_id, variation_id, quantity, daily_rate, discount, unit_ids[], subtotal
+    // Billing period for the whole rental (multi-tier pricing): hour | day | week | month.
+    // daily_rate is generalized to "rate per period" and days() to "number of periods".
+    public string $pricing_period = 'day';
+
+    // Items: ordered array; each: composite_id, product_id, variation_id, quantity, daily_rate, discount, unit_ids[], rates[], subtotal
     public array $items = [];
 
     // Money
@@ -170,6 +174,9 @@ class RentalEditor extends Component
             $this->customer_id = $record->user_id;
             $this->start_date = $record->start_date?->format('Y-m-d\TH:i');
             $this->end_date = $record->end_date?->format('Y-m-d\TH:i');
+            $this->pricing_period = in_array($record->pricing_period, Product::PERIODS, true)
+                ? $record->pricing_period
+                : 'day';
             $this->discount_type = $record->discount_type ?? 'fixed';
             $this->discount = (float) ($record->discount ?? 0);
             $this->daily_discount_id = $record->daily_discount_id;
@@ -221,6 +228,10 @@ class RentalEditor extends Component
             if (str_contains((string) $compositeId, ':')) {
                 [$productId, $variationId] = array_pad(explode(':', (string) $compositeId), 2, null);
             }
+            $rates = $this->buildRatesMap((int) $productId, $variationId ? (int) $variationId : null);
+            // Preserve the persisted rate for the current period so manual edits round-trip.
+            $rates[$this->pricing_period] = (float) $g['daily_rate'];
+
             $this->items[] = [
                 'key' => (string) Str::uuid(),
                 'composite_id' => (string) $compositeId,
@@ -228,12 +239,35 @@ class RentalEditor extends Component
                 'variation_id' => $variationId ? (int) $variationId : null,
                 'quantity' => (int) $g['quantity'],
                 'daily_rate' => (float) $g['daily_rate'],
+                'rates' => $rates,
                 'discount' => (float) ($g['discount'] ?? 0),
                 'unit_ids' => json_decode($g['unit_ids'], true) ?: [],
             ];
         }
 
         $this->dropUnrentableAssignments();
+    }
+
+    /**
+     * Build the four-period rate map for a product/variation so switching the
+     * rental's billing period re-prices every line without re-querying.
+     *
+     * @return array{hour: float, day: float, week: float, month: float}
+     */
+    protected function buildRatesMap(int $productId, ?int $variationId): array
+    {
+        if ($variationId) {
+            $variation = ProductVariation::with('product')->find($variationId);
+            if ($variation) {
+                return $variation->rateMap();
+            }
+        }
+
+        $product = Product::find($productId);
+
+        return $product
+            ? $product->rateMap()
+            : ['hour' => 0.0, 'day' => 0.0, 'week' => 0.0, 'month' => 0.0];
     }
 
     /**
@@ -297,13 +331,44 @@ class RentalEditor extends Component
             return 1;
         }
         try {
-            $s = Carbon::parse($this->start_date);
-            $e = Carbon::parse($this->end_date);
-
-            return max(1, (int) ceil($s->diffInHours($e) / 24));
+            // "days" is generalized to "number of billing periods" for the selected
+            // pricing_period; the subtotal formula (rate × periods) is unchanged.
+            return Rental::periodsBetween($this->start_date, $this->end_date, $this->pricing_period);
         } catch (\Throwable $e) {
             return 1;
         }
+    }
+
+    /** Indonesian label for the current billing period (jam/hari/minggu/bulan). */
+    #[Computed]
+    public function periodLabel(): string
+    {
+        return [
+            'hour' => 'jam',
+            'day' => 'hari',
+            'week' => 'minggu',
+            'month' => 'bulan',
+        ][$this->pricing_period] ?? 'hari';
+    }
+
+    /**
+     * Re-price every line when the billing period changes. Uses the per-row rate
+     * map captured at add/load time so no product query is needed here.
+     */
+    public function updatedPricingPeriod($value): void
+    {
+        $this->pricing_period = in_array($value, Product::PERIODS, true) ? $value : 'day';
+        $this->isDirty = true;
+
+        foreach ($this->items as &$it) {
+            if (! empty($it['rates']) && isset($it['rates'][$this->pricing_period])) {
+                $it['daily_rate'] = (float) $it['rates'][$this->pricing_period];
+            }
+        }
+        unset($it);
+
+        // Catalog prices are period-dependent — drop the cached rows so they re-render.
+        $this->invalidateAvailabilityCaches();
     }
 
     #[Computed]
@@ -511,12 +576,16 @@ class RentalEditor extends Component
         $availMap = $this->availableCountMap();
         $totalMap = $this->totalOwnedMap();
 
+        $period = $this->pricing_period;
         $rows = [];
         foreach ($products as $p) {
             $cat = optional($p->category)->name ?? 'Other';
             $img = $p->image ? \Illuminate\Support\Facades\Storage::url($p->image) : null;
             if ($p->variations && $p->variations->isNotEmpty()) {
                 foreach ($p->variations as $v) {
+                    // Variation is loaded from the same product query — set the relation so
+                    // rateFor()'s parent fallback resolves without an extra query.
+                    $v->setRelation('product', $p);
                     $rows[] = [
                         'composite_id' => "{$p->id}:{$v->id}",
                         'product_id' => $p->id,
@@ -524,7 +593,7 @@ class RentalEditor extends Component
                         'sku' => "P{$p->id}V{$v->id}",
                         'name' => $p->name.' ('.$v->name.')',
                         'cat' => $cat,
-                        'price' => (float) ($v->daily_rate ?? $p->daily_rate ?? 0),
+                        'price' => (float) $v->rateFor($period),
                         'avail' => $availMap["{$p->id}:{$v->id}"] ?? 0,
                         'total' => $totalMap["{$p->id}:{$v->id}"] ?? 0,
                         'image' => $img,
@@ -538,7 +607,7 @@ class RentalEditor extends Component
                     'sku' => "P{$p->id}",
                     'name' => $p->name,
                     'cat' => $cat,
-                    'price' => (float) ($p->daily_rate ?? 0),
+                    'price' => (float) $p->rateFor($period),
                     'avail' => $availMap["{$p->id}:0"] ?? 0,
                     'total' => $totalMap["{$p->id}:0"] ?? 0,
                     'image' => $img,
@@ -709,8 +778,8 @@ class RentalEditor extends Component
 
         $loader = function () use ($needle, $limit) {
             $q = Product::query()
-                ->with(['variations:id,product_id,name,daily_rate', 'category:id,name,slug'])
-                ->select(['id', 'name', 'category_id', 'daily_rate', 'image', 'is_active'])
+                ->with(['variations:id,product_id,name,daily_rate,hourly_rate,weekly_rate,monthly_rate', 'category:id,name,slug'])
+                ->select(['id', 'name', 'category_id', 'daily_rate', 'hourly_rate', 'weekly_rate', 'monthly_rate', 'image', 'is_active'])
                 ->where('is_active', true)
                 ->whereDoesntHave('category', fn ($c) => $c->where('slug', 'accessories-kits'))
                 ->orderBy('name');
@@ -819,7 +888,8 @@ class RentalEditor extends Component
         $name = $variationId
             ? (Product::find($productId)?->name.' ('.$product->name.')')
             : $product->name;
-        $dailyRate = (float) ($product->daily_rate ?? 0);
+        $rates = $this->buildRatesMap($productId, $variationId);
+        $dailyRate = (float) ($rates[$this->pricing_period] ?? ($product->daily_rate ?? 0));
 
         // Hard cap: a rental can never hold more units of a product than physically
         // owned. Anything beyond available is allowed (becomes empty slots → Transfer),
@@ -875,6 +945,7 @@ class RentalEditor extends Component
             'variation_id' => $variationId,
             'quantity' => $qty,
             'daily_rate' => $dailyRate,
+            'rates' => $rates,
             'discount' => 0,
             'unit_ids' => $newUnitIds,
         ];
@@ -1508,6 +1579,7 @@ class RentalEditor extends Component
             'user_id' => $this->customer_id,
             'start_date' => $this->start_date,
             'end_date' => $this->end_date,
+            'pricing_period' => $this->pricing_period,
             'status' => $this->status,
             'subtotal' => $totals['subtotal'],
             ...$this->discountFields(),
@@ -1536,6 +1608,7 @@ class RentalEditor extends Component
                 'unit_ids' => json_encode($it['unit_ids']),
                 'daily_rate' => (float) $it['daily_rate'],
                 'days' => $days,
+                'rate_type' => $this->pricing_period,
                 'discount' => (float) $it['discount'],
                 'subtotal' => max(0, ((float) $it['daily_rate'] * $days) - ((float) $it['daily_rate'] * $days) * ((float) $it['discount'] / 100)),
             ];
@@ -1865,6 +1938,7 @@ class RentalEditor extends Component
             'user_id' => $this->customer_id,
             'start_date' => $this->start_date,
             'end_date' => $this->end_date,
+            'pricing_period' => $this->pricing_period,
             'status' => $this->status,
             'subtotal' => $totals['subtotal'],
             ...$this->discountFields(),
@@ -1899,6 +1973,7 @@ class RentalEditor extends Component
                 'unit_ids' => json_encode($it['unit_ids']),
                 'daily_rate' => (float) $it['daily_rate'],
                 'days' => $days,
+                'rate_type' => $this->pricing_period,
                 'discount' => (float) $it['discount'],
                 'subtotal' => max(0, ((float) $it['daily_rate'] * $days) - ((float) $it['daily_rate'] * $days) * ((float) $it['discount'] / 100)),
             ];
