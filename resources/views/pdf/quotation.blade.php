@@ -31,8 +31,8 @@
                 <th style="width: 5%;">No</th>
                 <th style="width: 35%;">Item</th>
                 <th style="width: 15%;">Serial Number</th>
-                <th style="width: 15%;" class="text-right">Price/Day</th>
-                <th style="width: 10%;" class="text-right">Days</th>
+                <th style="width: 15%;" class="text-right">Price/Period</th>
+                <th style="width: 10%;" class="text-right">Qty</th>
                 <th style="width: 20%;" class="text-right">Subtotal</th>
             </tr>
         </thead>
@@ -40,7 +40,7 @@
             @foreach($quotation->rentals as $rental)
             <tr>
                 <td colspan="6" style="background-color: #f3f4f6; font-weight: bold; font-size: 11px;">
-                    Rental: {{ $rental->rental_code }} | Period: {{ $rental->start_date->format('d M Y H:i') }} - {{ $rental->end_date->format('d M Y H:i') }}
+                    Rental: {{ $rental->rental_code }} | Period: {{ $rental->start_date->format('d M Y H:i') }} - {{ $rental->end_date->format('d M Y H:i') }} | Tarif: Per {{ ucfirst($rental->periodLabel()) }}
                 </td>
             </tr>
             @foreach($rental->items as $index => $item)
@@ -55,7 +55,7 @@
                 <td>{{ $productName }}{{ $variationName ? ' - ' . $variationName : '' }}</td>
                 <td>{{ $item->productUnit->serial_number ?? '-' }}</td>
                 <td class="text-right">Rp {{ number_format($item->daily_rate, 0, ',', '.') }}</td>
-                <td class="text-right">{{ $item->days }}</td>
+                <td class="text-right">{{ $item->days }} {{ $rental->periodLabel() }}</td>
                 <td class="text-right">Rp {{ number_format($item->subtotal, 0, ',', '.') }}</td>
             </tr>
             @php
@@ -96,6 +96,19 @@
             <div class="meta-box" style="margin-right: 10px; margin-top: 10px;">
                 <div class="meta-title">Notes</div>
                 <p style="font-size: 11px;">{{ $quotation->notes }}</p>
+            </div>
+            @endif
+
+            @php
+                $customFieldRows = collect($quotation->rentals)
+                    ->flatMap(fn ($r) => \App\Support\CustomFields::displayValues('rental_custom_fields', $r->custom_fields));
+            @endphp
+            @if($customFieldRows->isNotEmpty())
+            <div class="meta-box" style="margin-right: 10px; margin-top: 10px;">
+                <div class="meta-title">Informasi Tambahan</div>
+                @foreach($customFieldRows as $cf)
+                    <p style="font-size: 11px; margin: 2px 0;"><strong>{{ $cf['label'] }}:</strong> {{ $cf['value'] }}</p>
+                @endforeach
             </div>
             @endif
         </div>

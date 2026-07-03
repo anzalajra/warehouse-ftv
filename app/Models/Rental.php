@@ -40,6 +40,7 @@ class Rental extends Model
         'down_payment_amount',
         'down_payment_status',
         'notes',
+        'custom_fields',
         'activity_log',
         'tax_base',
         'ppn_rate',
@@ -78,6 +79,7 @@ class Rental extends Model
         'checklist_downloaded_at' => 'datetime',
         'permit_template_clicked_at' => 'datetime',
         'activity_log' => 'array',
+        'custom_fields' => 'array',
     ];
 
     public const STATUS_QUOTATION = 'quotation';

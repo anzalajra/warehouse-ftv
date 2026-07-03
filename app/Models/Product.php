@@ -33,6 +33,7 @@ class Product extends Model
         'is_taxable',
         'price_includes_tax',
         'is_visible_on_frontend',
+        'custom_fields',
     ];
 
     protected $casts = [
@@ -46,6 +47,7 @@ class Product extends Model
         'is_taxable' => 'boolean',
         'price_includes_tax' => 'boolean',
         'is_visible_on_frontend' => 'boolean',
+        'custom_fields' => 'array',
     ];
 
     /** Supported billing periods (multi-tier pricing). */

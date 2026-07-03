@@ -40,6 +40,17 @@ class Cart extends Model
         return Rental::periodsBetween($startDate, $endDate, $period);
     }
 
+    /** Human (Indonesian) label for the cart line's billing period. */
+    public function periodLabel(): string
+    {
+        return [
+            'hour' => 'jam',
+            'day' => 'hari',
+            'week' => 'minggu',
+            'month' => 'bulan',
+        ][$this->pricing_period ?? 'day'] ?? 'hari';
+    }
+
     public function recalculate(): void
     {
         // `days` = number of billing periods; `daily_rate` = rate per period.

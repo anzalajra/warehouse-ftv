@@ -65,7 +65,7 @@
                                                 <span class="text-gray-500 font-normal">({{ $item->productUnit->variation->name }})</span>
                                             @endif
                                         </p>
-                                        <p class="text-sm text-gray-500">{{ $item->start_date->format('d M Y') }} - {{ $item->end_date->format('d M Y') }} ({{ $item->days }} days)</p>
+                                        <p class="text-sm text-gray-500">{{ $item->start_date->format('d M Y') }} - {{ $item->end_date->format('d M Y') }} ({{ $item->days }} {{ $item->periodLabel() }})</p>
                                     </div>
                                 </div>
                                 <p class="font-semibold">Rp {{ number_format($item->subtotal, 0, ',', '.') }}</p>
@@ -77,8 +77,53 @@
                 <!-- Notes -->
                 <div class="bg-white rounded-lg shadow p-6 mb-6">
                     <h2 class="text-lg font-semibold mb-4">Additional Notes</h2>
-                    <textarea name="notes" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Any special requests or notes..."></textarea>
+                    <textarea name="notes" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="Any special requests or notes...">{{ old('notes') }}</textarea>
                 </div>
+
+                <!-- Custom fields (Informasi Tambahan) -->
+                @if(!empty($rentalCustomFields))
+                    <div class="bg-white rounded-lg shadow p-6 mb-6">
+                        <h2 class="text-lg font-semibold mb-4">Informasi Tambahan</h2>
+                        <div class="space-y-4">
+                            @foreach($rentalCustomFields as $field)
+                                @php
+                                    $fname = $field['name'];
+                                    $ftype = $field['type'] ?? 'text';
+                                    $inputName = 'custom_'.$fname;
+                                    $old = old($inputName);
+                                    $req = $field['required'] ?? false;
+                                @endphp
+                                <div>
+                                    @if($ftype === 'checkbox')
+                                        <label class="flex items-center cursor-pointer">
+                                            <input type="checkbox" name="{{ $inputName }}" value="1" @checked($old) class="mr-2" @if($req) required @endif>
+                                            <span class="text-sm text-gray-700">{{ $field['label'] ?? $fname }}@if($req)<span class="text-red-500"> *</span>@endif</span>
+                                        </label>
+                                    @else
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">{{ $field['label'] ?? $fname }}@if($req)<span class="text-red-500"> *</span>@endif</label>
+                                        @if($ftype === 'textarea')
+                                            <textarea name="{{ $inputName }}" rows="3" class="w-full border rounded-lg px-3 py-2" @if($req) required @endif>{{ $old }}</textarea>
+                                        @elseif(in_array($ftype, ['select','radio']))
+                                            <select name="{{ $inputName }}" class="w-full border rounded-lg px-3 py-2" @if($req) required @endif>
+                                                <option value="">— Pilih —</option>
+                                                @foreach(\App\Support\CustomFields::parseOptions($field['options'] ?? '') as $val => $lbl)
+                                                    <option value="{{ $val }}" @selected($old === (string) $val)>{{ $lbl }}</option>
+                                                @endforeach
+                                            </select>
+                                        @else
+                                            <input type="{{ $ftype === 'number' ? 'number' : ($ftype === 'email' ? 'email' : 'text') }}"
+                                                name="{{ $inputName }}" value="{{ $old }}"
+                                                class="w-full border rounded-lg px-3 py-2" @if($req) required @endif>
+                                        @endif
+                                    @endif
+                                    @error($inputName)
+                                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
 
                 <!-- Terms -->
                 <div class="bg-white rounded-lg shadow p-6">

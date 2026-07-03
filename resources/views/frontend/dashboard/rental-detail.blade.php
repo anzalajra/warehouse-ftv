@@ -101,7 +101,7 @@
                             </div>
                             <div>
                                 <p class="font-semibold">{{ $product->name }}</p>
-                                <p class="text-sm text-gray-500">{{ $firstItem->days }} days × Rp {{ number_format($firstItem->daily_rate, 0, ',', '.') }}</p>
+                                <p class="text-sm text-gray-500">{{ $firstItem->days }} {{ $rental->periodLabel() }} × Rp {{ number_format($firstItem->daily_rate, 0, ',', '.') }}</p>
                                 <p class="text-sm font-medium mt-1">Quantity: {{ $quantity }}</p>
                             </div>
                         </div>

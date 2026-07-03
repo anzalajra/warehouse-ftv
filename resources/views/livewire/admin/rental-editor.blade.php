@@ -1275,6 +1275,41 @@
                 @endif
             </div>
 
+            {{-- Custom fields (Informasi Tambahan) --}}
+            @if(count($this->customFieldDefs))
+                <div class="card" style="margin-top:20px;">
+                    <div class="card-head"><h3>Informasi Tambahan</h3></div>
+                    <div class="card-body" style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px;">
+                        @foreach($this->customFieldDefs as $field)
+                            @php $fname = $field['name']; $ftype = $field['type'] ?? 'text'; @endphp
+                            <div style="{{ in_array($ftype, ['textarea']) ? 'grid-column:1/-1;' : '' }}">
+                                @if($ftype === 'checkbox')
+                                    <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <input type="checkbox" wire:model.blur="custom_fields.{{ $fname }}">
+                                        {{ $field['label'] ?? $fname }}
+                                    </label>
+                                @else
+                                    <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">{{ $field['label'] ?? $fname }}@if($field['required'] ?? false)<span style="color:#dc2626;"> *</span>@endif</label>
+                                    @if($ftype === 'textarea')
+                                        <textarea class="input" rows="3" wire:model.blur="custom_fields.{{ $fname }}"></textarea>
+                                    @elseif(in_array($ftype, ['select','radio']))
+                                        <select class="input" wire:model.blur="custom_fields.{{ $fname }}">
+                                            <option value="">— Pilih —</option>
+                                            @foreach(\App\Support\CustomFields::parseOptions($field['options'] ?? '') as $val => $lbl)
+                                                <option value="{{ $val }}">{{ $lbl }}</option>
+                                            @endforeach
+                                        </select>
+                                    @else
+                                        <input type="{{ $ftype === 'number' ? 'number' : ($ftype === 'email' ? 'email' : 'text') }}"
+                                            class="input" wire:model.blur="custom_fields.{{ $fname }}">
+                                    @endif
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             {{-- Totals / Notes / Deposit --}}
             <div class="totals-grid">
                 <div class="card">
@@ -2144,6 +2179,41 @@
                 </div>
             </div>
         </div>
+
+        {{-- Custom fields (Informasi Tambahan) — mobile --}}
+        @if(count($this->customFieldDefs))
+            <div class="card" style="margin:0 14px 16px;">
+                <div class="card-head"><h3>Informasi Tambahan</h3></div>
+                <div class="card-body" style="display:flex; flex-direction:column; gap:14px;">
+                    @foreach($this->customFieldDefs as $field)
+                        @php $fname = $field['name']; $ftype = $field['type'] ?? 'text'; @endphp
+                        <div>
+                            @if($ftype === 'checkbox')
+                                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                    <input type="checkbox" wire:model.blur="custom_fields.{{ $fname }}">
+                                    {{ $field['label'] ?? $fname }}
+                                </label>
+                            @else
+                                <label style="display:block; font-size:12px; font-weight:600; margin-bottom:4px;">{{ $field['label'] ?? $fname }}@if($field['required'] ?? false)<span style="color:#dc2626;"> *</span>@endif</label>
+                                @if($ftype === 'textarea')
+                                    <textarea class="input" rows="3" wire:model.blur="custom_fields.{{ $fname }}"></textarea>
+                                @elseif(in_array($ftype, ['select','radio']))
+                                    <select class="input" wire:model.blur="custom_fields.{{ $fname }}">
+                                        <option value="">— Pilih —</option>
+                                        @foreach(\App\Support\CustomFields::parseOptions($field['options'] ?? '') as $val => $lbl)
+                                            <option value="{{ $val }}">{{ $lbl }}</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    <input type="{{ $ftype === 'number' ? 'number' : ($ftype === 'email' ? 'email' : 'text') }}"
+                                        class="input" wire:model.blur="custom_fields.{{ $fname }}">
+                                @endif
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         @if($record && $record->exists)
             <div style="padding: 0 14px 16px;">

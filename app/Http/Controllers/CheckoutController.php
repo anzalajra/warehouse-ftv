@@ -97,11 +97,14 @@ class CheckoutController extends Controller
         // Get active promotions for display
         $activePromotions = PromotionService::getActivePromotionsSummary();
 
+        // Admin-defined rental custom fields (rendered on the checkout form).
+        $rentalCustomFields = \App\Support\CustomFields::definitions('rental_custom_fields');
+
         return view('frontend.checkout.index', compact(
             'customer', 'cartItems', 'subtotal', 'deposit', 'discountAmount',
             'categoryDiscountAmount', 'categoryName', 'grossTotal', 'grandTotal',
             'dailyDiscountAmount', 'dailyDiscountName', 'datePromotionAmount', 'datePromotionName',
-            'totalDiscount', 'activePromotions'
+            'totalDiscount', 'activePromotions', 'rentalCustomFields'
         ));
     }
 
@@ -207,10 +210,38 @@ class CheckoutController extends Controller
                 ->with('error', 'Anda harus menyelesaikan verifikasi akun sebelum dapat melakukan checkout.');
         }
 
-        $request->validate([
+        $rules = [
             'notes' => 'nullable|string|max:500',
             'agree_terms' => 'required|accepted',
-        ]);
+        ];
+
+        // Rental custom fields — collect values under a `custom_` prefix (mirrors the
+        // registration flow) and validate against the admin-defined definitions.
+        $customFieldDefs = \App\Support\CustomFields::definitions('rental_custom_fields');
+        $customFieldAttributes = [];
+        foreach ($customFieldDefs as $field) {
+            $key = 'custom_'.$field['name'];
+            $rule = ($field['required'] ?? false) ? 'required' : 'nullable';
+            if (($field['type'] ?? null) === 'number') {
+                $rule .= '|numeric';
+            } elseif (($field['type'] ?? null) === 'email') {
+                $rule .= '|email';
+            }
+            $rules[$key] = $rule;
+            $customFieldAttributes[$key] = $field['label'] ?? $field['name'];
+        }
+
+        $request->validate($rules, [], $customFieldAttributes);
+
+        // Assemble the custom_fields payload keyed by field name.
+        $customFieldValues = [];
+        foreach ($customFieldDefs as $field) {
+            $value = $request->input('custom_'.$field['name']);
+            if ($value !== null && $value !== '') {
+                $customFieldValues[$field['name']] = $value;
+            }
+        }
+        $customFieldValues = $customFieldValues ?: null;
 
         $cartItems = $customer->carts()->with(['productUnit.product'])->get();
 
@@ -379,6 +410,7 @@ class CheckoutController extends Controller
                     'total' => $subtotal - $rentalTotalDiscount,
                     'deposit' => $deposit,
                     'notes' => $request->notes,
+                    'custom_fields' => $customFieldValues,
                 ]);
 
                 // Compute blocked units once for this date range (all items in group share dates).

@@ -72,6 +72,9 @@ class RentalEditor extends Component
 
     public ?string $notes = null;
 
+    /** Admin-defined rental custom field values, keyed by field name. */
+    public array $custom_fields = [];
+
     // Search
     public string $searchTerm = '';
 
@@ -187,6 +190,7 @@ class RentalEditor extends Component
             $this->deposit = (float) ($record->deposit ?? 0);
             $this->down_payment_amount = (float) ($record->down_payment_amount ?? 0);
             $this->notes = $record->notes;
+            $this->custom_fields = is_array($record->custom_fields) ? $record->custom_fields : [];
             $this->loadItemsFromRecord();
         } else {
             $this->start_date = now()->format('Y-m-d\TH:i');
@@ -349,6 +353,13 @@ class RentalEditor extends Component
             'week' => 'minggu',
             'month' => 'bulan',
         ][$this->pricing_period] ?? 'hari';
+    }
+
+    /** Admin-defined rental custom field definitions (from Settings → Rental Settings). */
+    #[Computed]
+    public function customFieldDefs(): array
+    {
+        return \App\Support\CustomFields::definitions('rental_custom_fields');
     }
 
     /**
@@ -1591,6 +1602,7 @@ class RentalEditor extends Component
             'ppn_rate' => $totals['ppn_rate'],
             'total' => $totals['total'],
             'notes' => $this->notes,
+            'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
         ];
 
         if (! $this->record || ! $this->record->exists) {
@@ -1950,6 +1962,7 @@ class RentalEditor extends Component
             'ppn_rate' => $totals['ppn_rate'],
             'total' => $totals['total'],
             'notes' => $this->notes,
+            'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
         ];
 
         if (! $this->record || ! $this->record->exists) {

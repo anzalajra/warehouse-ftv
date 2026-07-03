@@ -120,7 +120,7 @@
                                             <span class="text-gray-500 font-normal">({{ $variation->name }})</span>
                                         @endif
                                     </p>
-                                    <p class="text-sm text-primary-600">Rp {{ number_format($firstItem->daily_rate, 0, ',', '.') }}/day</p>
+                                    <p class="text-sm text-primary-600">Rp {{ number_format($firstItem->daily_rate, 0, ',', '.') }}/{{ $firstItem->periodLabel() }}</p>
                                     <p class="text-xs text-gray-500 mt-1">
                                         {{ $firstItem->start_date->format('d M H:i') }} - {{ $firstItem->end_date->format('d M H:i') }}
                                     </p>
@@ -142,7 +142,7 @@
                             </div>
                             <div class="flex justify-between items-center mt-4 pt-4 border-t border-gray-100">
                                 <div>
-                                    <span class="text-sm font-semibold">{{ $firstItem->days }}</span> <span class="text-xs text-gray-500">days</span>
+                                    <span class="text-sm font-semibold">{{ $firstItem->days }}</span> <span class="text-xs text-gray-500">{{ $firstItem->periodLabel() }}</span>
                                     <p class="font-bold text-gray-900">Rp {{ number_format($subtotal, 0, ',', '.') }}</p>
                                 </div>
                                 <form action="{{ route('cart.remove-product') }}" method="POST" class="inline">
@@ -197,7 +197,7 @@
                                                         <span class="text-gray-500 font-normal">({{ $variation->name }})</span>
                                                     @endif
                                                 </p>
-                                                <p class="text-sm text-primary-600">Rp {{ number_format($firstItem->daily_rate, 0, ',', '.') }}/day</p>
+                                                <p class="text-sm text-primary-600">Rp {{ number_format($firstItem->daily_rate, 0, ',', '.') }}/{{ $firstItem->periodLabel() }}</p>
                                                 <p class="text-xs text-gray-500 mt-1">
                                                     {{ $firstItem->start_date->format('d M H:i') }} - {{ $firstItem->end_date->format('d M H:i') }}
                                                 </p>
@@ -218,7 +218,7 @@
                                         </form>
                                     </td>
                                     <td class="px-6 py-4">
-                                        <span class="font-semibold">{{ $firstItem->days }}</span> days
+                                        <span class="font-semibold">{{ $firstItem->days }}</span> {{ $firstItem->periodLabel() }}
                                     </td>
                                     <td class="px-6 py-4 text-right font-semibold">
                                         Rp {{ number_format($subtotal, 0, ',', '.') }}

@@ -682,6 +682,13 @@
                     <span class="iv {{ $rental->notes ? '' : 'muted' }}">{{ $rental->notes ?: '—' }}</span>
                 </div>
 
+                @foreach(\App\Support\CustomFields::displayValues('rental_custom_fields', $rental->custom_fields) as $cf)
+                    <div class="info-cell">
+                        <span class="il">{{ $cf['label'] }}</span>
+                        <span class="iv">{{ $cf['value'] }}</span>
+                    </div>
+                @endforeach
+
                 @if($realStatus === 'cancelled' && $rental->cancel_reason)
                     <div class="info-cell span2">
                         <span class="il">Cancel Reason</span>

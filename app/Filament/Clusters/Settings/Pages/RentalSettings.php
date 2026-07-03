@@ -70,6 +70,10 @@ class RentalSettings extends Page implements HasForms
             $settings['late_fee_tiers'] = is_array($decoded) ? $decoded : [];
         }
 
+        // Decode rental custom field definitions (stored as JSON string)
+        $rentalCustomFields = json_decode($settings['rental_custom_fields'] ?? '[]', true);
+        $settings['rental_custom_fields'] = is_array($rentalCustomFields) ? $rentalCustomFields : [];
+
         // Remove keys managed outside the Filament form
         unset($settings['holidays'], $settings['operational_days'], $settings['operational_schedule']);
 
@@ -206,6 +210,17 @@ class RentalSettings extends Page implements HasForms
                             ->default("Halo [customer_name], pesanan Anda [rental_code] telah dikonfirmasi.\n\nSilakan cek detail rental Anda di:\n[my_rental]")
                             ->helperText('Template pesan yang dikirim ADMIN ke customer saat order dikonfirmasi. Placeholder: [customer_name], [rental_code], [my_rental], [rental-range], [pickup-date], [return-date], [pickup-time], [return-time]'),
                     ]),
+
+                Section::make('Custom Fields Rental')
+                    ->description('Field tambahan yang muncul di editor rental (mis. Nama Acara, Lokasi Syuting). Nilai disimpan di kolom custom_fields rental.')
+                    ->schema([
+                        Repeater::make('rental_custom_fields')
+                            ->label('Fields')
+                            ->schema(ProductSetup::customFieldSchema())
+                            ->collapsible()
+                            ->addActionLabel('Add Custom Field')
+                            ->itemLabel(fn (array $state): ?string => $state['label'] ?? null),
+                    ]),
             ]);
     }
 
@@ -251,6 +266,12 @@ class RentalSettings extends Page implements HasForms
         if (array_key_exists('late_fee_tiers', $data)) {
             $tiers = is_array($data['late_fee_tiers']) ? array_values($data['late_fee_tiers']) : [];
             $data['late_fee_tiers'] = json_encode($tiers);
+        }
+
+        // Rental custom field definitions come from the Repeater as an array — persist as JSON.
+        if (array_key_exists('rental_custom_fields', $data)) {
+            $fields = is_array($data['rental_custom_fields']) ? array_values($data['rental_custom_fields']) : [];
+            $data['rental_custom_fields'] = json_encode($fields);
         }
 
         foreach ($data as $key => $value) {
