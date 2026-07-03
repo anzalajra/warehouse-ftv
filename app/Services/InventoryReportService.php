@@ -103,6 +103,8 @@ class InventoryReportService
         // N+1 storm through calculateTotalRevenue/Maintenance/Profitability).
         $periodItem = fn ($q) => $q->whereBetween('created_at', [$s, $e])
             ->whereHas('rental', fn ($r) => $r->whereNotIn('status', [Rental::STATUS_CANCELLED, Rental::STATUS_EXPIRED]));
+        $realizedItem = fn ($q) => $q->whereBetween('created_at', [$s, $e])
+            ->whereHas('rental', fn ($r) => $r->whereIn('status', RentalReportService::REALIZED_STATUSES));
         $lifetimeItem = fn ($q) => $q->whereHas('rental', fn ($r) => $r->whereNotIn('status', [Rental::STATUS_CANCELLED]));
         $periodMaint = fn ($q) => $q->whereBetween('date', [$sDate, $eDate]);
 
@@ -110,6 +112,7 @@ class InventoryReportService
             ->with('product:id,name')
             ->withSum(['rentalItems as period_days' => $periodItem], 'days')
             ->withSum(['rentalItems as period_revenue' => $periodItem], 'subtotal')
+            ->withCount(['rentalItems as period_rental_count' => $realizedItem])
             ->withSum(['rentalItems as lifetime_revenue' => $lifetimeItem], 'subtotal')
             ->withSum(['maintenanceRecords as period_maintenance' => $periodMaint], 'cost')
             ->withCount(['maintenanceRecords as maintenance_freq' => $periodMaint])
@@ -137,6 +140,7 @@ class InventoryReportService
                 'status' => $unit->status,
                 'condition' => $unit->condition,
                 'days_rented' => $daysRented,
+                'rental_count' => (int) ($unit->period_rental_count ?? 0),
                 'utilization_rate' => $utilization,
                 'period_revenue' => $periodRevenue,
                 'lifetime_revenue' => $lifetimeRevenue,
@@ -183,9 +187,16 @@ class InventoryReportService
         })->sortByDesc('period_revenue')->values();
     }
 
+    /** avg_utilization below this % (over a window with data) flags a product as underperforming. */
+    public const UNDERPERFORMING_UTILIZATION = 15.0;
+
     /**
      * Product Performance report — utilization + revenue per product (and revenue per
      * unit), sorted by period revenue. The per-unit rows live in unitMetrics().
+     *
+     * Enriched fields: rental_count (# realized rental lines in the window), idle_units
+     * (units never rented in the window), and is_underperforming (avg utilization below
+     * {@see self::UNDERPERFORMING_UTILIZATION}) for highlighting.
      *
      * @return Collection<int, array>
      */
@@ -195,17 +206,22 @@ class InventoryReportService
             $productName = explode(' (', $grp->first()['name'])[0];
             $unitCount = $grp->count();
             $periodRevenue = round($grp->sum('period_revenue'), 2);
+            $avgUtil = round($grp->avg('utilization_rate'), 1);
+            $idleUnits = $grp->where('utilization_rate', 0)->count();
 
             return [
                 'product_id' => $grp->first()['product_id'],
                 'product' => $productName,
                 'unit_count' => $unitCount,
-                'avg_utilization' => round($grp->avg('utilization_rate'), 1),
+                'rental_count' => (int) $grp->sum('rental_count'),
+                'avg_utilization' => $avgUtil,
+                'idle_units' => $idleUnits,
                 'total_days' => (int) $grp->sum('days_rented'),
                 'period_revenue' => $periodRevenue,
                 'revenue_per_unit' => $unitCount > 0 ? round($periodRevenue / $unitCount, 2) : 0.0,
                 'lifetime_revenue' => round($grp->sum('lifetime_revenue'), 2),
                 'avg_roi' => round($grp->avg('roi'), 1),
+                'is_underperforming' => $avgUtil < self::UNDERPERFORMING_UTILIZATION,
             ];
         })->sortByDesc('period_revenue')->values();
     }

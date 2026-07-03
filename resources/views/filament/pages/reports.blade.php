@@ -496,26 +496,102 @@
             </div>
 
             {{-- Product Performance (utilization & revenue per product / per unit) --}}
-            <div x-show="invSub === 'performance'" x-cloak class="space-y-4">
-                <x-filament::section>
-                    <div class="flex items-center justify-between mb-3">
-                        <h4 class="font-medium text-gray-900 dark:text-white">Performa per Produk</h4>
-                        <x-filament::button size="xs" color="gray" wire:click="export('performance_products','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+            <div x-show="invSub === 'performance'" x-cloak x-data="{ perfView: 'top' }" class="space-y-4">
+                @php
+                    $pk = $this->getPerformanceKpis();
+                    $underThreshold = \App\Services\InventoryReportService::UNDERPERFORMING_UTILIZATION;
+                @endphp
+
+                {{-- KPI headline --}}
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                    <div class="rounded-xl p-4 ring-1 ring-gray-200 dark:ring-white/10 bg-white dark:bg-gray-800">
+                        <div class="text-xs font-medium text-gray-500 dark:text-gray-400">Revenue Tertinggi</div>
+                        @if ($pk['top_revenue'] && $pk['top_revenue']['period_revenue'] > 0)
+                            <div class="mt-1 font-semibold text-gray-900 dark:text-white truncate">{{ $pk['top_revenue']['product'] }}</div>
+                            <div class="text-sm text-primary-600 dark:text-primary-400">{{ $this->money($pk['top_revenue']['period_revenue']) }}</div>
+                        @else
+                            <div class="mt-1 text-sm text-gray-400">—</div>
+                        @endif
                     </div>
-                    <x-reports.table :head="['Produk', 'Unit', 'Utilisasi', 'Total Hari', 'Pendapatan', 'Pendapatan/Unit', 'ROI']">
+                    <div class="rounded-xl p-4 ring-1 ring-gray-200 dark:ring-white/10 bg-white dark:bg-gray-800">
+                        <div class="text-xs font-medium text-gray-500 dark:text-gray-400">Paling Sering Disewa</div>
+                        @if ($pk['top_rented'] && $pk['top_rented']['rental_count'] > 0)
+                            <div class="mt-1 font-semibold text-gray-900 dark:text-white truncate">{{ $pk['top_rented']['product'] }}</div>
+                            <div class="text-sm text-primary-600 dark:text-primary-400">{{ $pk['top_rented']['rental_count'] }}× sewa</div>
+                        @else
+                            <div class="mt-1 text-sm text-gray-400">—</div>
+                        @endif
+                    </div>
+                    <div @class([
+                        'rounded-xl p-4 ring-1 bg-white dark:bg-gray-800',
+                        'ring-danger-300 dark:ring-danger-500/40' => $pk['underperformer_count'] > 0,
+                        'ring-gray-200 dark:ring-white/10' => $pk['underperformer_count'] === 0,
+                    ])>
+                        <div class="text-xs font-medium text-gray-500 dark:text-gray-400">Produk Underperforming</div>
+                        <div class="mt-1 font-semibold {{ $pk['underperformer_count'] > 0 ? 'text-danger-600 dark:text-danger-400' : 'text-gray-900 dark:text-white' }}">{{ $pk['underperformer_count'] }} produk</div>
+                        <div class="text-xs text-gray-400">Utilisasi &lt; {{ rtrim(rtrim(number_format($underThreshold, 1), '0'), '.') }}%</div>
+                    </div>
+                </div>
+
+                <x-filament::section>
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div class="flex items-center gap-3">
+                            <h4 class="font-medium text-gray-900 dark:text-white">Performa per Produk</h4>
+                            <div class="inline-flex rounded-lg ring-1 ring-gray-200 dark:ring-white/10 overflow-hidden text-xs font-medium">
+                                <button type="button" @click="perfView='top'"
+                                    :class="perfView==='top' ? 'bg-primary-600 text-white' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300'"
+                                    class="px-2.5 py-1">Top performer</button>
+                                <button type="button" @click="perfView='under'"
+                                    :class="perfView==='under' ? 'bg-danger-600 text-white' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300'"
+                                    class="px-2.5 py-1">Underperformer</button>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">Urut:</span>
+                            @foreach (['revenue' => 'Pendapatan', 'utilization' => 'Utilisasi', 'rental_count' => 'Jumlah Sewa', 'roi' => 'ROI'] as $key => $label)
+                                <button type="button" wire:click="$set('perfSort', '{{ $key }}')"
+                                    @class([
+                                        'rounded-md px-2.5 py-1 text-xs font-medium',
+                                        'bg-primary-600 text-white' => $perfSort === $key,
+                                        'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700' => $perfSort !== $key,
+                                    ])>{{ $label }}</button>
+                            @endforeach
+                            <x-filament::button size="xs" color="gray" wire:click="export('performance_products','csv')" icon="heroicon-m-arrow-down-tray">CSV</x-filament::button>
+                        </div>
+                    </div>
+                    <x-reports.table :head="['Produk', '#Sewa', 'Pendapatan', 'Pend./Unit', 'Utilisasi', 'ROI', 'Idle']">
                         @forelse ($this->getPerformanceProducts() as $p)
-                            <tr class="border-t border-gray-100 dark:border-gray-700">
-                                <td class="py-2 px-2">{{ $p['product'] }}</td>
-                                <td class="py-2 px-2 text-right">{{ $p['unit_count'] }}</td>
-                                <td class="py-2 px-2 text-right">{{ $p['avg_utilization'] }}%</td>
-                                <td class="py-2 px-2 text-right">{{ $p['total_days'] }}</td>
+                            <tr x-show="perfView === 'top' || {{ $p['is_underperforming'] ? 'true' : 'false' }}"
+                                @class([
+                                    'border-t border-gray-100 dark:border-gray-700',
+                                    'bg-danger-50/40 dark:bg-danger-900/10' => $p['is_underperforming'],
+                                ])>
+                                <td class="py-2 px-2">
+                                    {{ $p['product'] }}
+                                    @if ($p['is_underperforming'])
+                                        <span class="ml-1 inline-flex items-center rounded-full bg-danger-100 text-danger-700 dark:bg-danger-900/40 dark:text-danger-300 px-1.5 py-0.5 text-[10px] font-semibold align-middle">underperform</span>
+                                    @endif
+                                </td>
+                                <td class="py-2 px-2 text-right">{{ $p['rental_count'] }}</td>
                                 <td class="py-2 px-2 text-right">{{ $this->money($p['period_revenue']) }}</td>
                                 <td class="py-2 px-2 text-right">{{ $this->money($p['revenue_per_unit']) }}</td>
+                                <td class="py-2 px-2">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <div class="w-16 h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                                            <div class="h-full rounded-full {{ $p['is_underperforming'] ? 'bg-danger-500' : 'bg-primary-500' }}" style="width: {{ min(100, max(0, $p['avg_utilization'])) }}%"></div>
+                                        </div>
+                                        <span class="text-xs tabular-nums w-10 text-right">{{ $p['avg_utilization'] }}%</span>
+                                    </div>
+                                </td>
                                 <td class="py-2 px-2 text-right">{{ $p['avg_roi'] }}%</td>
+                                <td class="py-2 px-2 text-right {{ $p['idle_units'] > 0 ? 'text-danger-600 dark:text-danger-400' : 'text-gray-400' }}">{{ $p['idle_units'] }}/{{ $p['unit_count'] }}</td>
                             </tr>
                         @empty
                             <tr><td colspan="7" class="py-4 px-2 text-center text-gray-400">Belum ada data produk.</td></tr>
                         @endforelse
+                        @if ($pk['product_count'] > 0 && $pk['underperformer_count'] === 0)
+                            <tr x-show="perfView === 'under'" x-cloak><td colspan="7" class="py-4 px-2 text-center text-gray-400">Tidak ada produk underperforming di periode ini. 🎉</td></tr>
+                        @endif
                     </x-reports.table>
                 </x-filament::section>
 

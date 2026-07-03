@@ -66,6 +66,10 @@ class Reports extends Page
     #[Url]
     public string $prodSort = 'revenue';
 
+    /** Product performance ranking metric: revenue | utilization | rental_count | roi */
+    #[Url]
+    public string $perfSort = 'revenue';
+
     /** Per-request memo so unitMetrics()/productSummary() aren't recomputed per getter. */
     protected array $memo = [];
 
@@ -286,7 +290,39 @@ class Reports extends Page
 
     public function getPerformanceProducts(): Collection
     {
-        return InventoryReportService::productPerformance($this->startDate, $this->endDate);
+        $products = InventoryReportService::productPerformance($this->startDate, $this->endDate);
+
+        $key = match ($this->perfSort) {
+            'utilization' => 'avg_utilization',
+            'rental_count' => 'rental_count',
+            'roi' => 'avg_roi',
+            default => 'period_revenue',
+        };
+
+        return $products->sortByDesc($key)->values();
+    }
+
+    /**
+     * Product-performance KPI headline: top revenue product, most-rented product, and
+     * the list of idle/underperforming products (low utilization) for quick triage.
+     */
+    public function getPerformanceKpis(): array
+    {
+        $products = InventoryReportService::productPerformance($this->startDate, $this->endDate);
+
+        $topRevenue = $products->sortByDesc('period_revenue')->first();
+        $topRented = $products->sortByDesc('rental_count')->first();
+        $underperformers = $products->filter(fn ($p) => $p['is_underperforming'])
+            ->sortBy('avg_utilization')
+            ->values();
+
+        return [
+            'product_count' => $products->count(),
+            'top_revenue' => $topRevenue,
+            'top_rented' => $topRented,
+            'underperformers' => $underperformers,
+            'underperformer_count' => $underperformers->count(),
+        ];
     }
 
     public function getPerformanceUnits(): Collection
@@ -461,10 +497,10 @@ class Reports extends Page
 
             case 'performance_products':
                 $rows = $this->getPerformanceProducts()->map(fn ($p) => [
-                    $p['product'], $p['unit_count'], $p['avg_utilization'], $p['total_days'], $p['period_revenue'], $p['revenue_per_unit'], $p['avg_roi'],
+                    $p['product'], $p['unit_count'], $p['rental_count'], $p['avg_utilization'], $p['idle_units'], $p['total_days'], $p['period_revenue'], $p['revenue_per_unit'], $p['avg_roi'], $p['is_underperforming'] ? 'Ya' : '',
                 ])->toArray();
 
-                return [['Produk', 'Jumlah Unit', 'Utilisasi %', 'Total Hari', 'Pendapatan', 'Pendapatan/Unit', 'ROI %'], $rows, 'Performa Produk'];
+                return [['Produk', 'Jumlah Unit', 'Jumlah Sewa', 'Utilisasi %', 'Unit Idle', 'Total Hari', 'Pendapatan', 'Pendapatan/Unit', 'ROI %', 'Underperform'], $rows, 'Performa Produk'];
 
             case 'performance_units':
                 $rows = $this->getPerformanceUnits()->map(fn ($u) => [
