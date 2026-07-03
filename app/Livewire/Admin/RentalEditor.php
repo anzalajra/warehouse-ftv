@@ -412,7 +412,7 @@ class RentalEditor extends Component
      * Re-price every line when the billing period changes. Uses the per-row rate
      * map captured at add/load time so no product query is needed here.
      */
-    public function updatedPricingPeriod($value): void
+    public function setPricingPeriod($value): void
     {
         $this->pricing_period = in_array($value, Product::PERIODS, true) ? $value : 'day';
         $this->isDirty = true;

@@ -19,6 +19,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Url;
+use Livewire\WithPagination;
 use UnitEnum;
 
 /**
@@ -30,6 +31,8 @@ use UnitEnum;
  */
 class Reports extends Page
 {
+    use WithPagination;
+
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-document-chart-bar';
 
     protected static ?string $navigationLabel = 'Report';

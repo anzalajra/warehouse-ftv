@@ -1035,7 +1035,7 @@
                             <div style="display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg-surface);">
                                 @foreach($periods as $pk => $plabel)
                                     <button type="button"
-                                        wire:click="updatedPricingPeriod('{{ $pk }}')"
+                                        wire:click="setPricingPeriod('{{ $pk }}')"
                                         style="padding:7px 12px; font-size:12.5px; font-weight:600; border:0; cursor:pointer; border-left:{{ $loop->first ? '0' : '1px solid var(--border)' }};
                                             {{ $pricing_period === $pk ? 'background:var(--danger-600); color:#fff;' : 'background:transparent; color:var(--fg-2);' }}">
                                         {{ $plabel }}
@@ -1955,7 +1955,7 @@
                     <div style="display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
                         @foreach($periodsM as $pk => $plabel)
                             <button type="button"
-                                wire:click="updatedPricingPeriod('{{ $pk }}')"
+                                wire:click="setPricingPeriod('{{ $pk }}')"
                                 style="flex:1; padding:9px 4px; font-size:12.5px; font-weight:600; border:0; cursor:pointer; border-left:{{ $loop->first ? '0' : '1px solid var(--border)' }};
                                     {{ $pricing_period === $pk ? 'background:var(--danger-600); color:#fff;' : 'background:transparent; color:var(--fg-2);' }}">
                                 {{ $plabel }}
