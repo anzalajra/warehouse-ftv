@@ -57,17 +57,21 @@
         </thead>
         <tbody>
             @foreach($rental->items as $item)
+                @php
+                    $product = $item->productUnit?->product ?? $item->product;
+                    $variation = $item->productUnit?->variation ?? $item->productVariation;
+                @endphp
                 <tr>
                     <td>
-                        <strong>{{ $item->productUnit->product->name }}</strong>
-                        @if($item->productUnit->variation)
-                            <br><span style="font-size: 0.8em; color: #666;">({{ $item->productUnit->variation->name }})</span>
+                        <strong>{{ $product?->name ?? '-' }}</strong>
+                        @if($variation)
+                            <br><span style="font-size: 0.8em; color: #666;">({{ $variation->name }})</span>
                         @endif
                     </td>
                     <td style="text-align: center;">1</td>
                     <td style="text-align: center;"><div style="width: 15px; height: 15px; border: 1px solid #333; margin: 0 auto;"></div></td>
                     <td style="text-align: center;"><div style="width: 15px; height: 15px; border: 1px solid #333; margin: 0 auto;"></div></td>
-                    <td>{{ $item->productUnit->serial_number }}</td>
+                    <td>{{ $item->productUnit?->serial_number ?? '(unassigned)' }}</td>
                 </tr>
                 @foreach($item->rentalItemKits as $kit)
                 <tr style="background-color: {{ $doc_settings['doc_secondary_color'] ?? '#fafafa' }};">

@@ -2097,6 +2097,19 @@ class RentalEditor extends Component
         $this->record->touch();
         $this->record->refresh();
 
+        // Keep logistics in sync. This editor saves via saveQuietly()/create(), so
+        // RentalObserver's auto delivery generation is bypassed — do it explicitly
+        // here, AFTER syncRentalItems() so the surat jalan pick up the saved items.
+        // createDeliveries() is idempotent; syncDeliveryDates() realigns draft rows.
+        if (! in_array($this->record->status, [
+            Rental::STATUS_QUOTATION,
+            Rental::STATUS_CANCELLED,
+            Rental::STATUS_EXPIRED,
+        ], true)) {
+            $this->record->createDeliveries();
+            $this->record->syncDeliveryDates();
+        }
+
         Notification::make()
             ->title('Perubahan disimpan')
             ->success()

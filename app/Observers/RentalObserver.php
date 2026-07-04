@@ -24,11 +24,18 @@ class RentalObserver
 
     public function updated(Rental $rental): void
     {
+        // Capture change flags BEFORE recalculateTotals(): its conditional
+        // updateQuietly() re-saves the model, which syncs the original attributes
+        // and would clear isDirty()/getOriginal() for status & dates below.
+        $statusChanged = $rental->isDirty('status');
+        $statusFrom = $rental->getOriginal('status');
+        $datesChanged = $rental->isDirty('start_date') || $rental->isDirty('end_date');
+
         $this->recalculateTotals($rental);
 
-        if ($rental->isDirty('status')) {
+        if ($statusChanged) {
             // Record the status transition in the activity log (separate from notes).
-            $from = $rental->getOriginal('status');
+            $from = $statusFrom;
             if ($from && $from !== $rental->status) {
                 $rental->logActivity(
                     'Status: '.Rental::getStatusLabel($from).' → '.Rental::getStatusLabel($rental->status),
@@ -41,6 +48,14 @@ class RentalObserver
                 $rental->customer->notify(new BookingConfirmedNotification($rental));
             }
 
+            // Auto-generate the draft SJK/SJM the moment a rental is confirmed, so
+            // logistics can see & assign it on the Delivery Schedule board days ahead
+            // instead of the rows only materializing when the Pickup page is opened.
+            // Idempotent (firstOrCreate), so re-running on Pickup mount is a no-op.
+            if ($rental->status === Rental::STATUS_CONFIRMED && $from !== Rental::STATUS_CONFIRMED) {
+                $rental->createDeliveries();
+            }
+
             // Notify admins + customer when rental is completed
             if ($rental->status === Rental::STATUS_COMPLETED) {
                 $admins = User::role(['super_admin', 'admin', 'staff'])->get();
@@ -50,6 +65,13 @@ class RentalObserver
                     $rental->user->notify(new RentalCompletedNotification($rental));
                 }
             }
+        }
+
+        // Keep not-yet-dispatched draft deliveries aligned with the rental dates so
+        // rescheduling a rental moves its surat jalan on the board too. Only touches
+        // DRAFT + unassigned rows — once a driver is assigned, the human-set schedule wins.
+        if ($datesChanged) {
+            $rental->syncDeliveryDates();
         }
     }
 

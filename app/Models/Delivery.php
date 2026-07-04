@@ -37,6 +37,24 @@ class Delivery extends Model
         return ! empty($this->recipient_signature);
     }
 
+    /**
+     * Whether the parent rental is self-pickup ("diambil sendiri") rather than
+     * delivered. Self-pickup deliveries still need a handover checklist (SJK/SJM),
+     * but don't require a driver/route by default — the Delivery Schedule board
+     * uses this to badge them and to keep them out of the "needs driver" count.
+     * An escort can still be assigned when heavy gear needs supervision.
+     *
+     * Reads the eager-loaded rental relation on the board; falls back to a lookup.
+     */
+    public function isSelfPickup(): bool
+    {
+        $rental = $this->relationLoaded('rental') && $this->rental
+            ? $this->rental
+            : Rental::find($this->rental_id);
+
+        return ($rental?->fulfillment_method ?? 'pickup') !== 'delivery';
+    }
+
     public const TYPE_OUT = 'out';
     public const TYPE_IN = 'in';
 

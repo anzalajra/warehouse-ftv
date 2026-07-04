@@ -1791,6 +1791,36 @@ class Rental extends Model
         });
     }
 
+    /**
+     * Realign not-yet-dispatched deliveries with the rental dates.
+     *
+     * The OUT (SJK) surat jalan tracks start_date, the IN (SJM) tracks end_date.
+     * Only DRAFT deliveries that have NOT been assigned a driver are moved — once
+     * logistics assigns a driver/escort on the Delivery Schedule board, that
+     * human-set schedule is respected and never auto-overwritten. Uses a query
+     * builder update() so it doesn't fire Delivery events or recurse.
+     */
+    public function syncDeliveryDates(): void
+    {
+        $this->deliveries()
+            ->where('type', Delivery::TYPE_OUT)
+            ->where('status', Delivery::STATUS_DRAFT)
+            ->whereNull('driver_id')
+            ->update([
+                'date' => $this->start_date,
+                'scheduled_at' => $this->start_date,
+            ]);
+
+        $this->deliveries()
+            ->where('type', Delivery::TYPE_IN)
+            ->where('status', Delivery::STATUS_DRAFT)
+            ->whereNull('driver_id')
+            ->update([
+                'date' => $this->end_date,
+                'scheduled_at' => $this->end_date,
+            ]);
+    }
+
     protected function createDeliveriesInternal(): void
     {
         // Ensure all rental items have their kits attached first

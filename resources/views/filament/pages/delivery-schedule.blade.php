@@ -45,11 +45,12 @@
             </div>
 
             {{-- KPI row --}}
-            <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
                 @foreach ([
                     ['Total', $summary['total'], 'text-gray-900 dark:text-white'],
                     ['Ada Driver', $summary['assigned'], 'text-primary-600'],
-                    ['Belum Ditugaskan', $summary['unassigned'], 'text-amber-600'],
+                    ['Ambil Sendiri', $summary['self_pickup'], 'text-sky-600'],
+                    ['Perlu Driver', $summary['unassigned'], 'text-amber-600'],
                     ['Selesai', $summary['completed'], 'text-green-600'],
                 ] as [$label, $value, $tone])
                     <div class="rounded-lg bg-gray-50 dark:bg-gray-800/50 p-3">
@@ -78,6 +79,7 @@
                         @php
                             $rental = $delivery->rental;
                             $isOut = $delivery->type === \App\Models\Delivery::TYPE_OUT;
+                            $selfPickup = $delivery->isSelfPickup();
                         @endphp
                         <div class="rounded-lg border border-gray-200 dark:border-gray-700 p-4">
                             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -91,6 +93,10 @@
                                         <span class="font-semibold text-gray-900 dark:text-white">{{ $delivery->delivery_number }}</span>
                                         <x-filament::badge :color="$statusColors[$delivery->status] ?? 'gray'">
                                             {{ $statusLabels[$delivery->status] ?? ucfirst($delivery->status) }}
+                                        </x-filament::badge>
+                                        <x-filament::badge :color="$selfPickup ? 'info' : 'primary'"
+                                            :icon="$selfPickup ? 'heroicon-o-building-storefront' : 'heroicon-o-truck'">
+                                            {{ $selfPickup ? 'Ambil sendiri' : 'Antar' }}
                                         </x-filament::badge>
                                     </div>
 
@@ -120,6 +126,11 @@
                                         <div class="mt-1 flex items-start gap-1 text-xs text-gray-500 dark:text-gray-400">
                                             <x-filament::icon icon="heroicon-o-map-pin" class="h-4 w-4 shrink-0" />
                                             <span>{{ $delivery->address }}</span>
+                                        </div>
+                                    @elseif ($selfPickup)
+                                        <div class="mt-1 flex items-start gap-1 text-xs text-gray-500 dark:text-gray-400">
+                                            <x-filament::icon icon="heroicon-o-building-storefront" class="h-4 w-4 shrink-0" />
+                                            <span>Diambil di gudang — driver tidak wajib. Assign pengawal bila perlu.</span>
                                         </div>
                                     @endif
                                 </div>
@@ -175,6 +186,13 @@
             wire:click.self="closeAssign">
             <div class="w-full max-w-md rounded-xl bg-white dark:bg-gray-900 p-5 shadow-2xl">
                 <h3 class="text-base font-semibold text-gray-900 dark:text-white">Tugaskan Pengiriman</h3>
+
+                @if ($editSelfPickup)
+                    <div class="mt-3 flex items-start gap-2 rounded-lg bg-sky-50 dark:bg-sky-900/20 p-3 text-xs text-sky-700 dark:text-sky-300">
+                        <x-filament::icon icon="heroicon-o-building-storefront" class="h-4 w-4 shrink-0 mt-0.5" />
+                        <span>Rental ini <strong>diambil sendiri</strong> — driver tidak wajib. Isi <strong>pengawal / escort</strong> saja bila alat perlu didampingi.</span>
+                    </div>
+                @endif
 
                 <div class="mt-4 space-y-4">
                     <div>

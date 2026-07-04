@@ -54,6 +54,9 @@ class DeliverySchedule extends Page
 
     public ?string $editAddress = null;
 
+    /** Whether the delivery being assigned is self-pickup (driver optional). */
+    public bool $editSelfPickup = false;
+
     /** Per-request cache so deliveryGroups() isn't re-queried by summary(). */
     protected ?Collection $groupsCache = null;
 
@@ -114,8 +117,17 @@ class DeliverySchedule extends Page
         }
 
         $query = Delivery::query()
-            ->whereDate('scheduled_at', $this->date)
             ->whereNotIn('status', [Delivery::STATUS_CANCELLED])
+            // Match the selected day on scheduled_at, but fall back to the plain
+            // `date` column when scheduled_at was never set (legacy rows / deliveries
+            // created before the routing columns existed) so nothing silently drops
+            // off the board.
+            ->where(function ($q): void {
+                $q->whereDate('scheduled_at', $this->date)
+                    ->orWhere(function ($q2): void {
+                        $q2->whereNull('scheduled_at')->whereDate('date', $this->date);
+                    });
+            })
             ->with(['rental.user', 'driver', 'escort', 'items'])
             ->orderBy('driver_id')
             ->orderBy('sort_order')
@@ -129,7 +141,7 @@ class DeliverySchedule extends Page
             ->groupBy(fn (Delivery $d): string => $d->driver?->name ?? '— Belum ada driver —');
     }
 
-    /** @return array{total:int, assigned:int, unassigned:int, completed:int} */
+    /** @return array{total:int, assigned:int, self_pickup:int, unassigned:int, completed:int} */
     public function summary(): array
     {
         $all = $this->deliveryGroups()->flatten();
@@ -137,7 +149,12 @@ class DeliverySchedule extends Page
         return [
             'total' => $all->count(),
             'assigned' => $all->whereNotNull('driver_id')->count(),
-            'unassigned' => $all->whereNull('driver_id')->count(),
+            // Self-pickup deliveries don't need a driver, so they're counted apart…
+            'self_pickup' => $all->filter(fn (Delivery $d): bool => $d->isSelfPickup())->count(),
+            // …and only delivery-type rentals without a driver are "belum ditugaskan".
+            'unassigned' => $all->filter(
+                fn (Delivery $d): bool => ! $d->isSelfPickup() && ! $d->driver_id
+            )->count(),
             'completed' => $all->where('status', Delivery::STATUS_COMPLETED)->count(),
         ];
     }
@@ -146,7 +163,7 @@ class DeliverySchedule extends Page
 
     public function openAssign(int $deliveryId): void
     {
-        $delivery = Delivery::find($deliveryId);
+        $delivery = Delivery::with('rental')->find($deliveryId);
         if (! $delivery) {
             return;
         }
@@ -156,11 +173,12 @@ class DeliverySchedule extends Page
         $this->editEscortId = $delivery->escort_id;
         $this->editScheduledAt = $delivery->scheduled_at?->format('Y-m-d\TH:i');
         $this->editAddress = $delivery->address;
+        $this->editSelfPickup = $delivery->isSelfPickup();
     }
 
     public function closeAssign(): void
     {
-        $this->reset(['editingId', 'editDriverId', 'editEscortId', 'editScheduledAt', 'editAddress']);
+        $this->reset(['editingId', 'editDriverId', 'editEscortId', 'editScheduledAt', 'editAddress', 'editSelfPickup']);
     }
 
     public function saveAssign(): void
