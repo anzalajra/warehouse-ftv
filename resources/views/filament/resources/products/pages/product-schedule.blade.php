@@ -16,104 +16,115 @@
             </div>
         </div>
 
-        {{-- Timeline Table --}}
+        {{-- Timeline (hour-aware: same-day rentals split within the day column instead of overlapping) --}}
+        @php
+            $DAY_W = 58;
+            $NAME_W = 190;
+            $ROW_H = 44;
+            $daysCount = count($days);
+            $gridStart = $daysCount ? $days[0] : now()->startOfDay();
+            $units = $this->getUnitsWithRentals();
+
+            // Group consecutive days by month for the merged month-label header row.
+            $monthGroups = [];
+            foreach ($days as $d) {
+                $key = $d->format('Y-m');
+                if (empty($monthGroups) || $monthGroups[count($monthGroups) - 1]['key'] !== $key) {
+                    $monthGroups[] = ['key' => $key, 'label' => $d->format('F Y'), 'count' => 1];
+                } else {
+                    $monthGroups[count($monthGroups) - 1]['count']++;
+                }
+            }
+        @endphp
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-white/10 shadow-sm overflow-hidden">
             <div class="overflow-x-auto overflow-y-hidden">
-                <table class="w-full text-left border-collapse table-fixed min-w-max border-spacing-0">
-                    <thead>
-                        <tr>
-                            <th class="sticky left-0 z-30 p-3 bg-gray-50 dark:bg-gray-800 border-b border-r border-gray-200 dark:border-white/10 w-48 text-xs font-bold uppercase text-gray-600 dark:text-gray-400">
-                                Unit Serial Number
-                            </th>
-                            @foreach($days as $day)
-                                <th class="p-2 border-b border-r border-gray-200 dark:border-white/10 text-center min-w-[35px] {{ $day->isToday() ? 'bg-primary-50 dark:bg-primary-900/20' : 'bg-gray-50/50 dark:bg-white/5' }}">
-                                    <div class="text-[9px] font-medium text-gray-400">{{ $day->format('D') }}</div>
-                                    <div class="text-xs font-bold {{ $day->isToday() ? 'text-primary-600' : 'text-gray-700 dark:text-gray-200' }}">
-                                        {{ $day->format('d') }}
-                                    </div>
-                                </th>
+                <div style="min-width: {{ $NAME_W + $DAY_W * $daysCount }}px;">
+
+                    {{-- Sticky header: month row + day row --}}
+                    <div style="position:sticky; top:0; z-index:20;">
+                        {{-- Month label row --}}
+                        <div style="display:flex;">
+                            <div style="width: {{ $NAME_W }}px; position:sticky; left:0; z-index:30;"
+                                 class="bg-gray-50 dark:bg-gray-800 border-b border-r border-gray-200 dark:border-white/10"></div>
+                            @foreach($monthGroups as $mg)
+                                <div style="width: {{ $DAY_W * $mg['count'] }}px;"
+                                     class="px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide text-primary-600 dark:text-primary-300 bg-gray-50 dark:bg-gray-800 border-b border-r border-gray-200 dark:border-white/10">
+                                    {{ $mg['label'] }}
+                                </div>
                             @endforeach
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($this->getUnitsWithRentals() as $data)
-                            <tr class="h-12">
-                                <td class="sticky left-0 z-20 p-3 bg-white dark:bg-gray-900 border-b border-r border-gray-200 dark:border-white/10 text-sm font-bold text-gray-800 dark:text-gray-200">
-                                    {{ $data['unit']->serial_number }}
-                                </td>
-                                
-                                @php
-                                    $occupiedDays = [];
-                                    foreach($data['rentals'] as $rental) {
-                                        $current = $rental['start']->copy()->startOfDay();
-                                        $end = $rental['end']->copy()->startOfDay();
-                                        while($current <= $end) {
-                                            $occupiedDays[$current->format('Y-m-d')] = $rental;
-                                            $current->addDay();
-                                        }
-                                    }
-                                    $skipDays = 0;
-                                @endphp
+                        </div>
+                        {{-- Day row --}}
+                        <div style="display:flex;">
+                            <div style="width: {{ $NAME_W }}px; position:sticky; left:0; z-index:30;"
+                                 class="p-3 bg-gray-50 dark:bg-gray-800 border-b border-r border-gray-200 dark:border-white/10 text-[10px] font-extrabold uppercase tracking-wide text-gray-400 flex items-center">
+                                Unit Serial Number
+                            </div>
+                            @foreach($days as $day)
+                                <div style="width: {{ $DAY_W }}px;"
+                                     class="pt-1.5 pb-2 border-b border-r border-gray-100 dark:border-white/5 text-center {{ $day->isToday() ? 'bg-primary-50 dark:bg-primary-900/20' : ($day->isWeekend() ? 'bg-gray-50/60 dark:bg-white/5' : 'bg-white dark:bg-gray-900') }}">
+                                    <div class="text-[9px] font-semibold text-gray-400">{{ strtoupper($day->format('D')) }}</div>
+                                    <div class="mx-auto mt-0.5 flex h-[26px] w-[26px] items-center justify-center rounded-full text-[11px] font-medium
+                                        {{ $day->isToday() ? 'bg-primary-600 text-white font-bold' : ($day->isWeekend() ? 'text-gray-400' : 'text-gray-700 dark:text-gray-100') }}">
+                                        {{ str_pad((string) $day->day, 2, '0', STR_PAD_LEFT) }}
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
 
-                                @foreach($days as $index => $day)
-                                    @if($skipDays > 0)
-                                        @php $skipDays--; @endphp
-                                        @continue
-                                    @endif
-
-                                    @php
-                                        $dateStr = $day->format('Y-m-d');
-                                        $rental = $occupiedDays[$dateStr] ?? null;
-                                        
-                                        $colspan = 1;
-                                        if ($rental) {
-                                            // Calculate how many subsequent days have the same rental
-                                            $remainingDays = count($days) - $index;
-                                            for ($i = 1; $i < $remainingDays; $i++) {
-                                                $nextDateStr = $days[$index + $i]->format('Y-m-d');
-                                                $nextRental = $occupiedDays[$nextDateStr] ?? null;
-                                                if ($nextRental && $nextRental['id'] === $rental['id']) {
-                                                    $colspan++;
-                                                } else {
-                                                    break;
-                                                }
-                                            }
-                                            $skipDays = $colspan - 1;
-                                        }
-
-                                        $isStart = $rental && ($rental['start']->isSameDay($day) || $index == 0);
-                                        
-                                        $colorMap = [
-                                            'quotation' => ['bg' => 'bg-orange-500', 'text' => 'text-white'],
-                                            'confirmed' => ['bg' => 'bg-blue-500', 'text' => 'text-white'],
-                                            'active' => ['bg' => 'bg-green-500', 'text' => 'text-white'],
-                                            'completed' => ['bg' => 'bg-purple-500', 'text' => 'text-white'],
-                                            'cancelled' => ['bg' => 'bg-gray-500', 'text' => 'text-white'],
-                                            'late_pickup' => ['bg' => 'bg-red-600', 'text' => 'text-white'],
-                                            'late_return' => ['bg' => 'bg-red-600', 'text' => 'text-white'],
-                                            'partial_return' => ['bg' => 'bg-yellow-500', 'text' => 'text-white'],
-                                        ];
-                                        $status = $rental['status'] ?? '';
-                                        $colors = $colorMap[$status] ?? ['bg' => 'bg-gray-100 dark:bg-white/5', 'text' => 'text-transparent'];
-                                    @endphp
-                                    <td colspan="{{ $colspan }}" class="p-0 border-r border-gray-200 dark:border-white/10 relative {{ $day->isToday() && !$rental ? 'bg-primary-50/20' : '' }}">
-                                        @if($rental)
-                                            <div 
-                                                wire:click="mountAction('viewRentalDetails', { rentalId: {{ $rental['id'] }} })"
-                                                class="absolute inset-y-1 left-0 right-0 {{ $colors['bg'] }} z-10 flex items-center px-1 shadow-sm cursor-pointer hover:opacity-80 transition-opacity mx-0.5 rounded-sm"
-                                                title="{{ $rental['code'] }} - {{ $rental['customer'] }} ({{ ucfirst($status) }})"
-                                            >
-                                                <span class="text-[9px] font-bold {{ $colors['text'] }} truncate whitespace-nowrap leading-none px-1">
-                                                    {{ $rental['customer'] }}
-                                                </span>
-                                            </div>
-                                        @endif
-                                    </td>
+                    {{-- Unit rows --}}
+                    @forelse($units as $data)
+                        <div style="display:flex;" wire:key="unit-{{ $data['unit']->id }}">
+                            <div style="width: {{ $NAME_W }}px; position:sticky; left:0; z-index:10;"
+                                 class="px-3 bg-white dark:bg-gray-900 border-b border-r border-gray-200 dark:border-white/10 flex items-center">
+                                <span class="font-mono text-[10px] font-bold text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-white/10 px-2 py-1 rounded truncate">{{ $data['unit']->serial_number }}</span>
+                            </div>
+                            <div style="position:relative; flex:1; height: {{ $ROW_H }}px;">
+                                {{-- Day grid background --}}
+                                @foreach($days as $day)
+                                    <div style="position:absolute; top:0; bottom:0; left:{{ $loop->index * $DAY_W }}px; width:{{ $DAY_W }}px;"
+                                         class="border-r border-b border-gray-100 dark:border-white/5 {{ $day->isToday() ? 'bg-primary-50/30 dark:bg-primary-900/10' : ($day->isWeekend() ? 'bg-gray-50/40 dark:bg-white/[.02]' : '') }}"></div>
                                 @endforeach
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+
+                                {{-- Rental bars --}}
+                                @foreach($data['rentals'] as $rental)
+                                    @php
+                                        $rStart = $rental['start'];
+                                        $rEnd = $rental['end'];
+                                        // Fractional day-units from grid start (hour-aware) so two rentals
+                                        // sharing a calendar day split within the column, not overlap.
+                                        $startDay = (int) $gridStart->diffInDays($rStart->copy()->startOfDay(), false);
+                                        $endDay = (int) $gridStart->diffInDays($rEnd->copy()->startOfDay(), false);
+                                        $startPos = $startDay + ($rStart->hour * 60 + $rStart->minute) / 1440;
+                                        $endPos = $endDay + ($rEnd->hour * 60 + $rEnd->minute) / 1440;
+                                        if ($startPos < 0) $startPos = 0;
+                                        if ($endPos > $daysCount) $endPos = $daysCount;
+                                        $skipRental = $endPos <= $startPos;
+                                        $status = $rental['status'] ?? '';
+                                        $hex = \App\Models\Rental::getStatusHexColor($status);
+                                        $left = $startPos * $DAY_W + 1;
+                                        $width = ($endPos - $startPos) * $DAY_W - 2;
+                                        if ($width < 6) $width = 6;
+                                    @endphp
+                                    @if(! $skipRental)
+                                        <div
+                                            wire:click="mountAction('viewRentalDetails', { rentalId: {{ $rental['id'] }} })"
+                                            style="position:absolute; top:6px; bottom:6px; left:{{ $left }}px; width:{{ $width }}px; background:{{ $hex }}; z-index:10;"
+                                            class="flex items-center px-1 shadow-sm cursor-pointer hover:opacity-80 transition-opacity rounded-sm overflow-hidden"
+                                            title="{{ $rental['code'] }} - {{ $rental['customer'] }} ({{ ucfirst(str_replace('_', ' ', $status)) }}) — {{ $rStart->format('j M H:i') }} → {{ $rEnd->format('j M H:i') }}"
+                                        >
+                                            <span class="text-[9px] font-bold text-white truncate whitespace-nowrap leading-none px-1">
+                                                {{ $rental['customer'] }}
+                                            </span>
+                                        </div>
+                                    @endif
+                                @endforeach
+                            </div>
+                        </div>
+                    @empty
+                        <div class="p-8 text-center text-sm text-gray-400">No units for this product.</div>
+                    @endforelse
+                </div>
             </div>
         </div>
 

@@ -101,23 +101,30 @@
 
                         @foreach($data['rentals'] as $rental)
                             @php
-                                $rStart = $rental['start']->copy()->startOfDay();
-                                $rEnd = $rental['end']->copy()->startOfDay();
-                                $startIdx = (int) $gridStart->diffInDays($rStart, false);
-                                $endIdx = (int) $gridStart->diffInDays($rEnd, false);
-                                if ($startIdx < 0) $startIdx = 0;
-                                if ($endIdx >= $daysCount) $endIdx = $daysCount - 1;
-                                $skipRental = $endIdx < $startIdx;
+                                $rStart = $rental['start'];
+                                $rEnd = $rental['end'];
+                                // Hour-aware position in fractional day-units from the grid start,
+                                // so two rentals sharing a calendar day split within the column
+                                // instead of overlapping (e.g. one returns 12:00, next picks up 14:00).
+                                $startDay = (int) $gridStart->diffInDays($rStart->copy()->startOfDay(), false);
+                                $endDay = (int) $gridStart->diffInDays($rEnd->copy()->startOfDay(), false);
+                                $startPos = $startDay + ($rStart->hour * 60 + $rStart->minute) / 1440;
+                                $endPos = $endDay + ($rEnd->hour * 60 + $rEnd->minute) / 1440;
+                                // Clamp to the visible grid [0 .. daysCount].
+                                if ($startPos < 0) $startPos = 0;
+                                if ($endPos > $daysCount) $endPos = $daysCount;
+                                $skipRental = $endPos <= $startPos;
                                 $status = strtolower($rental['status'] ?? '');
                                 $color = $statuses[$status][0] ?? '#6b7280';
-                                $left = $startIdx * $DAY_W + 2;
-                                $width = ($endIdx - $startIdx + 1) * $DAY_W - 4;
+                                $left = $startPos * $DAY_W + 1;
+                                $width = ($endPos - $startPos) * $DAY_W - 2;
+                                if ($width < 6) $width = 6;
                             @endphp
                             @if(! $skipRental)
                                 <div class="gr-prod-booking"
                                     style="height: {{ $ROW_H - 12 }}px; left: {{ $left }}px; width: {{ $width }}px; background: {{ $color }};"
                                     wire:click="mountAction('viewRentalDetails', { rentalId: {{ $rental['id'] }} })"
-                                    title="{{ $rental['code'] }} — {{ $rental['customer'] }}"
+                                    title="{{ $rental['code'] }} — {{ $rental['customer'] }} ({{ $rStart->format('j M H:i') }} → {{ $rEnd->format('j M H:i') }})"
                                 >
                                     {{ $rental['customer'] }}
                                 </div>
