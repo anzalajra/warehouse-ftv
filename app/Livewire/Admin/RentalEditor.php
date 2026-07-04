@@ -1043,20 +1043,30 @@ class RentalEditor extends Component
     }
 
     /**
-     * Add multiple products in one Livewire round-trip. Payload shape:
-     *   [{ "id": "<composite_id>", "qty": <int> }, ...]
-     * Used by the catalog popup's optimistic-UI batching layer (Alpine).
+     * Apply a batch of signed quantity deltas from the catalog stepper in a single
+     * round-trip. Positive delta = add N units, negative = decrement N. The client
+     * coalesces rapid +/- taps into one call (see the catalogShared Alpine
+     * component), so spamming the stepper no longer fires one Livewire request per
+     * tap — the biggest source of mobile lag.
+     *
+     * Payload shape: [{ "id": "<composite_id>", "delta": <int> }, ...]
      */
-    public function addProductsBatch(array $batch): void
+    public function applyCatalogDeltas(array $deltas): void
     {
         $this->isDirty = true;
-        foreach ($batch as $entry) {
+        foreach ($deltas as $entry) {
             $cid = (string) ($entry['id'] ?? '');
-            $qty = max(1, (int) ($entry['qty'] ?? 1));
-            if ($cid === '') {
+            $delta = (int) ($entry['delta'] ?? 0);
+            if ($cid === '' || $delta === 0) {
                 continue;
             }
-            $this->addProduct($cid, $qty);
+            if ($delta > 0) {
+                $this->addProduct($cid, $delta);
+            } else {
+                for ($i = 0; $i < abs($delta); $i++) {
+                    $this->decrementByComposite($cid);
+                }
+            }
         }
         $this->searchTerm = '';
     }
@@ -1184,6 +1194,7 @@ class RentalEditor extends Component
      */
     public function decrementByComposite(string $compositeId): void
     {
+        $this->isDirty = true;
         foreach ($this->items as $i => $it) {
             if ($it['composite_id'] !== $compositeId) {
                 continue;

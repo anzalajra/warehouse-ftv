@@ -2531,10 +2531,6 @@
                     @endforeach
                 </div>
                 <div class="sheet-foot" style="display:flex; align-items:center; gap:8px;">
-                    <span x-show="syncing" x-cloak style="display:inline-flex; align-items:center; gap:6px; color: var(--fg-3); font-size:12px;">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                        Sinkron…
-                    </span>
                     <button class="sheet-done" wire:click="$set('catalogOpen', false)" style="margin-left:auto;">Selesai</button>
                 </div>
             </div>
@@ -2603,13 +2599,7 @@
                         </div>
                     </div>
                     <div class="modal-foot">
-                        <span style="color: var(--fg-3); font-size:13px;">
-                            <span x-show="!syncing">Klik produk untuk menambahkan ke rental</span>
-                            <span x-show="syncing" x-cloak style="display:inline-flex; align-items:center; gap:6px;">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="animation:spin 0.8s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                                Menyinkronkan…
-                            </span>
-                        </span>
+                        <span style="color: var(--fg-3); font-size:13px;">Klik produk untuk menambahkan ke rental</span>
                         <button class="btn btn-secondary" wire:click="$set('catalogOpen', false)">Tutup</button>
                     </div>
                 </div>
@@ -3054,8 +3044,18 @@
                 clearTimeout(this._timer);
                 this._timer = setTimeout(() => this._flush(), this._debounceMs);
             },
+            // Don't run the (heavy) autosave while the user is mid-editing inside a
+            // modal — catalog add/remove, unit assignment, transfer, new customer.
+            // Those mutate in-memory state rapidly; saving to DB on each change just
+            // compounds the lag. We keep the changes flagged dirty and retry once the
+            // modal closes (the retry poll below picks it up within one debounce).
+            _blocked() {
+                return this.$wire.catalogOpen || this.$wire.unitModalOpen
+                    || this.$wire.transferModalOpen || this.$wire.newCustomerModalOpen;
+            },
             async _flush() {
                 if (!this.isEdit || !this.$wire.isDirty) return;
+                if (this._blocked()) { this._schedule(); return; }
                 this.saveState = 'saving';
                 try {
                     await this.$wire.autosave();
@@ -3138,24 +3138,14 @@
             // Per-composite ceiling = total units physically owned. Mirrors the server
             // cap in addProduct()/updateItem so the stepper stops at the owned total.
             maxQty: Object.assign({}, maxMap || {}),
-            // Coalesce rapid clicks into a single Livewire call per composite_id to
-            // avoid the editor recomputing avail map N times in a row.
-            _pendingAdd: {},
+            // Fully optimistic UI: the stepper updates instantly from localQty and the
+            // server sync happens silently in the background. Add AND decrement clicks
+            // are coalesced into a single signed-delta map so spamming +/- collapses
+            // into ONE Livewire round-trip (the expensive part on mobile) instead of
+            // one per tap. No spinner — the number already moved on screen.
+            _pendingDelta: {},
             _flushTimer: null,
-            // Spinner state is Alpine-owned (not wire:loading) because the catalog
-            // modal — including the loading spans — is re-rendered by the catalogRows
-            // computed on every request. A morphed-in wire:loading element gets the
-            // server's default (visible) state and never gets re-hidden, so the spinner
-            // sticks on forever. Tracking in-flight calls here survives the morph
-            // because this x-data root carries a wire:key.
-            _inflight: 0,
-            get syncing() { return this._inflight > 0; },
-            _track(promise) {
-                this._inflight++;
-                Promise.resolve(promise).finally(() => {
-                    if (this._inflight > 0) this._inflight--;
-                });
-            },
+            _debounceMs: 300,
             add(compositeId) {
                 const max = this.maxQty[compositeId];
                 const cur = this.localQty[compositeId] || 0;
@@ -3164,31 +3154,30 @@
                     return;
                 }
                 this.localQty[compositeId] = cur + 1;
-                this._pendingAdd[compositeId] = (this._pendingAdd[compositeId] || 0) + 1;
+                this._pendingDelta[compositeId] = (this._pendingDelta[compositeId] || 0) + 1;
                 this._scheduleFlush();
             },
             dec(compositeId) {
                 const cur = this.localQty[compositeId] || 0;
                 if (cur <= 0) return;
                 this.localQty[compositeId] = cur - 1;
-                // Decrement is server-authoritative (no batching) so unit_ids stays consistent.
-                this._flushPending();
-                this._track(@this.call('decrementByComposite', compositeId));
+                this._pendingDelta[compositeId] = (this._pendingDelta[compositeId] || 0) - 1;
+                this._scheduleFlush();
             },
             _scheduleFlush() {
                 if (this._flushTimer) clearTimeout(this._flushTimer);
-                this._flushTimer = setTimeout(() => this._flushPending(), 120);
+                this._flushTimer = setTimeout(() => this._flushPending(), this._debounceMs);
             },
             _flushPending() {
                 if (this._flushTimer) { clearTimeout(this._flushTimer); this._flushTimer = null; }
-                const pending = this._pendingAdd;
-                this._pendingAdd = {};
-                const batch = [];
+                const pending = this._pendingDelta;
+                this._pendingDelta = {};
+                const deltas = [];
                 for (const cid in pending) {
-                    batch.push({ id: cid, qty: pending[cid] });
+                    if (pending[cid] !== 0) deltas.push({ id: cid, delta: pending[cid] });
                 }
-                if (batch.length === 0) return;
-                this._track(@this.call('addProductsBatch', batch));
+                if (deltas.length === 0) return;
+                @this.call('applyCatalogDeltas', deltas);
             },
         };
     }
