@@ -20,6 +20,7 @@ use App\Services\RentalItemTransferService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
@@ -165,8 +166,12 @@ class RentalEditor extends Component
     {
         $dataProps = [
             'customer_id', 'start_date', 'end_date', 'status',
-            'discount', 'discount_type', 'deposit', 'deposit_type',
-            'down_payment_amount', 'notes',
+            'discount', 'discount_type', 'discount_id',
+            'daily_discount_id', 'date_promotion_id',
+            'deposit', 'deposit_type', 'down_payment_amount', 'notes',
+            'fulfillment_method', 'delivery_address', 'delivery_contact', 'delivery_notes',
+            'is_recurring', 'recurrence_interval', 'recurrence_next_date', 'recurrence_end_date',
+            'custom_fields',
         ];
 
         foreach ($dataProps as $p) {
@@ -1628,22 +1633,15 @@ class RentalEditor extends Component
     }
 
     /**
-     * Persist current editor state to DB without redirect/notification side effects.
-     * Reused by transfer auto-save.
+     * Build the Rental attribute payload from the current editor state. Shared by
+     * every save path (persistInline / writeRecord / save) so the persisted columns
+     * never drift between them.
      */
-    protected function persistInline(): void
+    protected function buildPayload(): array
     {
-        $this->validate([
-            'customer_id' => 'required|integer|exists:users,id',
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after:start_date',
-            'status' => 'required|string',
-        ]);
-
-        $days = $this->days;
         $totals = $this->totals;
 
-        $payload = [
+        return [
             'user_id' => $this->customer_id,
             'start_date' => $this->start_date,
             'end_date' => $this->end_date,
@@ -1666,6 +1664,48 @@ class RentalEditor extends Component
             'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
             ...$this->recurrenceFields(),
         ];
+    }
+
+    /**
+     * Build the grouped-items array in the shape RentalForm::syncRentalItems expects.
+     * Shared by every save path.
+     */
+    protected function buildGroupedItems(): array
+    {
+        $days = $this->days;
+        $grouped = [];
+        foreach ($this->items as $it) {
+            $rate = $this->effectiveRate($it);
+            $grouped[] = [
+                'product_id' => $it['composite_id'],
+                'quantity' => (int) $it['quantity'],
+                'unit_ids' => json_encode($it['unit_ids']),
+                'daily_rate' => $rate,
+                'days' => $days,
+                'rate_type' => $this->pricingPeriod,
+                'discount' => (float) $it['discount'],
+                'subtotal' => max(0, ($rate * $days) - ($rate * $days) * ((float) $it['discount'] / 100)),
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * Persist current editor state to DB without redirect/notification side effects.
+     * Reused by transfer auto-save (beginTransfer). Intentionally minimal — it does
+     * NOT run the confirm notification / delivery sync (those belong to writeRecord()).
+     */
+    protected function persistInline(): void
+    {
+        $this->validate([
+            'customer_id' => 'required|integer|exists:users,id',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after:start_date',
+            'status' => 'required|string',
+        ]);
+
+        $payload = $this->buildPayload();
 
         if (! $this->record || ! $this->record->exists) {
             $this->record = Rental::create($payload);
@@ -1674,25 +1714,87 @@ class RentalEditor extends Component
             $this->record->saveQuietly();
         }
 
-        $grouped = [];
-        foreach ($this->items as $it) {
-            $grouped[] = [
-                'product_id' => $it['composite_id'],
-                'quantity' => (int) $it['quantity'],
-                'unit_ids' => json_encode($it['unit_ids']),
-                'daily_rate' => $this->effectiveRate($it),
-                'days' => $days,
-                'rate_type' => $this->pricingPeriod,
-                'discount' => (float) $it['discount'],
-                'subtotal' => max(0, ($this->effectiveRate($it) * $days) - ($this->effectiveRate($it) * $days) * ((float) $it['discount'] / 100)),
-            ];
-        }
-
-        RentalForm::syncRentalItems($this->record, $grouped);
+        RentalForm::syncRentalItems($this->record, $this->buildGroupedItems());
         $this->record->refresh();
 
         // Inline save persisted everything to the DB — nothing left unsaved.
         $this->isDirty = false;
+    }
+
+    /**
+     * Full persist used by both the manual "Simpan & Tutup" button (save()) and the
+     * background autosave(). Mirrors the old save() write path exactly: create/update
+     * the rental, fire the confirm notification on a quotation→confirmed transition,
+     * sync items, then realign deliveries for non-draft statuses. Clears isDirty.
+     */
+    protected function writeRecord(): void
+    {
+        $payload = $this->buildPayload();
+
+        if (! $this->record || ! $this->record->exists) {
+            $this->record = Rental::create($payload);
+        } else {
+            $previousStatus = $this->record->getOriginal('status');
+            $this->record->fill($payload);
+            $this->record->saveQuietly();
+
+            if ($previousStatus !== Rental::STATUS_CONFIRMED && $this->record->status === Rental::STATUS_CONFIRMED && $this->record->customer) {
+                $this->record->customer->notify(new \App\Notifications\BookingConfirmedNotification($this->record));
+            }
+        }
+
+        RentalForm::syncRentalItems($this->record, $this->buildGroupedItems());
+        $this->record->touch();
+        $this->record->refresh();
+
+        // Keep logistics in sync. This editor saves via saveQuietly()/create(), so
+        // RentalObserver's auto delivery generation is bypassed — do it explicitly
+        // here, AFTER syncRentalItems() so the surat jalan pick up the saved items.
+        // createDeliveries() is idempotent; syncDeliveryDates() realigns draft rows.
+        if (! in_array($this->record->status, [
+            Rental::STATUS_QUOTATION,
+            Rental::STATUS_CANCELLED,
+            Rental::STATUS_EXPIRED,
+        ], true)) {
+            $this->record->createDeliveries();
+            $this->record->syncDeliveryDates();
+        }
+
+        $this->isDirty = false;
+    }
+
+    /**
+     * Debounced background autosave for an existing rental being edited. Triggered
+     * from the client whenever the editor becomes dirty (see the rentalSaveStatus
+     * Alpine component). Uses SOFT validation: if the current state is invalid
+     * (e.g. end before start, no customer), it silently skips and leaves isDirty
+     * true so the header indicator stays "Belum disimpan" until the user fixes it —
+     * no red field errors pop up mid-typing. A brand-new draft is never autosaved;
+     * it is created explicitly via the "Buat Rental" button (save()).
+     */
+    public function autosave(): void
+    {
+        if (! $this->record || ! $this->record->exists || ! $this->isDirty) {
+            return;
+        }
+
+        $validator = Validator::make([
+            'customer_id' => $this->customer_id,
+            'start_date' => $this->start_date,
+            'end_date' => $this->end_date,
+            'status' => $this->status,
+        ], [
+            'customer_id' => 'required|integer|exists:users,id',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after:start_date',
+            'status' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return;
+        }
+
+        $this->writeRecord();
     }
 
     #[Computed]
@@ -2039,83 +2141,16 @@ class RentalEditor extends Component
             'end_date' => 'Selesai',
         ]);
 
-        $days = $this->days;
-        $totals = $this->totals;
-
-        $payload = [
-            'user_id' => $this->customer_id,
-            'start_date' => $this->start_date,
-            'end_date' => $this->end_date,
-            'pricing_period' => $this->pricingPeriod,
-            'status' => $this->status,
-            'subtotal' => $totals['subtotal'],
-            ...$this->discountFields(),
-            'deposit' => $this->deposit,
-            'deposit_type' => $this->deposit_type,
-            'down_payment_amount' => $this->down_payment_amount,
-            'tax_base' => $totals['tax_base'],
-            'ppn_amount' => $totals['ppn_amount'],
-            'ppn_rate' => $totals['ppn_rate'],
-            'total' => $totals['total'],
-            'notes' => $this->notes,
-            'fulfillment_method' => $this->fulfillment_method,
-            'delivery_address' => $this->fulfillment_method === 'delivery' ? $this->delivery_address : null,
-            'delivery_contact' => $this->fulfillment_method === 'delivery' ? $this->delivery_contact : null,
-            'delivery_notes' => $this->fulfillment_method === 'delivery' ? $this->delivery_notes : null,
-            'custom_fields' => ! empty($this->custom_fields) ? $this->custom_fields : null,
-            ...$this->recurrenceFields(),
-        ];
-
-        if (! $this->record || ! $this->record->exists) {
-            $this->record = Rental::create($payload);
-        } else {
-            $previousStatus = $this->record->getOriginal('status');
-            $this->record->fill($payload);
-            $this->record->saveQuietly();
-
-            if ($previousStatus !== Rental::STATUS_CONFIRMED && $this->record->status === Rental::STATUS_CONFIRMED && $this->record->customer) {
-                $this->record->customer->notify(new \App\Notifications\BookingConfirmedNotification($this->record));
-            }
-        }
-
-        // Build grouped_items in the shape syncRentalItems expects
-        $grouped = [];
-        foreach ($this->items as $it) {
-            $grouped[] = [
-                'product_id' => $it['composite_id'],
-                'quantity' => (int) $it['quantity'],
-                'unit_ids' => json_encode($it['unit_ids']),
-                'daily_rate' => $this->effectiveRate($it),
-                'days' => $days,
-                'rate_type' => $this->pricingPeriod,
-                'discount' => (float) $it['discount'],
-                'subtotal' => max(0, ($this->effectiveRate($it) * $days) - ($this->effectiveRate($it) * $days) * ((float) $it['discount'] / 100)),
-            ];
-        }
-
-        RentalForm::syncRentalItems($this->record, $grouped);
-        $this->record->touch();
-        $this->record->refresh();
-
-        // Keep logistics in sync. This editor saves via saveQuietly()/create(), so
-        // RentalObserver's auto delivery generation is bypassed — do it explicitly
-        // here, AFTER syncRentalItems() so the surat jalan pick up the saved items.
-        // createDeliveries() is idempotent; syncDeliveryDates() realigns draft rows.
-        if (! in_array($this->record->status, [
-            Rental::STATUS_QUOTATION,
-            Rental::STATUS_CANCELLED,
-            Rental::STATUS_EXPIRED,
-        ], true)) {
-            $this->record->createDeliveries();
-            $this->record->syncDeliveryDates();
-        }
+        // Full persist (same write path as the background autosave).
+        $this->writeRecord();
 
         Notification::make()
             ->title('Perubahan disimpan')
             ->success()
             ->send();
 
-        return redirect(RentalResource::getUrl('edit', ['record' => $this->record]));
+        // "Simpan & Tutup" — close the editor and land on the read-only View page.
+        return redirect(RentalResource::getUrl('view', ['record' => $this->record]));
     }
 
     public function cancel()

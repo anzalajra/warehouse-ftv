@@ -38,7 +38,8 @@
     $varMap = $varIds ? \App\Models\ProductVariation::whereIn('id', $varIds)->get()->keyBy('id') : collect();
 @endphp
 
-<div class="rent-app" wire:ignore.self>
+<div class="rent-app" wire:ignore.self
+     x-data="rentalSaveStatus({ isEdit: {{ ($record && $record->exists) ? 'true' : 'false' }} })">
     {{-- ====================================================
          Theme tokens — bind design "danger" (primary) to admin theme's --primary-* set,
          which Filament 4 exposes globally on the admin panel.
@@ -147,6 +148,21 @@
         .rent-app .crumbs .sep { color: var(--gray-300); }
         .rent-app .topbar h1 { margin:0; font-size:18px; font-weight:700; color: var(--fg-1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric: tabular-nums; }
         .rent-app .topbar-actions { margin-left: auto; display:flex; align-items:center; gap:8px; }
+
+        /* ----- Live save-status indicator (desktop + tablet topbar) ----- */
+        .rent-app .save-status {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 11px; border-radius: 999px;
+            font: 600 12px var(--font-sans); white-space: nowrap;
+            border: 1px solid transparent; transition: color var(--dur), background var(--dur), border-color var(--dur);
+        }
+        .rent-app .save-status .ss-ic { display: inline-flex; align-items: center; }
+        .rent-app .save-status.ss-saved { color: var(--success-700, #15803d); background: color-mix(in srgb, var(--success-600, #16a34a) 12%, transparent); border-color: color-mix(in srgb, var(--success-600, #16a34a) 22%, transparent); }
+        .rent-app .save-status.ss-unsaved { color: var(--warning-700, #b45309); background: color-mix(in srgb, var(--warning-500, #f59e0b) 14%, transparent); border-color: color-mix(in srgb, var(--warning-500, #f59e0b) 30%, transparent); }
+        .rent-app .save-status.ss-saving { color: var(--fg-2); background: var(--gray-100); border-color: var(--border-1); }
+        .dark .rent-app .save-status.ss-saving { background: var(--gray-800); }
+        .rent-app .save-status .ss-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+        .rent-app .save-status .ss-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; animation: spin .7s linear infinite; }
 
         /* Kebab dropdown (shared desktop + mobile) */
         .rent-app .kebab-wrap { position: relative; }
@@ -917,19 +933,31 @@
                             <span>{{ $missingUnitsCount }} unit kosong</span>
                         </span>
                     @endif
+                    @if($record && $record->exists)
+                        {{-- Live autosave status: saved / unsaved / saving --}}
+                        <span class="save-status" :class="'ss-'+saveState" x-cloak
+                              :title="saveState === 'saving' ? 'Menyimpan perubahan…' : (saveState === 'unsaved' ? 'Perubahan otomatis akan disimpan' : 'Semua perubahan tersimpan')">
+                            <span class="ss-ic">
+                                <span class="ss-spin" x-show="saveState === 'saving'"></span>
+                                <span class="ss-dot" x-show="saveState === 'unsaved'"></span>
+                                <svg x-show="saveState === 'saved'" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
+                            </span>
+                            <span x-text="statusLabel"></span>
+                        </span>
+                    @endif
                     <div class="kebab-wrap" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
                         <button type="button" class="kebab-btn" @click="open = !open" aria-label="More actions" aria-haspopup="true" :aria-expanded="open">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
                         </button>
                         @include('livewire.admin.partials.rental-editor-kebab-menu')
                     </div>
-                    <button type="button" class="btn btn-secondary" wire:click="cancel">
-                        <span class="text">Cancel</span>
-                    </button>
                     @php $isNewRental = ! $record || ! $record->exists; @endphp
+                    <button type="button" class="btn btn-secondary" wire:click="cancel">
+                        <span class="text">{{ $isNewRental ? 'Cancel' : 'Tutup' }}</span>
+                    </button>
                     <button type="button" class="btn btn-primary" wire:click="save" wire:loading.attr="disabled">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
-                        <span class="text">{{ $isNewRental ? 'Create Rental' : 'Save Changes' }}</span>
+                        <span class="text">{{ $isNewRental ? 'Create Rental' : 'Simpan & Tutup' }}</span>
                     </button>
                 </div>
             </div>
@@ -1739,6 +1767,13 @@
         .rent-app .mobile-view .msh-unsaved { color: var(--danger-600); font-weight: 600; white-space: nowrap; }
         .rent-app .mobile-view .msh-unsaved .msh-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--danger-600); margin: 0 2px 0 4px; vertical-align: middle; }
 
+        /* ----- Live autosave status (mobile subhead) ----- */
+        .rent-app .mobile-view .msh-status { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; white-space: nowrap; margin-left: 6px; }
+        .rent-app .mobile-view .msh-status .msh-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin: 0; }
+        .rent-app .mobile-view .msh-status.ss-saved { color: var(--success-700, #15803d); }
+        .rent-app .mobile-view .msh-status.ss-unsaved { color: var(--warning-700, #b45309); }
+        .rent-app .mobile-view .msh-status.ss-saving { color: var(--fg-3); }
+
         /* ----- Discard-changes confirm sheet ----- */
         .rent-app .mobile-view .confirm-pad { padding: 22px 18px 6px; }
         .rent-app .mobile-view .confirm-pad h4 { margin: 0 0 6px; font-size: 17px; font-weight: 800; color: var(--fg-1); }
@@ -1811,9 +1846,15 @@
                 {{ $record && $record->exists ? 'Edit '.$rental_code : 'Buat Rental Baru' }}
                 <span class="msh-sub">
                     @if($record && $record->exists){{ $currentStatus['label'] }}@endif
-                    <span x-show="$wire.isDirty" x-cloak class="msh-unsaved">
-                        @if($record && $record->exists)<span class="msh-dot"></span>@endif belum disimpan
-                    </span>
+                    @if($record && $record->exists)
+                        {{-- Live autosave status --}}
+                        <span class="msh-status" :class="'ss-'+saveState" x-cloak>
+                            <span class="msh-dot" x-show="saveState !== 'saved'"></span>
+                            <span x-text="statusLabel"></span>
+                        </span>
+                    @else
+                        <span x-show="$wire.isDirty" x-cloak class="msh-unsaved">belum disimpan</span>
+                    @endif
                 </span>
             </div>
             <div class="kebab-wrap" x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
@@ -2375,7 +2416,7 @@
                 </button>
                 <button type="button" class="btn-save" wire:click="save" wire:loading.attr="disabled">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
-                    {{ (! $record || ! $record->exists) ? 'Buat Rental' : 'Simpan' }}
+                    {{ (! $record || ! $record->exists) ? 'Buat Rental' : 'Simpan & Tutup' }}
                 </button>
             </div>
         </div>
@@ -2982,6 +3023,61 @@
 </div>
 
 <script>
+    // Live autosave controller for the rental editor. Lives on the persistent
+    // .rent-app root so its state survives Livewire DOM morphs. It watches the
+    // server-side $wire.isDirty flag (set by the updated() hook + every mutation
+    // method) and, in edit mode, fires a debounced $wire.autosave() whenever the
+    // editor becomes dirty. saveState drives the header indicators on desktop,
+    // tablet and mobile. In create mode it only mirrors the dirty flag (no
+    // autosave — a new draft is created explicitly via the "Buat Rental" button).
+    function rentalSaveStatus(config) {
+        return {
+            isEdit: !!(config && config.isEdit),
+            saveState: 'saved',          // 'saved' | 'unsaved' | 'saving'
+            _timer: null,
+            _debounceMs: 900,
+            init() {
+                if (!this.isEdit) {
+                    this.$watch('$wire.isDirty', (d) => { this.saveState = d ? 'unsaved' : 'saved'; });
+                    return;
+                }
+                this.$watch('$wire.isDirty', (dirty) => {
+                    if (dirty) {
+                        if (this.saveState !== 'saving') this.saveState = 'unsaved';
+                        this._schedule();
+                    } else if (this.saveState !== 'saving') {
+                        this.saveState = 'saved';
+                    }
+                });
+            },
+            _schedule() {
+                clearTimeout(this._timer);
+                this._timer = setTimeout(() => this._flush(), this._debounceMs);
+            },
+            async _flush() {
+                if (!this.isEdit || !this.$wire.isDirty) return;
+                this.saveState = 'saving';
+                try {
+                    await this.$wire.autosave();
+                } catch (e) {
+                    // Network / server hiccup — fall back to the real dirty state below.
+                }
+                if (this.$wire.isDirty) {
+                    // Still dirty (invalid state, or a change landed mid-save) — retry.
+                    this.saveState = 'unsaved';
+                    this._schedule();
+                } else {
+                    this.saveState = 'saved';
+                }
+            },
+            get statusLabel() {
+                return this.saveState === 'saving' ? 'Menyimpan…'
+                    : this.saveState === 'unsaved' ? 'Belum disimpan'
+                    : 'Tersimpan';
+            },
+        };
+    }
+
     function mobileUi() {
         return {
             editCustomer: false,
