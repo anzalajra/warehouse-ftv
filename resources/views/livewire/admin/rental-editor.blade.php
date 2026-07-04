@@ -399,6 +399,8 @@
         .rent-app .unit-modal-empty { padding:24px; text-align:center; color: var(--danger-700); }
         .rent-app .unit-modal-empty .t { font-size:15px; font-weight:700; margin-bottom:4px; }
         .rent-app .unit-modal-empty .s { font-size:12.5px; }
+        .rent-app .ume-pull-btn { margin-top:16px; display:inline-flex; align-items:center; gap:7px; padding:9px 16px; border:1px solid var(--warning-300, #fcd34d); background: var(--warning-50, #fffbeb); color: var(--warning-800, #92400e); font:700 13px var(--font-sans); border-radius:8px; cursor:pointer; transition:background .12s, border-color .12s; }
+        .rent-app .ume-pull-btn:hover { background: var(--warning-100, #fef3c7); border-color: var(--warning-400, #fbbf24); }
 
         /* transfer sheet (Move / Swap / Tarik) */
         .rent-app .tx-seg { display:flex; gap:6px; padding:14px 20px 6px; }
@@ -2653,7 +2655,13 @@
                 @if($um['pool_total'] === 0 || $um['available_total'] === 0)
                     <div class="unit-modal-empty">
                         <div class="t">0 unit tersedia</div>
-                        <div class="s">Semua unit sudah dipinjam{{ $um['date_label'] ? ' pada periode '.$um['date_label'] : '' }}. Coba ubah tanggal atau ganti produk.</div>
+                        <div class="s">Semua unit sudah dipinjam{{ $um['date_label'] ? ' pada periode '.$um['date_label'] : '' }}. Coba ubah tanggal, ganti produk, atau tarik unit dari rental lain.</div>
+                        @if($this->canTransfer)
+                            <button type="button" class="ume-pull-btn" wire:click="openPullModal(@js($um['key']))">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7 7 7-7"/></svg>
+                                <span>Tarik dari rental lain</span>
+                            </button>
+                        @endif
                     </div>
                 @else
                     @if($um['qty'] > $um['available_total'])
