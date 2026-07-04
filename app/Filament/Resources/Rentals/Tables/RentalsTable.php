@@ -407,6 +407,10 @@ class RentalsTable
                     \App\Filament\Actions\ReceiveDepositAction::make(),
                     \App\Filament\Actions\RefundDepositAction::make(),
 
+                    // Adjust the discount on a COMPLETED rental without reopening it
+                    // (light-weight alternative to Reopen Rental for amount-only fixes).
+                    \App\Filament\Actions\AdjustDiscountAction::make(),
+
                     // Add Late Fee
                     Action::make('add_late_fee')
                         ->label('Add Late Fee')

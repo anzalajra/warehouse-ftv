@@ -297,6 +297,76 @@ class RentalAccountingService
     }
 
     /**
+     * Retroactively adjust an already-issued invoice's revenue for a discount
+     * change on a COMPLETED rental (see AdjustDiscountAction).
+     *
+     * The invoice was posted `Dr Piutang / Cr Revenue(-or-Deferred) + PPN`. Lowering
+     * the rental total via a discount leaves Piutang and Revenue overstated, so we
+     * post the reversing delta: Dr Revenue (4-1100) [+ Dr PPN 2-1400] / Cr Piutang.
+     * Signs flip automatically if the discount is REDUCED (total goes up).
+     *
+     * Callers pass the net-revenue and PPN captured BEFORE recalculateTotal(); the
+     * current (post-recalc) values are read off the rental. No-op in simple mode or
+     * when nothing moved. Only call this when an invoice already exists — a
+     * never-invoiced rental recognizes revenue for the first time when
+     * syncOutstandingInvoice() issues the invoice at the new total.
+     */
+    public static function postDiscountAdjustment(Rental $rental, float $prevNetRevenue, float $prevPpn, $date = null): void
+    {
+        if (! self::isAdvanced()) {
+            return;
+        }
+
+        $revenueDelta = round($prevNetRevenue - self::rentalNetRevenue($rental), 2);
+        $ppnDelta     = round($prevPpn - (float) ($rental->ppn_amount ?? 0), 2);
+
+        if (abs($revenueDelta) < 0.01 && abs($ppnDelta) < 0.01) {
+            return;
+        }
+
+        $receivable = self::acct(self::ACC_RECEIVABLE);
+        $revenue    = self::acct(self::ACC_RENTAL_REVENUE);
+        $taxPayable = self::acct(self::ACC_TAX_PAYABLE);
+        if (! $receivable || ! $revenue) {
+            return;
+        }
+
+        $lines = [];
+        $debitSum = 0.0;
+        $creditSum = 0.0;
+
+        // Positive delta = revenue/PPN removed → debit that account.
+        if (abs($revenueDelta) >= 0.01) {
+            $d = max(0.0, $revenueDelta);
+            $c = max(0.0, -$revenueDelta);
+            $lines[] = ['account_id' => $revenue, 'debit' => $d, 'credit' => $c];
+            $debitSum += $d;
+            $creditSum += $c;
+        }
+        if ($taxPayable && abs($ppnDelta) >= 0.01) {
+            $d = max(0.0, $ppnDelta);
+            $c = max(0.0, -$ppnDelta);
+            $lines[] = ['account_id' => $taxPayable, 'debit' => $d, 'credit' => $c];
+            $debitSum += $d;
+            $creditSum += $c;
+        }
+
+        if (! $lines) {
+            return;
+        }
+
+        // Piutang balances the entry (the receivable moves with the invoice total).
+        $net = round($debitSum - $creditSum, 2);
+        $lines[] = [
+            'account_id' => $receivable,
+            'debit'      => $net < 0 ? -$net : 0.0,
+            'credit'     => $net > 0 ? $net : 0.0,
+        ];
+
+        JournalService::createEntry($rental, 'Penyesuaian diskon '.$rental->rental_code, $lines, $date);
+    }
+
+    /**
      * Security deposit received (a liability, NOT income): Dr Kas / Cr Uang Jaminan (2-1200).
      */
     public static function postDepositReceived(Rental $rental, int $financeAccountId, float $amount, $date = null): void

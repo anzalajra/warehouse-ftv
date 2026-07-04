@@ -1047,16 +1047,26 @@ class Rental extends Model
         $this->subtotal = $this->items()->sum('subtotal');
 
         // 2. Calculate Discount
-        $discountAmount = 0;
+        // Manual/coupon layer...
+        $manualDiscount = 0;
         if ($this->discountRelation) {
-            $discountAmount = $this->discountRelation->calculateDiscount($this->subtotal);
+            $manualDiscount = $this->discountRelation->calculateDiscount($this->subtotal);
         } else {
             if ($this->discount_type === 'percent') {
-                $discountAmount = $this->subtotal * ($this->discount / 100);
+                $manualDiscount = $this->subtotal * ($this->discount / 100);
             } else {
-                $discountAmount = $this->discount;
+                $manualDiscount = $this->discount;
             }
         }
+
+        // ...plus the promotion layers (category / daily / date), mirroring
+        // RentalObserver::recalculateTotals() so every recalc path agrees on the
+        // total. Without this, recalc would silently drop promo discounts and
+        // inflate the total of a promo rental.
+        $discountAmount = $manualDiscount
+            + ($this->daily_discount_amount ?? 0)
+            + ($this->date_promotion_amount ?? 0)
+            + ($this->category_discount_amount ?? 0);
 
         // 3. Calculate Tax Base (DPP)
         // DPP = (Subtotal - Discount) + Late Fee
