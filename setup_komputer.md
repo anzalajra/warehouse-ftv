@@ -492,6 +492,6 @@ Kalau lab Mac banyak: taruh script di iCloud Drive yang di-symlink dari `~/Docum
 
 ## Kontak & Dokumentasi Lain
 
-- **Dokumentasi developer**: lihat `CLAUDE.md` di root repo
+- **Dokumentasi developer**: lihat `AGENTS.md` di root repo
 - **Plan iterasi 1-3**: `komputer_book.md` (planning awal) + `C:\Users\danga\.claude\plans\` (eksekusi detail)
 - **Source Electron app**: `desktop-kiosk/README.md`
