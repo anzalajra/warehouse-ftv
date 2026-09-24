@@ -41,6 +41,8 @@ class ViewRental extends Page
             'dailyDiscount',
             'datePromotion',
             'discountRelation',
+            'shootingItinerary.locations',
+            'shootingItinerary.crew',
         ])->findOrFail($record);
 
         if ($this->rental->status === Rental::STATUS_QUOTATION

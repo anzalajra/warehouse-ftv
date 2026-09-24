@@ -1,6 +1,7 @@
 @use('Illuminate\Support\Facades\Storage')
 @php
     $customer = $rental->user;
+    $itinerary = $rental->shootingItinerary;
 
     // Customer admin view URL (CustomerResource view page → /{record})
     $customerUrl = null;
@@ -84,7 +85,7 @@
 @endphp
 
 <x-filament-panels::page>
-    <div class="rent-app rent-view" x-data="{ actSheet:false, custProfile:false }">
+    <div class="rent-app rent-view" x-data="{ actSheet:false, custProfile:false, itineraryOpen:false }">
         <style>
             .rent-app {
                 --danger-50:  var(--primary-50,  #f0f9ff);
@@ -550,6 +551,12 @@
                     </div>
 
                     {{-- Edit --}}
+                    @if($itinerary)
+                        <button type="button" class="btn btn-secondary has-tip" data-tip="Lihat rencana shooting" @click="itineraryOpen=true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M5 3v4m14-4v4M4 7v14h16V7M8 12h3m2 0h3m-8 4h3"/></svg>
+                            <span class="text">Shooting Itinerary</span>
+                        </button>
+                    @endif
                     @if($editUrl)
                         <a href="{{ $editUrl }}" class="btn btn-secondary btn-iconsq has-tip" data-tip="Edit">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -687,6 +694,14 @@
                 <div class="info-cell">
                     <span class="il">Notes</span>
                     <span class="iv {{ $rental->notes ? '' : 'muted' }}">{{ $rental->notes ?: '—' }}</span>
+                </div>
+
+                <div class="info-cell">
+                    <span class="il">Jenis Penggunaan</span>
+                    <span class="iv {{ $rental->usage_type ? '' : 'muted' }}">{{ \App\Models\Rental::usageTypeOptions()[$rental->usage_type] ?? '—' }}</span>
+                    @if($rental->outside_purpose)
+                        <span class="isub">{{ \App\Models\Rental::outsidePurposeOptions()[$rental->outside_purpose] ?? $rental->outside_purpose }}</span>
+                    @endif
                 </div>
 
                 @foreach(\App\Support\CustomFields::displayValues('rental_custom_fields', $rental->custom_fields) as $cf)
@@ -917,6 +932,11 @@
                     @endif
 
                     <div class="rv-sheet-group">Kelola Rental</div>
+                    @if($itinerary)
+                        <button type="button" class="rv-act" @click="actSheet=false; itineraryOpen=true">
+                            <span class="lbl"><div class="a">Shooting Itinerary</div><div class="b">Lihat lokasi, jadwal, dan crew</div></span>
+                        </button>
+                    @endif
                     @if($editUrl)
                         <a href="{{ $editUrl }}" class="rv-act" @click="actSheet=false">
                             <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
@@ -1052,6 +1072,49 @@
                             <a class="btn btn-secondary" href="{{ $custOpenUrl }}">Buka Halaman Pelanggan</a>
                         @endif
                         <button type="button" class="btn btn-info" @click="custProfile=false">Tutup</button>
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        @if($itinerary)
+            <div x-show="itineraryOpen" x-cloak @keydown.escape.window="itineraryOpen=false"
+                class="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4"
+                @click.self="itineraryOpen=false" role="dialog" aria-modal="true" aria-label="Shooting Itinerary">
+                <div class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-gray-900 p-5 sm:p-7 shadow-2xl">
+                    <div class="flex items-start justify-between gap-4 mb-5">
+                        <div>
+                            <h2 class="text-xl font-bold">Shooting Itinerary</h2>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">{{ $itinerary->production_name }}</p>
+                        </div>
+                        <button type="button" @click="itineraryOpen=false" class="text-gray-500 text-2xl leading-none" aria-label="Tutup">&times;</button>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 mb-6 text-sm">
+                        <div class="rounded-lg bg-gray-50 dark:bg-gray-800 p-3"><span class="block text-gray-500">Total hari shooting</span><strong>{{ $itinerary->total_shooting_days }} hari</strong></div>
+                        <div class="rounded-lg bg-gray-50 dark:bg-gray-800 p-3"><span class="block text-gray-500">Crew inti</span><strong>{{ $itinerary->crew->count() }} orang</strong></div>
+                    </div>
+
+                    <h3 class="font-semibold mb-3">Lokasi & Jadwal</h3>
+                    <div class="space-y-2 mb-6">
+                        @foreach($itinerary->locations as $location)
+                            <div class="rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-sm">
+                                <strong>{{ $location->location_name }}</strong>
+                                <p class="text-gray-600 dark:text-gray-300 mt-1">{{ $location->start_at->format('d M Y H:i') }} – {{ $location->end_at->format('d M Y H:i') }}</p>
+                            </div>
+                        @endforeach
+                    </div>
+
+                    <h3 class="font-semibold mb-3">Crew Inti / Kelompok</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead><tr class="border-b border-gray-200 dark:border-gray-700"><th class="py-2 pr-3">Nama</th><th class="py-2 pr-3">NIM</th><th class="py-2">Role</th></tr></thead>
+                            <tbody>
+                                @foreach($itinerary->crew as $member)
+                                    <tr class="border-b border-gray-100 dark:border-gray-800"><td class="py-2 pr-3">{{ $member->name }}</td><td class="py-2 pr-3">{{ $member->nim }}</td><td class="py-2">{{ $member->role }}</td></tr>
+                                @endforeach
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>

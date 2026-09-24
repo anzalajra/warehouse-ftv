@@ -20,6 +20,9 @@ class Rental extends Model
         'category_discount_amount',
         'category_name',
         'quotation_id',
+        'shooting_itinerary_id',
+        'usage_type',
+        'outside_purpose',
         'invoice_id',
         'discount_code',
         'start_date',
@@ -112,6 +115,36 @@ class Rental extends Model
 
     // Quotation whose start_date passed without ever being confirmed (dead-end, like cancelled).
     public const STATUS_EXPIRED = 'expired';
+
+    public const USAGE_IN_CLASS = 'in_class';
+
+    public const USAGE_OUTSIDE_CLASS = 'outside_class';
+
+    public const PURPOSE_DAILY_ASSIGNMENT = 'daily_assignment';
+
+    public const PURPOSE_UTS = 'uts';
+
+    public const PURPOSE_UAS = 'uas';
+
+    public const PURPOSE_FINAL_PROJECT = 'final_project';
+
+    public static function usageTypeOptions(): array
+    {
+        return [
+            self::USAGE_IN_CLASS => 'Akademik dalam kelas',
+            self::USAGE_OUTSIDE_CLASS => 'Shooting di luar kelas',
+        ];
+    }
+
+    public static function outsidePurposeOptions(): array
+    {
+        return [
+            self::PURPOSE_DAILY_ASSIGNMENT => 'Tugas Harian',
+            self::PURPOSE_UTS => 'Tugas UTS',
+            self::PURPOSE_UAS => 'Tugas UAS',
+            self::PURPOSE_FINAL_PROJECT => 'Tugas Akhir (TA)',
+        ];
+    }
 
     protected static function boot()
     {
@@ -405,6 +438,11 @@ class Rental extends Model
     public function quotation(): BelongsTo
     {
         return $this->belongsTo(Quotation::class);
+    }
+
+    public function shootingItinerary(): BelongsTo
+    {
+        return $this->belongsTo(ShootingItinerary::class);
     }
 
     public function invoice(): BelongsTo

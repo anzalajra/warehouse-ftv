@@ -6,12 +6,14 @@ use App\Models\Discount;
 use App\Models\Rental;
 use App\Models\RentalItem;
 use App\Models\Setting;
+use App\Models\ShootingItinerary;
 use App\Services\PromotionService;
 use App\Services\RentalValidationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class CheckoutController extends Controller
 {
@@ -214,12 +216,28 @@ class CheckoutController extends Controller
         }
 
         $rules = [
+            'usage_type' => 'required|in:'.implode(',', array_keys(Rental::usageTypeOptions())),
             'notes' => 'nullable|string|max:500',
             'agree_terms' => 'required|accepted',
             'fulfillment_method' => 'nullable|in:pickup,delivery',
             'delivery_address' => 'required_if:fulfillment_method,delivery|nullable|string|max:1000',
             'delivery_contact' => 'nullable|string|max:255',
         ];
+
+        if ($request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS) {
+            $rules += [
+                'outside_purpose' => 'required|in:'.implode(',', array_keys(Rental::outsidePurposeOptions())),
+                'production_name' => 'required|string|max:255',
+                'shooting_locations' => 'required|array|min:1|max:25',
+                'shooting_locations.*.location_name' => 'required|string|max:255',
+                'shooting_locations.*.start_at' => 'required|date',
+                'shooting_locations.*.end_at' => 'required|date',
+                'shooting_crew' => 'required|array|min:1|max:50',
+                'shooting_crew.*.name' => 'required|string|max:255',
+                'shooting_crew.*.nim' => 'required|string|max:50',
+                'shooting_crew.*.role' => 'required|string|max:100',
+            ];
+        }
 
         // Rental custom fields — collect values under a `custom_` prefix (mirrors the
         // registration flow) and validate against the admin-defined definitions.
@@ -238,6 +256,17 @@ class CheckoutController extends Controller
         }
 
         $request->validate($rules, [], $customFieldAttributes);
+
+        $shootingLocations = $request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS
+            ? $request->input('shooting_locations')
+            : [];
+        foreach ($shootingLocations as $index => $location) {
+            if (Carbon::parse($location['end_at'])->lessThanOrEqualTo(Carbon::parse($location['start_at']))) {
+                throw ValidationException::withMessages([
+                    "shooting_locations.{$index}.end_at" => 'Jam selesai harus setelah jam mulai.',
+                ]);
+            }
+        }
 
         // Assemble the custom_fields payload keyed by field name.
         $customFieldValues = [];
@@ -365,6 +394,30 @@ class CheckoutController extends Controller
         DB::beginTransaction();
 
         try {
+            $itinerary = null;
+            if ($request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS) {
+                $itinerary = ShootingItinerary::create([
+                    'user_id' => $customer->id,
+                    'production_name' => $request->input('production_name'),
+                ]);
+                $itinerary->locations()->createMany(collect($request->input('shooting_locations'))
+                    ->values()
+                    ->map(fn (array $location, int $index) => [
+                        'position' => $index,
+                        'location_name' => $location['location_name'],
+                        'start_at' => Carbon::parse($location['start_at'])->toDateTimeString(),
+                        'end_at' => Carbon::parse($location['end_at'])->toDateTimeString(),
+                    ])->all());
+                $itinerary->crew()->createMany(collect($request->input('shooting_crew'))
+                    ->values()
+                    ->map(fn (array $member, int $index) => [
+                        'position' => $index,
+                        'name' => $member['name'],
+                        'nim' => $member['nim'],
+                        'role' => $member['role'],
+                    ])->all());
+            }
+
             $rentals = [];
             $reservedUnitIds = []; // Track units reserved in this transaction
 
@@ -411,6 +464,9 @@ class CheckoutController extends Controller
                     'pricing_period' => $firstItem->pricing_period ?? 'day',
                     'status' => Rental::STATUS_QUOTATION,
                     'quotation_id' => $quotation->id,
+                    'shooting_itinerary_id' => $itinerary?->id,
+                    'usage_type' => $request->input('usage_type'),
+                    'outside_purpose' => $request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS ? $request->input('outside_purpose') : null,
                     'subtotal' => $subtotal,
                     'discount' => $rentalDiscount,
                     'discount_id' => $discountId,
@@ -580,7 +636,7 @@ class CheckoutController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return back()->with('error', 'Something went wrong. Please try again. '.$e->getMessage());
+            return back()->withInput()->with('error', 'Something went wrong. Please try again. '.$e->getMessage());
         }
     }
 
