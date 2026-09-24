@@ -120,10 +120,20 @@ class PickupOperation extends Page
                 'rentalItem.rental',
                 'rentalItemKit.unitKit',
             ])
-            ->orderBy('rental_item_id')
-            ->orderByRaw('rental_item_kit_id IS NULL DESC')
-            ->orderBy('rental_item_kit_id')
-            ->get();
+            ->get()
+            ->sortBy(function ($item) {
+                $name = $item->rentalItem?->productUnit?->product?->name
+                    ?? $item->rentalItem?->product?->name
+                    ?? $item->rentalItemKit?->unitKit?->name
+                    ?? '';
+                $variation = $item->rentalItem?->productUnit?->variation?->name
+                    ?? $item->rentalItem?->productVariation?->name
+                    ?? '';
+
+                return mb_strtolower($name).'|'.mb_strtolower($variation).'|'
+                    .str_pad((string) ($item->rental_item_id ?? 0), 12, '0', STR_PAD_LEFT).'|'
+                    .($item->rental_item_kit_id === null ? '0' : '1');
+            })->values();
     }
 
     public function getAvailabilityStatus(): array

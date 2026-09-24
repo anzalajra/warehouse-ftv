@@ -222,7 +222,7 @@
             .rent-app .view-table { width:100%; }
             .rent-app .view-head, .rent-app .view-row {
                 display:grid;
-                grid-template-columns:34px minmax(0,2.7fr) minmax(0,1.15fr) 88px 64px 124px;
+                grid-template-columns:34px minmax(0,2.7fr) minmax(0,1.15fr) 120px 124px;
                 align-items:center; gap:14px; padding:12px 20px;
             }
             .rent-app .view-head { background:var(--gray-50); border-bottom:1px solid var(--border-1); font-size:11px; font-weight:600; color:var(--fg-3); text-transform:uppercase; letter-spacing:0.05em; }
@@ -244,6 +244,10 @@
             .rent-app .view-row .serial.unassigned { color:var(--fg-4); font-style:italic; font-family:var(--font-sans); }
             .rent-app .view-row .kits { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; color:var(--fg-2); font-variant-numeric:tabular-nums; }
             .rent-app .view-row .kits .kdot { width:6px; height:6px; border-radius:50%; background:var(--primary-400); }
+            .rent-app .view-row .kits details { width:100%; }
+            .rent-app .view-row .kits summary { cursor:pointer; list-style:none; }
+            .rent-app .view-row .kits summary::-webkit-details-marker { display:none; }
+            .rent-app .view-row .kits .kit-list { padding:6px 0 0 11px; font-size:11.5px; color:var(--fg-3); white-space:normal; }
             .rent-app .view-row .kits.zero { color:var(--fg-4); }
             .rent-app .view-row .kits.zero .kdot { background:var(--gray-300); }
             .rent-app .view-row .days { font-size:13px; color:var(--fg-2); text-align:center; font-variant-numeric:tabular-nums; }
@@ -266,15 +270,13 @@
                 .rent-app .view-head { display:none; }
                 .rent-app .view-row {
                     grid-template-columns:34px 1fr auto;
-                    grid-template-areas:'num prod kits' '.   serial serial' '.   meta   sub';
+                    grid-template-areas:'num prod kits' '.   serial serial' '.   .      sub';
                     gap:4px 11px; padding:12px 16px;
                 }
                 .rent-app .view-row .rownum { grid-area:num; }
                 .rent-app .view-row .prod { grid-area:prod; }
                 .rent-app .view-row .kits { grid-area:kits; justify-self:end; }
                 .rent-app .view-row .serial { grid-area:serial; }
-                .rent-app .view-row .days { grid-area:meta; text-align:left; }
-                .rent-app .view-row .days::before { content:'Days: '; color:var(--fg-4); }
                 .rent-app .view-row .sub { grid-area:sub; }
                 .rent-app .view-foot .frow { min-width:0; grid-template-columns:auto 130px; gap:16px; }
             }
@@ -551,12 +553,6 @@
                     </div>
 
                     {{-- Edit --}}
-                    @if($itinerary)
-                        <button type="button" class="btn btn-secondary has-tip" data-tip="Lihat rencana shooting" @click="itineraryOpen=true">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M5 3v4m14-4v4M4 7v14h16V7M8 12h3m2 0h3m-8 4h3"/></svg>
-                            <span class="text">Shooting Itinerary</span>
-                        </button>
-                    @endif
                     @if($editUrl)
                         <a href="{{ $editUrl }}" class="btn btn-secondary btn-iconsq has-tip" data-tip="Edit">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -704,6 +700,16 @@
                     @endif
                 </div>
 
+                @if($itinerary)
+                    <div class="info-cell">
+                        <span class="il">Itinerary</span>
+                        <button type="button" class="btn btn-secondary" style="align-self:flex-start;" @click="itineraryOpen=true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M5 3v4m14-4v4M4 7v14h16V7M8 12h3m2 0h3m-8 4h3"/></svg>
+                            <span class="text">View Itinerary</span>
+                        </button>
+                    </div>
+                @endif
+
                 @foreach(\App\Support\CustomFields::displayValues('rental_custom_fields', $rental->custom_fields) as $cf)
                     <div class="info-cell">
                         <span class="il">{{ $cf['label'] }}</span>
@@ -763,7 +769,7 @@
         <div class="card">
             <div class="card-head">
                 <h3>Rental Items</h3>
-                <span class="count-chip"><strong>{{ $rental->items->count() }}</strong> produk · <strong>{{ $totalKits }}</strong> kits</span>
+                <span class="count-chip"><strong>{{ $rental->items->count() }}</strong> unit · <strong>{{ $totalKits }}</strong> kits</span>
             </div>
 
             <div class="view-table">
@@ -772,17 +778,30 @@
                     <div>Product</div>
                     <div>Serial Number</div>
                     <div>Kits</div>
-                    <div class="center">Days</div>
                     <div class="right">Subtotal</div>
                 </div>
 
-                @forelse($rental->items as $i => $item)
+                @php
+                    $groupedItems = $rental->items->groupBy(function ($item) {
+                        $product = $item->productUnit?->product ?? $item->product;
+                        $variation = $item->productUnit?->variation ?? $item->productVariation;
+                        return ($product?->id ?? 'unknown').'|'.($variation?->id ?? '');
+                    })->sortBy(fn ($group) => mb_strtolower(($group->first()->productUnit?->product?->name ?? $group->first()->product?->name ?? '').'|'.($group->first()->productUnit?->variation?->name ?? $group->first()->productVariation?->name ?? '')))->values();
+                @endphp
+                @forelse($groupedItems as $i => $group)
                     @php
+                        $item = $group->first();
                         $product  = $item->productUnit?->product ?? $item->product;
+                        $variation = $item->productUnit?->variation ?? $item->productVariation;
                         $catName  = $product?->category?->name;
                         $image    = $product?->image;
-                        $serial   = $item->productUnit?->serial_number;
-                        $kitCount = $item->rentalItemKits->count();
+                        $kitCount = $group->sum(fn ($groupItem) => $groupItem->rentalItemKits->count());
+                        $serials = $group->map(fn ($groupItem) => $groupItem->productUnit?->serial_number)->filter()->values();
+                        $kitsByUnit = $group->flatMap(fn ($groupItem) => $groupItem->rentalItemKits->map(fn ($kit) => [
+                            'name' => $kit->unitKit?->name ?? 'Kit',
+                            'unit_serial' => $groupItem->productUnit?->serial_number,
+                            'serial' => $kit->unitKit?->serial_number,
+                        ]));
                     @endphp
                     <div class="view-row">
                         <div class="rownum">{{ $i + 1 }}</div>
@@ -795,16 +814,35 @@
                                 @endif
                             </div>
                             <div style="min-width:0;flex:1;">
-                                <div class="prod-name">{{ $product?->name ?? '—' }}</div>
+                                <div class="prod-name">{{ $product?->name ?? '—' }}@if($variation) <span class="prod-cat">({{ $variation->name }})</span>@endif @if($group->count() > 1)<span class="prod-cat">×{{ $group->count() }}</span>@endif</div>
                                 @if($catName)<div class="prod-cat">{{ $catName }}</div>@endif
                             </div>
                         </div>
-                        <div class="serial {{ $serial ? '' : 'unassigned' }}">{{ $serial ?: '(belum di-assign)' }}</div>
-                        <div class="kits {{ $kitCount === 0 ? 'zero' : '' }}">
-                            <span class="kdot"></span>{{ $kitCount }} kits
+                        <div class="serial {{ $serials->isEmpty() ? 'unassigned' : '' }}">
+                            @if($group->count() > 1)
+                                <details>
+                                    <summary>{{ $group->count() }} unit · lihat serial</summary>
+                                    <div style="padding:6px 0">@foreach($group as $serialItem)<div>{{ $serialItem->productUnit?->serial_number ?: '(belum di-assign)' }}</div>@endforeach</div>
+                                </details>
+                            @else
+                                {{ $serials->first() ?: '(belum di-assign)' }}
+                            @endif
                         </div>
-                        <div class="days">{{ $item->days }}</div>
-                        <div class="sub">{{ $rp($item->subtotal) }}</div>
+                        <div class="kits {{ $kitCount === 0 ? 'zero' : '' }}">
+                            @if($kitCount > 0)
+                                <details>
+                                    <summary><span class="kdot"></span>{{ $kitCount }} kits</summary>
+                                    <div class="kit-list">
+                                        @foreach($kitsByUnit as $kitDetail)
+                                            <div>{{ $kitDetail['name'] }}@if($kitDetail['unit_serial']) · unit {{ $kitDetail['unit_serial'] }}@endif @if($kitDetail['serial']) · {{ $kitDetail['serial'] }}@endif</div>
+                                        @endforeach
+                                    </div>
+                                </details>
+                            @else
+                                <span class="kdot"></span>0 kits
+                            @endif
+                        </div>
+                        <div class="sub">{{ $rp($group->sum('subtotal')) }}</div>
                     </div>
                 @empty
                     <div class="view-empty">Belum ada item pada rental ini.</div>

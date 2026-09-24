@@ -56,7 +56,7 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($rental->items as $item)
+            @foreach($rental->items->sortBy(fn ($item) => mb_strtolower(($item->productUnit?->product?->name ?? $item->product?->name ?? '').'|'.($item->productUnit?->variation?->name ?? $item->productVariation?->name ?? '').'|'.($item->productUnit?->serial_number ?? '')))->values() as $item)
                 @php
                     $product = $item->productUnit?->product ?? $item->product;
                     $variation = $item->productUnit?->variation ?? $item->productVariation;
