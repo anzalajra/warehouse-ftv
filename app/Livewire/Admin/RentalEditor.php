@@ -570,6 +570,12 @@ class RentalEditor extends Component
     #[Computed]
     public function statuses(): array
     {
+        // Expired rentals are reactivated through the explicit Reopen action after
+        // the editor has saved revised dates and items.
+        if ($this->record?->status === Rental::STATUS_EXPIRED) {
+            return [['value' => Rental::STATUS_EXPIRED, 'label' => 'Expired', 'tone' => 'gray']];
+        }
+
         $out = [];
         foreach (Rental::getStatusOptions() as $value => $label) {
             $out[] = ['value' => $value, 'label' => $label, 'tone' => $this->statusTone($value)];
@@ -1657,7 +1663,9 @@ class RentalEditor extends Component
             'start_date' => $this->start_date,
             'end_date' => $this->end_date,
             'pricing_period' => $this->pricingPeriod,
-            'status' => $this->status,
+            'status' => $this->record?->status === Rental::STATUS_EXPIRED
+                ? Rental::STATUS_EXPIRED
+                : $this->status,
             'subtotal' => $totals['subtotal'],
             ...$this->discountFields(),
             'deposit' => $this->deposit,

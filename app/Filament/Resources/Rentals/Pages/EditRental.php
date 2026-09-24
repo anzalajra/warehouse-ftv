@@ -23,6 +23,11 @@ class EditRental extends Page
     {
         $this->rental = Rental::with('items.productUnit')->findOrFail($record);
 
+        if ($this->rental->status === Rental::STATUS_QUOTATION
+            && $this->rental->start_date->isPast()) {
+            $this->rental->checkAndUpdateLateStatus();
+        }
+
         if (! $this->rental->canBeEdited()) {
             Notification::make()
                 ->title('Cannot edit this rental')

@@ -50,6 +50,8 @@
     $rawStatus = $rental->status;
 
     $canConfirm = $rawStatus === \App\Models\Rental::STATUS_QUOTATION;
+    $canReopenExpired = $rawStatus === \App\Models\Rental::STATUS_EXPIRED
+        && auth()->user()?->hasRole(['super_admin', 'admin']);
     $canPickup  = in_array($rawStatus, [\App\Models\Rental::STATUS_CONFIRMED, \App\Models\Rental::STATUS_LATE_PICKUP]);
     $canReturn  = in_array($rawStatus, [\App\Models\Rental::STATUS_ACTIVE, \App\Models\Rental::STATUS_LATE_RETURN, \App\Models\Rental::STATUS_PARTIAL_RETURN]);
     $canRevert  = $rawStatus === \App\Models\Rental::STATUS_CONFIRMED;
@@ -601,6 +603,11 @@
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
                             <span class="text">Confirm</span>
                         </button>
+                    @elseif($canReopenExpired)
+                        <span class="tb-sep"></span>
+                        <button type="button" class="btn btn-info" wire:click="mountAction('reopenExpired')">
+                            <span class="text">Reopen</span>
+                        </button>
                     @elseif($canPickup)
                         <span class="tb-sep"></span>
                         <a href="{{ $this->getPickupUrl() }}" class="btn btn-success">
@@ -821,6 +828,10 @@
                     <button type="button" class="ab-btn primary brand" wire:click="mountAction('confirm')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>
                         <span>Confirm</span>
+                    </button>
+                @elseif($canReopenExpired)
+                    <button type="button" class="ab-btn primary brand" wire:click="mountAction('reopenExpired')">
+                        <span>Reopen</span>
                     </button>
                 @elseif($canPickup)
                     <a href="{{ $this->getPickupUrl() }}" class="ab-btn primary go">

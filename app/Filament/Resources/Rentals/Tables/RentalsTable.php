@@ -179,6 +179,20 @@ class RentalsTable
                         return $form;
                     })
                     ->action(function (Rental $record, array $data) {
+                        $record->refresh();
+                        if ($record->status !== Rental::STATUS_QUOTATION) {
+                            Notification::make()->title('Cannot confirm rental')->body('This rental is no longer a quotation.')->danger()->send();
+
+                            return;
+                        }
+
+                        if ($record->start_date->isPast()) {
+                            $record->checkAndUpdateLateStatus();
+                            Notification::make()->title('Rental expired')->body('The pickup time has passed. Edit the dates, then reopen the rental.')->danger()->send();
+
+                            return;
+                        }
+
                         $dpTransaction = null;
                         
                         if ($record->down_payment_amount > 0 && $record->down_payment_status !== 'paid') {
@@ -291,7 +305,25 @@ class RentalsTable
                             ->success()
                             ->send();
                     })
-                    ->visible(fn (Rental $record) => $record->status === Rental::STATUS_QUOTATION),
+                    ->visible(fn (Rental $record) => $record->getRealTimeStatus() === Rental::STATUS_QUOTATION),
+
+                Action::make('reopen_expired')
+                    ->label('Reopen')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->visible(fn (Rental $record) => $record->status === Rental::STATUS_EXPIRED
+                        && Auth::user()?->hasRole(['super_admin', 'admin']))
+                    ->requiresConfirmation()
+                    ->modalHeading('Reopen expired rental?')
+                    ->modalDescription('Set future pickup and return dates in Edit Rental first. Reopening returns this rental to Quotation for admin confirmation.')
+                    ->action(function (Rental $record) {
+                        try {
+                            $record->reopenExpiredQuotation();
+                            Notification::make()->title('Rental reopened as Quotation')->success()->send();
+                        } catch (\DomainException $e) {
+                            Notification::make()->title('Cannot reopen rental')->body($e->getMessage())->danger()->send();
+                        }
+                    }),
 
                 // Pickup button
                 Action::make('pickup')

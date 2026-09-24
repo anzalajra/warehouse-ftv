@@ -116,13 +116,15 @@ class CheckLateRentals extends Command
             DB::beginTransaction();
 
             // Expire unconfirmed quotations whose pickup date has passed
-            $updatedExpired = DB::table('rentals')
-                ->where('status', Rental::STATUS_QUOTATION)
+            $updatedExpired = 0;
+            Rental::where('status', Rental::STATUS_QUOTATION)
                 ->where('start_date', '<', $now)
-                ->update([
-                    'status' => Rental::STATUS_EXPIRED,
-                    'updated_at' => $now,
-                ]);
+                ->chunkById(100, function ($rentals) use (&$updatedExpired) {
+                    foreach ($rentals as $rental) {
+                        $rental->checkAndUpdateLateStatus();
+                        $updatedExpired++;
+                    }
+                });
 
             // Update late pickups (confirmed bookings past their pickup date)
             $updatedPickups = DB::table('rentals')

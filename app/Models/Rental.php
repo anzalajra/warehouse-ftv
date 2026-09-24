@@ -652,6 +652,63 @@ class Rental extends Model
         }
     }
 
+    /** Reopen an expired storefront quotation after its dates/items have been revised in admin. */
+    public function reopenExpiredQuotation(): void
+    {
+        \Illuminate\Support\Facades\DB::transaction(function () {
+            $rental = self::query()->lockForUpdate()->findOrFail($this->id);
+
+            if ($rental->status !== self::STATUS_EXPIRED) {
+                throw new \DomainException('Only expired rentals can be reopened as quotations.');
+            }
+
+            if ($rental->invoice_id) {
+                throw new \DomainException('This rental already has an invoice. Review the invoice before reopening it.');
+            }
+
+            if (! $rental->start_date->isFuture() || ! $rental->end_date->gt($rental->start_date)) {
+                throw new \DomainException('Set a future pickup date and a later return date in Edit Rental before reopening.');
+            }
+
+            $scheduleErrors = \App\Services\RentalValidationService::validateRentalPeriod(
+                $rental->start_date,
+                $rental->end_date
+            );
+            if ($scheduleErrors !== []) {
+                throw new \DomainException(implode(' ', $scheduleErrors));
+            }
+
+            if ($rental->checkAvailability() !== []) {
+                throw new \DomainException('The assigned units conflict with another rental. Edit the units or dates before reopening.');
+            }
+
+            if ($rental->items()->whereHas('productUnit', fn ($units) => $units->whereIn('status', [
+                ProductUnit::STATUS_MAINTENANCE,
+                ProductUnit::STATUS_RETIRED,
+            ]))->exists()) {
+                throw new \DomainException('An assigned unit is in maintenance or retired. Replace it before reopening.');
+            }
+
+            $rental->update([
+                'status' => self::STATUS_QUOTATION,
+                'checklist_downloaded_at' => null,
+                'permit_template_clicked_at' => null,
+            ]);
+            $rental->syncDeliveryDates();
+            if ($rental->quotation) {
+                $rental->quotation->update([
+                    'status' => Quotation::STATUS_ON_QUOTE,
+                    'valid_until' => now()->addDays(7),
+                    'subtotal' => $rental->quotation->rentals()->sum('subtotal'),
+                    'total' => $rental->quotation->rentals()->sum('total'),
+                ]);
+            }
+            $rental->logActivity('Expired rental reopened as quotation', 'status');
+
+            $this->setRawAttributes($rental->getAttributes(), true);
+        });
+    }
+
     /**
      * True when a partial return is in progress: some items have already been
      * checked back in (a COMPLETED IN delivery exists) while others are still
