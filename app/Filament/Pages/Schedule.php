@@ -37,6 +37,8 @@ class Schedule extends Page implements HasActions
     /** @var string 'month' | 'week' | 'day' */
     public string $view_mode = 'month';
 
+    public string $statusFilter = 'all';
+
     /** ISO date (Y-m-d) anchoring the current view. */
     public string $anchor;
 
@@ -49,6 +51,7 @@ class Schedule extends Page implements HasActions
     protected $queryString = [
         'filter' => ['except' => 'order'],
         'view_mode' => ['except' => 'month'],
+        'statusFilter' => ['except' => 'all'],
         'anchor' => ['except' => ''],
         'search' => ['except' => ''],
         'perPage' => ['except' => 15],
@@ -56,6 +59,11 @@ class Schedule extends Page implements HasActions
 
     public function mount(): void
     {
+        $allowedStatuses = ['all', 'quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired'];
+        if (! in_array($this->statusFilter, $allowedStatuses, true)) {
+            $this->statusFilter = 'all';
+        }
+
         if (empty($this->anchor)) {
             $this->anchor = now()->toDateString();
         }
@@ -117,6 +125,12 @@ class Schedule extends Page implements HasActions
     public function setFilter(string $filter): void
     {
         $this->filter = in_array($filter, ['order', 'product']) ? $filter : 'order';
+    }
+
+    public function setStatusFilter(string $status): void
+    {
+        $allowed = ['all', 'quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired'];
+        $this->statusFilter = in_array($status, $allowed, true) ? $status : 'all';
     }
 
     public function setViewMode(string $mode): void
@@ -205,6 +219,7 @@ class Schedule extends Page implements HasActions
             ])
             ->where('start_date', '<=', $end)
             ->where('end_date', '>=', $start)
+            ->when($this->statusFilter !== 'all', fn ($query) => $query->where('status', $this->statusFilter))
             ->orderBy('start_date')
             ->limit(500)
             ->get();
@@ -383,6 +398,7 @@ class Schedule extends Page implements HasActions
             ->with(['customer:id,name'])
             ->where('start_date', '<=', $d->copy()->endOfDay())
             ->where('end_date', '>=', $d)
+            ->when($this->statusFilter !== 'all', fn ($query) => $query->where('status', $this->statusFilter))
             ->orderBy('start_date')
             ->get();
 
@@ -510,7 +526,7 @@ class Schedule extends Page implements HasActions
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
                     if (!$rental) continue;
-                    if ($rental->end_date >= $rangeStart && $rental->start_date <= $rangeEnd) {
+                    if ($rental->end_date >= $rangeStart && $rental->start_date <= $rangeEnd && ($this->statusFilter === 'all' || $rental->status === $this->statusFilter)) {
                         $rentals[] = [
                             'id' => $rental->id,
                             'code' => $rental->rental_code,

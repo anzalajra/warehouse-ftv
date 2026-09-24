@@ -62,6 +62,8 @@ class ScheduleController extends Controller
     {
         $filter = in_array($request->query('filter'), ['order', 'product']) ? $request->query('filter') : 'order';
         $viewMode = in_array($request->query('view_mode'), ['month', 'week', 'day']) ? $request->query('view_mode') : 'month';
+        $allowedStatuses = array_keys($this->statuses);
+        $statusFilter = in_array($request->query('status'), $allowedStatuses, true) ? $request->query('status') : 'all';
         $anchor = $request->query('anchor');
         $anchor = $anchor ? Carbon::parse($anchor)->toDateString() : now()->toDateString();
         $search = trim((string) $request->query('search', ''));
@@ -75,6 +77,7 @@ class ScheduleController extends Controller
         $payload = [
             'filter' => $filter,
             'view_mode' => $viewMode,
+            'statusFilter' => $statusFilter,
             'anchor' => $anchor,
             'search' => $search,
             'perPage' => $perPage,
@@ -85,14 +88,14 @@ class ScheduleController extends Controller
 
         if ($filter === 'order') {
             if ($viewMode === 'month') {
-                $payload['monthData'] = $this->getMonthData($anchor);
+                $payload['monthData'] = $this->getMonthData($anchor, $statusFilter);
             } elseif ($viewMode === 'week') {
-                $payload['weekData'] = $this->getWeekData($anchor);
+                $payload['weekData'] = $this->getWeekData($anchor, $statusFilter);
             } else {
-                $payload['dayData'] = $this->getDayData($anchor);
+                $payload['dayData'] = $this->getDayData($anchor, $statusFilter);
             }
         } else {
-            $payload['products'] = $this->getProductsWithUnitsAndRentals($range, $search, $perPage);
+            $payload['products'] = $this->getProductsWithUnitsAndRentals($range, $search, $perPage, $statusFilter);
             $payload['dayHeaders'] = $this->getProductDayHeaders($range);
             $payload['monthGroups'] = $this->getProductMonthGroups($payload['dayHeaders']);
         }
@@ -150,7 +153,7 @@ class ScheduleController extends Controller
         };
     }
 
-    protected function fetchRentalsIn(Carbon $start, Carbon $end)
+    protected function fetchRentalsIn(Carbon $start, Carbon $end, string $statusFilter = 'all')
     {
         return Rental::query()
             ->select(['id', 'user_id', 'status', 'start_date', 'end_date'])
@@ -159,12 +162,13 @@ class ScheduleController extends Controller
             ])
             ->where('start_date', '<=', $end)
             ->where('end_date', '>=', $start)
+            ->when($statusFilter !== 'all', fn ($query) => $query->where('status', $statusFilter))
             ->orderBy('start_date')
             ->limit(500)
             ->get();
     }
 
-    protected function getMonthData(string $anchorDate): array
+    protected function getMonthData(string $anchorDate, string $statusFilter = 'all'): array
     {
         $anchor = Carbon::parse($anchorDate);
         $monthStart = $anchor->copy()->startOfMonth();
@@ -179,7 +183,7 @@ class ScheduleController extends Controller
         }
 
         $weeks = array_chunk($days, 7);
-        $rentals = $this->fetchRentalsIn($gridStart, $gridEnd);
+        $rentals = $this->fetchRentalsIn($gridStart, $gridEnd, $statusFilter);
 
         $weekSegments = [];
         foreach ($weeks as $wIdx => $week) {
@@ -235,7 +239,7 @@ class ScheduleController extends Controller
         ];
     }
 
-    protected function getWeekData(string $anchorDate): array
+    protected function getWeekData(string $anchorDate, string $statusFilter = 'all'): array
     {
         $anchor = Carbon::parse($anchorDate);
         $start = $anchor->copy()->startOfWeek(Carbon::MONDAY);
@@ -246,7 +250,7 @@ class ScheduleController extends Controller
             $days[] = $start->copy()->addDays($i);
         }
 
-        $rentals = $this->fetchRentalsIn($start, $end);
+        $rentals = $this->fetchRentalsIn($start, $end, $statusFilter);
 
         $rows = [];
         foreach ($rentals as $r) {
@@ -267,13 +271,13 @@ class ScheduleController extends Controller
         ];
     }
 
-    protected function getDayData(string $anchorDate): array
+    protected function getDayData(string $anchorDate, string $statusFilter = 'all'): array
     {
         $anchor = Carbon::parse($anchorDate);
         $start = $anchor->copy()->startOfDay();
         $end = $anchor->copy()->endOfDay();
 
-        $rentals = $this->fetchRentalsIn($start, $end);
+        $rentals = $this->fetchRentalsIn($start, $end, $statusFilter);
 
         $events = [];
         $allDay = [];
@@ -321,10 +325,15 @@ class ScheduleController extends Controller
             return response()->json([]);
         }
         $d = Carbon::parse($date)->startOfDay();
+        $statusFilter = $request->query('status');
+        if (! in_array($statusFilter, array_keys($this->statuses), true)) {
+            $statusFilter = 'all';
+        }
         $rentals = Rental::query()
             ->with(['customer:id,name'])
             ->where('start_date', '<=', $d->copy()->endOfDay())
             ->where('end_date', '>=', $d)
+            ->when($statusFilter !== 'all', fn ($query) => $query->where('status', $statusFilter))
             ->orderBy('start_date')
             ->get();
 
@@ -338,7 +347,7 @@ class ScheduleController extends Controller
         ])->values());
     }
 
-    protected function getProductsWithUnitsAndRentals(array $range, string $search, int $perPage): Paginator
+    protected function getProductsWithUnitsAndRentals(array $range, string $search, int $perPage, string $statusFilter = 'all'): Paginator
     {
         $rangeStart = $range['start'];
         $rangeEnd = $range['end'];
@@ -368,7 +377,7 @@ class ScheduleController extends Controller
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
                     if (! $rental) continue;
-                    if ($rental->end_date >= $rangeStart && $rental->start_date <= $rangeEnd) {
+                    if (($statusFilter === 'all' || $rental->status === $statusFilter) && $rental->end_date >= $rangeStart && $rental->start_date <= $rangeEnd) {
                         $rentals[] = [
                             'id' => $rental->id,
                             'customer' => $rental->customer?->name ?? '—',

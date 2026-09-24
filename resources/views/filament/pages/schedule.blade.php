@@ -7,6 +7,7 @@
         'active'         => ['#22c55e', 'Active'],
         'completed'      => ['#a855f7', 'Done'],
         'cancelled'      => ['#6b7280', 'Cancel'],
+        'expired'        => ['#9ca3af', 'Expired'],
         'late_pickup'    => ['#ef4444', 'Late'],
         'late_return'    => ['#ef4444', 'Late'],
         'partial_return' => ['#eab308', 'Partial'],
@@ -265,6 +266,15 @@
                     </div>
                 </div>
             @endif
+
+            <div class="gr-dd">
+                <select class="gr-dd-btn" aria-label="Filter by rental status" wire:change="setStatusFilter($event.target.value)">
+                    <option value="all" @selected($statusFilter === 'all')>All statuses</option>
+                    @foreach($statuses as $status => [$color, $label])
+                        <option value="{{ $status }}" @selected($statusFilter === $status)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
 
             <div style="flex:1"></div>
 

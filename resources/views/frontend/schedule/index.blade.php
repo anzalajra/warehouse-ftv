@@ -3,13 +3,14 @@
 @section('title', 'Rental Schedule')
 
 @php
-    $buildUrl = function (array $overrides = []) use ($filter, $view_mode, $anchor, $search, $perPage) {
+    $buildUrl = function (array $overrides = []) use ($filter, $view_mode, $anchor, $search, $perPage, $statusFilter) {
         $params = array_filter([
             'filter' => $filter,
             'view_mode' => $view_mode,
             'anchor' => $anchor,
             'search' => $search !== '' ? $search : null,
             'perPage' => $perPage !== 15 ? $perPage : null,
+            'status' => $statusFilter !== 'all' ? $statusFilter : null,
         ], fn ($v) => $v !== null);
         $params = array_merge($params, $overrides);
         $params = array_filter($params, fn ($v) => $v !== null && $v !== '');
@@ -189,7 +190,7 @@
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
-     x-data="{ modal:null, loadingModal:false, loadRental(id) { this.loadingModal = true; this.modal = { loading:true }; fetch('{{ url('/schedule/rentals') }}/' + id).then(r => r.json()).then(d => { this.modal = d; this.loadingModal = false; }); }, dayModal:null, loadDay(date) { this.dayModal = { date: date, items: null }; fetch('{{ route('frontend.schedule.day-rentals') }}?date=' + date).then(r => r.json()).then(d => { this.dayModal = { date: date, items: d }; }); } }">
+     x-data="{ modal:null, loadingModal:false, loadRental(id) { this.loadingModal = true; this.modal = { loading:true }; fetch('{{ url('/schedule/rentals') }}/' + id).then(r => r.json()).then(d => { this.modal = d; this.loadingModal = false; }); }, dayModal:null, loadDay(date) { this.dayModal = { date: date, items: null }; fetch('{{ route('frontend.schedule.day-rentals') }}?date=' + date + '&status={{ $statusFilter }}').then(r => r.json()).then(d => { this.dayModal = { date: date, items: d }; }); } }">
     <h1 class="text-2xl font-bold mb-6 text-gray-900">Rental Schedule</h1>
 
     <div class="gr-shell" style="min-height: 78vh">
@@ -219,6 +220,14 @@
                 </div>
             @endif
 
+            <div class="gr-dd">
+                <select class="gr-dd-btn" aria-label="Filter by rental status" onchange="window.location.href='{{ route('frontend.schedule') }}?'+new URLSearchParams({...Object.fromEntries(new URLSearchParams(window.location.search)),status:this.value==='all'?'':this.value}).toString()">
+                    <option value="all" @selected($statusFilter === 'all')>All statuses</option>
+                    @foreach($statuses as $status => [$color, $label])
+                        <option value="{{ $status }}" @selected($statusFilter === $status)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
             <div style="flex:1"></div>
         </div>
 
