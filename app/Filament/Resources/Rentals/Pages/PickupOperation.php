@@ -224,6 +224,14 @@ class PickupOperation extends Page
         return in_array($unit->status, [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE]);
     }
 
+    /** A stale checklist row cannot be handed over until its physical item exists. */
+    public function isItemUnassigned(DeliveryItem $item): bool
+    {
+        return $item->rentalItemKit
+            ? ! $item->rentalItemKit->unitKit
+            : ! $item->rentalItem?->productUnit;
+    }
+
     /**
      * Which other rentals are holding this unit over a period that overlaps this rental?
      * Used to tell the operator exactly where the conflict is coming from.
@@ -358,6 +366,12 @@ class PickupOperation extends Page
             return;
         }
 
+        if ($this->isItemUnassigned($record)) {
+            Notification::make()->title('Unit belum tersedia')->body('Assign unit/kit sebelum checklist pickup.')->warning()->send();
+
+            return;
+        }
+
         if ($this->isItemUnavailable($record)) {
             Notification::make()
                 ->title('Unit unavailable')
@@ -384,7 +398,7 @@ class PickupOperation extends Page
     public function markNotTaken(int $id): void
     {
         $record = $this->delivery->items()->with('rentalItem.productUnit', 'rentalItemKit.unitKit')->find($id);
-        if (! $record || ! $record->rentalItemKit) {
+        if (! $record || ! $record->rentalItemKit || $this->isItemUnassigned($record)) {
             return;
         }
 
@@ -430,7 +444,7 @@ class PickupOperation extends Page
     public function scannableList(): array
     {
         return $this->getDeliveryItems()
-            ->reject(fn (DeliveryItem $it) => ($it->rentalItemKit && $it->rentalItemKit->unitKit?->auto_scan_with_parent) || $it->not_taken)
+            ->reject(fn (DeliveryItem $it) => $this->isItemUnassigned($it) || ($it->rentalItemKit && $it->rentalItemKit->unitKit?->auto_scan_with_parent) || $it->not_taken)
             ->map(function (DeliveryItem $it) {
                 $isKit = $it->rentalItemKit !== null;
 
@@ -438,8 +452,8 @@ class PickupOperation extends Page
                     'id' => $it->id,
                     'name' => $this->itemLabel($it),
                     'serial' => $isKit
-                        ? $it->rentalItemKit->unitKit->serial_number
-                        : $it->rentalItem->productUnit->serial_number,
+                        ? ($it->rentalItemKit->unitKit?->serial_number ?? '-')
+                        : ($it->rentalItem?->productUnit?->serial_number ?? '-'),
                     'type' => $isKit ? 'kit' : 'unit',
                     'checked' => (bool) $it->is_checked,
                 ];
@@ -477,20 +491,21 @@ class PickupOperation extends Page
         $match = $items->first(function (DeliveryItem $it) use ($needle) {
             return ! $it->rentalItemKit
                 && ! $it->not_taken
-                && mb_strtolower((string) $it->rentalItem->productUnit->serial_number) === $needle;
+                && mb_strtolower((string) ($it->rentalItem?->productUnit?->serial_number ?? '')) === $needle;
         });
 
         if (! $match) {
             $match = $items->first(function (DeliveryItem $it) use ($needle) {
                 return $it->rentalItemKit
                     && ! $it->not_taken
-                    && mb_strtolower((string) $it->rentalItemKit->unitKit->serial_number) === $needle;
+                    && mb_strtolower((string) ($it->rentalItemKit->unitKit?->serial_number ?? '')) === $needle;
             });
         }
 
         if (! $match && $manual) {
             $match = $items->first(function (DeliveryItem $it) use ($needle) {
                 return ! $it->not_taken
+                    && ! $this->isItemUnassigned($it)
                     && str_contains(mb_strtolower($this->itemLabel($it)), $needle);
             });
         }
@@ -542,7 +557,7 @@ class PickupOperation extends Page
     public function scanNext(): void
     {
         $next = $this->getDeliveryItems()
-            ->first(fn (DeliveryItem $it) => ! $it->is_checked && ! $this->isItemUnavailable($it));
+            ->first(fn (DeliveryItem $it) => ! $it->is_checked && ! $this->isItemUnassigned($it) && ! $this->isItemUnavailable($it));
 
         if (! $next) {
             Notification::make()
@@ -566,10 +581,11 @@ class PickupOperation extends Page
     public function itemLabel(DeliveryItem $item): string
     {
         if ($item->rentalItemKit) {
-            return $item->rentalItemKit->unitKit->name;
+            return $item->rentalItemKit->unitKit?->name ?? 'Kit tidak tersedia';
         }
-        $product = $item->rentalItem->productUnit->product->name ?? 'Item';
-        $variation = $item->rentalItem->productUnit->variation->name ?? null;
+        $unit = $item->rentalItem?->productUnit;
+        $product = $unit?->product?->name ?? $item->rentalItem?->product?->name ?? 'Unit tidak tersedia';
+        $variation = $unit?->variation?->name;
 
         return $product.($variation ? ' ('.$variation.')' : '');
     }
@@ -586,7 +602,7 @@ class PickupOperation extends Page
     public function openEditor(int $id): void
     {
         $record = $this->delivery->items()->with(['rentalItem.productUnit', 'rentalItemKit.unitKit'])->find($id);
-        if (! $record) {
+        if (! $record || $this->isItemUnassigned($record)) {
             return;
         }
 
@@ -616,7 +632,7 @@ class PickupOperation extends Page
     public function saveEditor(): void
     {
         $record = $this->delivery->items()->with(['rentalItem.productUnit', 'rentalItemKit.unitKit'])->find($this->editingId);
-        if (! $record) {
+        if (! $record || $this->isItemUnassigned($record)) {
             return;
         }
 
@@ -653,10 +669,17 @@ class PickupOperation extends Page
                 continue;
             }
 
-            $unit = $record->rentalItem->productUnit;
-            $unit->refresh();
+            $unit = $record->rentalItem?->productUnit;
+            if ($this->isItemUnassigned($record)) {
+                $skippedCount++;
+                continue;
+            }
 
-            if (in_array($unit->status, [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE])) {
+            if ($unit) {
+                $unit->refresh();
+            }
+
+            if ($unit && in_array($unit->status, [ProductUnit::STATUS_RENTED, ProductUnit::STATUS_MAINTENANCE])) {
                 $skippedCount++;
 
                 continue;
@@ -673,13 +696,13 @@ class PickupOperation extends Page
         if ($updatedCount === 0 && $skippedCount > 0) {
             Notification::make()
                 ->title('Cannot mark items as checked')
-                ->body('All items are currently unavailable (rented or maintenance).')
+                ->body('Semua item belum tersedia, sedang disewa, atau dalam maintenance.')
                 ->danger()
                 ->send();
         } elseif ($skippedCount > 0) {
             Notification::make()
                 ->title('Some items were skipped')
-                ->body("Marked {$updatedCount} items as checked. {$skippedCount} skipped (unavailable).")
+                ->body("Marked {$updatedCount} items as checked. {$skippedCount} skipped (belum tersedia atau unavailable).")
                 ->warning()
                 ->send();
         } else {
@@ -904,8 +927,8 @@ class PickupOperation extends Page
 
         if ($isMaintenance) {
             $baseNotes = $record->rentalItemKit
-                ? $record->rentalItemKit->unitKit->notes
-                : $record->rentalItem->productUnit->notes;
+                ? ($record->rentalItemKit->unitKit?->notes ?? '')
+                : ($record->rentalItem?->productUnit?->notes ?? '');
             $updates['notes'] = $baseNotes."\n[AUTO] Marked as {$condition} during Pickup.";
         }
 
@@ -913,6 +936,9 @@ class PickupOperation extends Page
 
         if ($record->rentalItemKit) {
             $kit = $record->rentalItemKit->unitKit;
+            if (! $kit) {
+                return;
+            }
             $record->rentalItemKit->update(['condition_out' => $condition]);
             $kit->update($updates);
 
@@ -926,7 +952,10 @@ class PickupOperation extends Page
                 );
             }
         } else {
-            $unit = $record->rentalItem->productUnit;
+            $unit = $record->rentalItem?->productUnit;
+            if (! $unit) {
+                return;
+            }
             $unit->update($updates);
 
             if ($isMaintenance) {

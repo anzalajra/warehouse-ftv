@@ -43,6 +43,18 @@ class RentalItem extends Model
 
         static::updated(function ($item) {
             if ($item->wasChanged('product_unit_id')) {
+                // A draft checklist may already exist for the previous serial.
+                // Keep its notes/photos, but require a fresh check for the new unit.
+                $item->deliveryItems()
+                    ->whereNull('rental_item_kit_id')
+                    ->where('is_checked', true)
+                    ->whereHas('delivery', fn ($query) => $query->whereIn('status', [
+                        Delivery::STATUS_DRAFT,
+                        Delivery::STATUS_PENDING,
+                    ]))
+                    ->get()
+                    ->each(fn (DeliveryItem $deliveryItem) => $deliveryItem->update(['is_checked' => false]));
+
                 $item->rentalItemKits()->delete();
                 $item->unsetRelation('productUnit');
                 $item->attachKitsFromUnit();

@@ -70,7 +70,7 @@
         $allChecked = $remaining === 0;
 
         $isUnavailable = fn ($it) => $it->rentalItem && ! $it->rentalItemKit && $this->isItemUnavailable($it);
-        $isIssue = fn ($it) => ($it->condition && in_array($it->condition, $issueConditions)) || $isUnavailable($it);
+        $isIssue = fn ($it) => ($it->condition && in_array($it->condition, $issueConditions)) || $isUnavailable($it) || $this->isItemUnassigned($it);
 
         $unavailableItems = $items->filter($isUnavailable);
         $conflictCount = $unavailableItems->count();
@@ -1635,13 +1635,16 @@
                             $isKit = $item->rentalItemKit !== null;
                             $notTaken = $isKit && $item->not_taken;
                             $name = $this->itemLabel($item);
-                            $sn = $isKit ? ($item->rentalItemKit->unitKit->serial_number ?? '-') : $item->rentalItem->productUnit->serial_number;
+                            $sn = $isKit
+                                ? ($item->rentalItemKit->unitKit?->serial_number ?? '-')
+                                : ($item->rentalItem?->productUnit?->serial_number ?? '-');
+                            $unassigned = $this->isItemUnassigned($item);
                             $unavailable = $isUnavailable($item);
                             // Kit whose parent unit is unavailable (parent shows a Swap button) — hide its actions.
                             $kitParentUnavailable = $isKit && $this->isItemUnavailable($item);
                             $issue = $isIssue($item);
                             $photoCount = is_array($item->photos) ? count($item->photos) : 0;
-                            $prodImg = ! $isKit ? optional(optional($item->rentalItem->productUnit)->product)->image : null;
+                            $prodImg = ! $isKit ? $item->rentalItem?->productUnit?->product?->image : null;
                             $tone = $item->condition ? ($conditionMeta[$item->condition]['tone'] ?? null) : null;
                             $condLabel = $item->condition ? ($conditionMeta[$item->condition]['label'] ?? ucfirst($item->condition)) : null;
                         @endphp
@@ -1665,7 +1668,9 @@
                                 <div class="meta">
                                     <span class="sn">{{ $sn }}</span>
                                     @if ($unavailable)
-                                        <span class="tag-pill" style="background:var(--danger-bg);color:#b91c1c;border-color:var(--danger-bd);">⚠ {{ strtoupper($item->rentalItem->productUnit->status) }}</span>
+                                        <span class="tag-pill" style="background:var(--danger-bg);color:#b91c1c;border-color:var(--danger-bd);">⚠ {{ strtoupper($item->rentalItem?->productUnit?->status ?? 'unavailable') }}</span>
+                                    @elseif ($unassigned)
+                                        <span class="tag-pill" style="background:var(--danger-bg);color:#b91c1c;border-color:var(--danger-bd);">⚠ Belum ada unit</span>
                                     @endif
                                 </div>
                             </div>
@@ -1683,7 +1688,9 @@
                                         <span class="cond none"><span class="dot"></span>Not checked</span>
                                     @endif
                                     <span class="check-ic {{ $item->is_checked ? 'on' : 'off' }}">{!! $icon($item->is_checked ? 'check' : 'x') !!}</span>
-                                    @if ($unavailable)
+                                    @if ($unassigned)
+                                        <span class="cond none">Assign unit sebelum pickup</span>
+                                    @elseif ($unavailable)
                                         <button class="btn btn-sm btn-primary" wire:click="openSwap({{ $item->id }})">{!! $icon('swap') !!}Swap</button>
                                     @elseif ($kitParentUnavailable)
                                         {{-- Parent unit will be swapped; kit actions hidden until then. --}}
@@ -1719,7 +1726,9 @@
             @php
                 $isKit = $editItem->rentalItemKit !== null;
                 $editName = $this->itemLabel($editItem);
-                $editSn = $isKit ? ($editItem->rentalItemKit->unitKit->serial_number ?? '-') : $editItem->rentalItem->productUnit->serial_number;
+                $editSn = $isKit
+                    ? ($editItem->rentalItemKit->unitKit?->serial_number ?? '-')
+                    : ($editItem->rentalItem?->productUnit?->serial_number ?? '-');
             @endphp
             <div class="scrim" wire:click.self="closeEditor">
                 <div class="modal" wire:key="editor-{{ $editingId }}">
