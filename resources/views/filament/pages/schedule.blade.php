@@ -267,13 +267,19 @@
                 </div>
             @endif
 
-            <div class="gr-dd">
-                <select class="gr-dd-btn" aria-label="Filter by rental status" wire:change="setStatusFilter($event.target.value)">
-                    <option value="all" @selected($statusFilter === 'all')>All statuses</option>
+            <div class="gr-dd" @click.outside="statusDdOpen=false" x-data="{ statusDdOpen:false }">
+                <button type="button" class="gr-dd-btn" aria-label="Filter by rental status" @click="statusDdOpen=!statusDdOpen">
+                    Status{{ $statusFilters ? ' (' . count($statusFilters) . ')' : ': All' }}
+                </button>
+                <div class="gr-dd-menu" :class="{ open: statusDdOpen }" style="min-width:190px;max-height:300px;overflow:auto">
                     @foreach($statuses as $status => [$color, $label])
-                        <option value="{{ $status }}" @selected($statusFilter === $status)>{{ $label }}</option>
+                        <label class="gr-dd-item" style="cursor:pointer">
+                            <input type="checkbox" value="{{ $status }}" wire:model.live="statusFilters" style="accent-color:{{ $color }}">
+                            <span class="gr-legend-dot" style="background:{{ $color }}"></span>{{ $label }}
+                        </label>
                     @endforeach
-                </select>
+                    <button type="button" class="gr-dd-item" wire:click="$set('statusFilters', [])">Clear filters</button>
+                </div>
             </div>
 
             <div style="flex:1"></div>

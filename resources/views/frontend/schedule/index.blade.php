@@ -3,14 +3,14 @@
 @section('title', 'Rental Schedule')
 
 @php
-    $buildUrl = function (array $overrides = []) use ($filter, $view_mode, $anchor, $search, $perPage, $statusFilter) {
+    $buildUrl = function (array $overrides = []) use ($filter, $view_mode, $anchor, $search, $perPage, $statusFilters) {
         $params = array_filter([
             'filter' => $filter,
             'view_mode' => $view_mode,
             'anchor' => $anchor,
             'search' => $search !== '' ? $search : null,
             'perPage' => $perPage !== 15 ? $perPage : null,
-            'status' => $statusFilter !== 'all' ? $statusFilter : null,
+            'status' => $statusFilters !== [] ? $statusFilters : null,
         ], fn ($v) => $v !== null);
         $params = array_merge($params, $overrides);
         $params = array_filter($params, fn ($v) => $v !== null && $v !== '');
@@ -190,7 +190,7 @@
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
-     x-data="{ modal:null, loadingModal:false, loadRental(id) { this.loadingModal = true; this.modal = { loading:true }; fetch('{{ url('/schedule/rentals') }}/' + id).then(r => r.json()).then(d => { this.modal = d; this.loadingModal = false; }); }, dayModal:null, loadDay(date) { this.dayModal = { date: date, items: null }; fetch('{{ route('frontend.schedule.day-rentals') }}?date=' + date + '&status={{ $statusFilter }}').then(r => r.json()).then(d => { this.dayModal = { date: date, items: d }; }); } }">
+     x-data="{ modal:null, loadingModal:false, loadRental(id) { this.loadingModal = true; this.modal = { loading:true }; fetch('{{ url('/schedule/rentals') }}/' + id).then(r => r.json()).then(d => { this.modal = d; this.loadingModal = false; }); }, dayModal:null, loadDay(date) { this.dayModal = { date: date, items: null }; fetch('{{ route('frontend.schedule.day-rentals') }}?date=' + date + '&status={{ implode(',', $statusFilters) }}').then(r => r.json()).then(d => { this.dayModal = { date: date, items: d }; }); } }">
     <h1 class="text-2xl font-bold mb-6 text-gray-900">Rental Schedule</h1>
 
     <div class="gr-shell" style="min-height: 78vh">
@@ -220,13 +220,17 @@
                 </div>
             @endif
 
-            <div class="gr-dd">
-                <select class="gr-dd-btn" aria-label="Filter by rental status" onchange="window.location.href='{{ route('frontend.schedule') }}?'+new URLSearchParams({...Object.fromEntries(new URLSearchParams(window.location.search)),status:this.value==='all'?'':this.value}).toString()">
-                    <option value="all" @selected($statusFilter === 'all')>All statuses</option>
+            <div class="gr-dd" x-data="{ statusDdOpen:false, selected:@js($statusFilters), updateStatus(status, checked) { this.selected = checked ? [...new Set([...this.selected, status])] : this.selected.filter(item => item !== status); const params = new URLSearchParams(window.location.search); params.delete('status[]'); this.selected.forEach(item => params.append('status[]', item)); window.location.href = '{{ route('frontend.schedule') }}?' + params.toString(); } }" @click.outside="statusDdOpen=false">
+                <button type="button" class="gr-dd-btn" aria-label="Filter by rental status" @click="statusDdOpen=!statusDdOpen">Status<span x-text="selected.length ? ' (' + selected.length + ')' : ': All'"></span></button>
+                <div class="gr-dd-menu" :class="{ open: statusDdOpen }" style="min-width:190px;max-height:300px;overflow:auto">
                     @foreach($statuses as $status => [$color, $label])
-                        <option value="{{ $status }}" @selected($statusFilter === $status)>{{ $label }}</option>
+                        <label class="gr-dd-item" style="cursor:pointer">
+                            <input type="checkbox" value="{{ $status }}" @checked(in_array($status, $statusFilters, true)) @change="updateStatus('{{ $status }}', $event.target.checked)" style="accent-color:{{ $color }}">
+                            <span class="gr-legend-dot" style="background:{{ $color }}"></span>{{ $label }}
+                        </label>
                     @endforeach
-                </select>
+                    <a class="gr-dd-item" href="{{ $buildUrl(['status' => null]) }}">Clear filters</a>
+                </div>
             </div>
             <div style="flex:1"></div>
         </div>
