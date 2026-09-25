@@ -184,11 +184,14 @@ class AdminPwaSettings extends Page implements HasForms
                 ->body('Jalankan php artisan push:generate-vapid atau set env manual.')
                 ->danger()
                 ->send();
+
             return;
         }
 
         $user = \Illuminate\Support\Facades\Auth::user();
-        if (! $user) return;
+        if (! $user) {
+            return;
+        }
 
         $count = \App\Models\PushSubscription::where('user_id', $user->id)->count();
         if ($count === 0) {
@@ -197,6 +200,7 @@ class AdminPwaSettings extends Page implements HasForms
                 ->body('Buka admin panel dari HP, install sebagai aplikasi, lalu izinkan notifikasi.')
                 ->warning()
                 ->send();
+
             return;
         }
 
@@ -204,11 +208,11 @@ class AdminPwaSettings extends Page implements HasForms
             'title' => Setting::get('pwa_admin_name', 'Warehouse FTV'),
             'body' => 'Ini test notification. Push berhasil!',
             'url' => '/admin',
-            'tag' => 'test-' . time(),
+            'tag' => 'test-'.time(),
         ]);
 
         Notification::make()
-            ->title('Test push dikirim ke ' . $count . ' device')
+            ->title('Test push dikirim ke '.$count.' device')
             ->success()
             ->send();
     }
@@ -229,9 +233,10 @@ class AdminPwaSettings extends Page implements HasForms
 
         $returnCount = \App\Models\Rental::whereIn('status', [
             \App\Models\Rental::STATUS_ACTIVE,
-            \App\Models\Rental::STATUS_LATE_PICKUP,
+            \App\Models\Rental::STATUS_PARTIAL_RETURN,
             \App\Models\Rental::STATUS_LATE_RETURN,
-        ])->whereDate('end_date', '<=', $tomorrow)->count();
+        ])->with('items.deliveryItems.delivery')->get()
+            ->filter(fn ($rental) => $rental->nextOutstandingDueAt()?->toDateString() === $tomorrow)->count();
 
         // Goes through the database channel, which the web-push listener mirrors
         // to the admin's device(s) — same path as the real scheduled reminder.
@@ -266,11 +271,11 @@ class AdminPwaSettings extends Page implements HasForms
 
     protected function toggleKey(string $class): string
     {
-        return 'pwa_admin_push_class_' . strtolower(str_replace('\\', '_', $class));
+        return 'pwa_admin_push_class_'.strtolower(str_replace('\\', '_', $class));
     }
 
     protected function blockedKey(string $class): string
     {
-        return 'pwa_admin_push_block_' . strtolower(str_replace('\\', '_', $class));
+        return 'pwa_admin_push_block_'.strtolower(str_replace('\\', '_', $class));
     }
 }

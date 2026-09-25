@@ -85,6 +85,29 @@
 @endphp
 
 <x-filament-panels::page>
+    @if($overlapWarnings = $this->overlapWarnings())
+        <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:12px;padding:16px;margin-bottom:16px;color:#7f1d1d">
+            <strong>Jadwal alat bentrok</strong>
+            @foreach($overlapWarnings as $warning)
+                <div style="margin-top:8px">
+                    <strong>{{ $warning['serial'] }}</strong> · {{ $warning['rental_code'] }} · {{ $warning['customer'] }}
+                    ({{ $warning['start'] }} → {{ $warning['end'] }})
+                    @if($warning['acknowledged']) <span>· Override telah dikonfirmasi</span> @endif
+                    <a href="{{ $warning['url'] }}" style="text-decoration:underline;margin-left:8px">Lihat rental</a>
+                </div>
+            @endforeach
+        </div>
+    @endif
+    @if($overtimeRows = $this->overtimeRows())
+        <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:12px;padding:16px;margin-bottom:16px;color:#4c1d95">
+            <strong>Over-Time · barang yang masih di pelanggan</strong>
+            @foreach($overtimeRows as $row)
+                <div style="margin-top:8px">{{ $row['serial'] }} · {{ $row['start'] }} → {{ $row['due'] }}
+                    @if($row['waived']) · denda dibebaskan @endif
+                </div>
+            @endforeach
+        </div>
+    @endif
     <div class="rent-app rent-view" x-data="{ actSheet:false, custProfile:false, itineraryOpen:false }">
         <style>
             .rent-app {

@@ -11,6 +11,7 @@
         'late_pickup'    => ['#ef4444', 'Late'],
         'late_return'    => ['#ef4444', 'Late'],
         'partial_return' => ['#eab308', 'Partial'],
+        'over_time'     => ['#8b5cf6', 'Over-Time'],
     ];
     $legend = [
         ['#f97316', 'Quotation'],
@@ -20,6 +21,7 @@
         ['#6b7280', 'Cancel'],
         ['#ef4444', 'Late'],
         ['#eab308', 'Partial'],
+        ['#8b5cf6', 'Over-Time'],
     ];
 @endphp
 

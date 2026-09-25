@@ -102,10 +102,10 @@
                             @if(! $skipRental)
                                 <button type="button" class="gr-prod-booking"
                                     style="height: {{ $ROW_H - 12 }}px; left: {{ $left }}px; width: {{ $width }}px; background: {{ $color }};"
-                                    @click="loadRental({{ $rental['id'] }})"
-                                    title="{{ $rental['customer'] }}"
+                                    @click="loadRental({{ $rental['id'] }}, '{{ $status }}')"
+                                    title="{{ $status === 'late_return' ? 'Late Return · masih di luar' : (($status === 'over_time' ? 'Over-Time · ' : '') . 'Terpakai sampai ' . $rental['end']->format('d M Y H:i')) }}"
                                 >
-                                    {{ $rental['customer'] }}
+                                    {{ $status === 'over_time' ? 'Over-Time' : $statuses[$status][1] ?? 'Terpakai' }}
                                 </button>
                             @endif
                         @endforeach

@@ -39,22 +39,30 @@ use App\Models\Setting;
 class RentalAccountingService
 {
     // Chart-of-accounts codes (see ChartOfAccountsSeeder).
-    public const ACC_CASH_DEFAULT     = '1-1100'; // Kas dan Setara Kas (fallback)
-    public const ACC_RECEIVABLE       = '1-1200'; // Piutang Usaha
-    public const ACC_DEPOSIT_LIABILITY = '2-1200'; // Uang Jaminan Pelanggan (Deposit)
-    public const ACC_DEFERRED         = '2-1300'; // Pendapatan Diterima Dimuka / Uang Muka
-    public const ACC_TAX_PAYABLE      = '2-1400'; // Hutang Pajak (PPN Keluaran)
-    public const ACC_RENTAL_REVENUE   = '4-1100'; // Pendapatan Sewa
-    public const ACC_PENALTY_INCOME   = '4-1200'; // Pendapatan Denda
-    public const ACC_PPH23_PREPAID    = '1-1500'; // PPh 23 Dibayar Dimuka (tax credit)
+    public const ACC_CASH_DEFAULT = '1-1100'; // Kas dan Setara Kas (fallback)
 
-    public const STANDARD_SAK  = 'sak';
+    public const ACC_RECEIVABLE = '1-1200'; // Piutang Usaha
+
+    public const ACC_DEPOSIT_LIABILITY = '2-1200'; // Uang Jaminan Pelanggan (Deposit)
+
+    public const ACC_DEFERRED = '2-1300'; // Pendapatan Diterima Dimuka / Uang Muka
+
+    public const ACC_TAX_PAYABLE = '2-1400'; // Hutang Pajak (PPN Keluaran)
+
+    public const ACC_RENTAL_REVENUE = '4-1100'; // Pendapatan Sewa
+
+    public const ACC_PENALTY_INCOME = '4-1200'; // Pendapatan Denda
+
+    public const ACC_PPH23_PREPAID = '1-1500'; // PPh 23 Dibayar Dimuka (tax credit)
+
+    public const STANDARD_SAK = 'sak';
+
     public const STANDARD_IFRS = 'ifrs';
 
     public static function standardOptions(): array
     {
         return [
-            self::STANDARD_SAK  => 'SAK (Indonesia — akui pendapatan saat invoice)',
+            self::STANDARD_SAK => 'SAK (Indonesia — akui pendapatan saat invoice)',
             self::STANDARD_IFRS => 'IFRS / ASC 606 / PSAK 72 (akui bertahap saat sewa selesai)',
         ];
     }
@@ -84,26 +92,26 @@ class RentalAccountingService
      */
     protected static function invoiceComponents(Invoice $invoice): array
     {
-        $deposit  = (float) $invoice->rentals->sum('security_deposit_amount');
-        $ppn      = (float) ($invoice->ppn_amount ?? $invoice->tax);
-        $lateFee  = (float) $invoice->late_fee;
+        $deposit = (float) $invoice->rentals->sum('security_deposit_amount');
+        $ppn = (float) ($invoice->ppn_amount ?? $invoice->tax);
+        $lateFee = (float) $invoice->late_fee;
         $billable = (float) $invoice->total - $deposit;
-        $revenue  = max(0.0, $billable - $ppn - $lateFee);
+        $revenue = max(0.0, $billable - $ppn - $lateFee);
 
         return [
-            'billable'    => round($billable, 2),
+            'billable' => round($billable, 2),
             'net_revenue' => round($revenue, 2),
-            'ppn'         => round($ppn, 2),
-            'late_fee'    => round($lateFee, 2),
+            'ppn' => round($ppn, 2),
+            'late_fee' => round($lateFee, 2),
         ];
     }
 
     /** Same decomposition at the rental level (for completion-time recognition). */
     protected static function rentalNetRevenue(Rental $rental): float
     {
-        $deposit  = (float) $rental->security_deposit_amount;
-        $ppn      = (float) ($rental->ppn_amount ?? 0);
-        $lateFee  = (float) ($rental->late_fee ?? 0);
+        $deposit = (float) $rental->security_deposit_amount;
+        $ppn = (float) ($rental->ppn_amount ?? 0);
+        $lateFee = (float) ($rental->late_fee ?? 0);
         $billable = (float) $rental->total - $deposit;
 
         return round(max(0.0, $billable - $ppn - $lateFee), 2);
@@ -197,7 +205,7 @@ class RentalAccountingService
             return;
         }
 
-        $deferred   = self::acct(self::ACC_DEFERRED);
+        $deferred = self::acct(self::ACC_DEFERRED);
         $receivable = self::acct(self::ACC_RECEIVABLE);
         if (! $deferred || ! $receivable) {
             return;
@@ -257,12 +265,13 @@ class RentalAccountingService
 
         if (! self::isAdvanced() || self::standard() !== self::STANDARD_IFRS) {
             $mark();
+
             return;
         }
 
         $net = self::rentalNetRevenue($rental);
         $deferred = self::acct(self::ACC_DEFERRED);
-        $revenue  = self::acct(self::ACC_RENTAL_REVENUE);
+        $revenue = self::acct(self::ACC_RENTAL_REVENUE);
 
         if ($net > 0 && $deferred && $revenue) {
             JournalService::createEntry($rental, 'Pengakuan pendapatan sewa '.$rental->rental_code, [
@@ -280,19 +289,19 @@ class RentalAccountingService
      */
     public static function postLateFee(Rental $rental, float $amount, $date = null): void
     {
-        if (! self::isAdvanced() || $amount <= 0) {
+        if (! self::isAdvanced() || abs($amount) < 0.01) {
             return;
         }
 
         $receivable = self::acct(self::ACC_RECEIVABLE);
-        $penalty    = self::acct(self::ACC_PENALTY_INCOME);
+        $penalty = self::acct(self::ACC_PENALTY_INCOME);
         if (! $receivable || ! $penalty) {
             return;
         }
 
-        JournalService::createEntry($rental, 'Denda keterlambatan '.$rental->rental_code, [
-            ['account_id' => $receivable, 'debit' => $amount, 'credit' => 0],
-            ['account_id' => $penalty,    'debit' => 0,       'credit' => $amount],
+        JournalService::createEntry($rental, 'Penyesuaian denda keterlambatan '.$rental->rental_code, [
+            ['account_id' => $receivable, 'debit' => max(0, $amount), 'credit' => max(0, -$amount)],
+            ['account_id' => $penalty, 'debit' => max(0, -$amount), 'credit' => max(0, $amount)],
         ], $date);
     }
 
@@ -318,14 +327,15 @@ class RentalAccountingService
         }
 
         $revenueDelta = round($prevNetRevenue - self::rentalNetRevenue($rental), 2);
-        $ppnDelta     = round($prevPpn - (float) ($rental->ppn_amount ?? 0), 2);
+        $ppnDelta = round($prevPpn - (float) ($rental->ppn_amount ?? 0), 2);
 
         if (abs($revenueDelta) < 0.01 && abs($ppnDelta) < 0.01) {
             return;
         }
 
         $receivable = self::acct(self::ACC_RECEIVABLE);
-        $revenue    = self::acct(self::ACC_RENTAL_REVENUE);
+        $revenue = self::acct(self::standard() === self::STANDARD_IFRS && ! $rental->revenue_recognized_at
+            ? self::ACC_DEFERRED : self::ACC_RENTAL_REVENUE);
         $taxPayable = self::acct(self::ACC_TAX_PAYABLE);
         if (! $receivable || ! $revenue) {
             return;
@@ -359,8 +369,8 @@ class RentalAccountingService
         $net = round($debitSum - $creditSum, 2);
         $lines[] = [
             'account_id' => $receivable,
-            'debit'      => $net < 0 ? -$net : 0.0,
-            'credit'     => $net > 0 ? $net : 0.0,
+            'debit' => $net < 0 ? -$net : 0.0,
+            'credit' => $net > 0 ? $net : 0.0,
         ];
 
         JournalService::createEntry($rental, 'Penyesuaian diskon '.$rental->rental_code, $lines, $date);

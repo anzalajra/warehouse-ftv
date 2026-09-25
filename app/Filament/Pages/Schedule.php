@@ -10,13 +10,13 @@ use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Components\Grid;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Grid;
+use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\View;
-use UnitEnum;
 use Livewire\WithPagination;
-use Illuminate\Contracts\Pagination\Paginator;
+use UnitEnum;
 
 class Schedule extends Page implements HasActions
 {
@@ -24,9 +24,13 @@ class Schedule extends Page implements HasActions
     use WithPagination;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-calendar-days';
+
     protected static string|UnitEnum|null $navigationGroup = 'Rentals';
+
     protected static ?string $navigationLabel = 'Schedule';
+
     protected static ?string $title = 'Schedule';
+
     protected static ?int $navigationSort = 2;
 
     protected string $view = 'filament.pages.schedule';
@@ -44,6 +48,7 @@ class Schedule extends Page implements HasActions
     public string $anchor;
 
     public ?string $search = '';
+
     public int $perPage = 15;
 
     /** Date (Y-m-d) yang sedang ditampilkan di modal reminder, atau null. */
@@ -60,7 +65,7 @@ class Schedule extends Page implements HasActions
 
     public function mount(): void
     {
-        $allowedStatuses = ['all', 'quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired'];
+        $allowedStatuses = ['all', 'quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired', 'over_time'];
         $this->statusFilters = array_values(array_intersect($allowedStatuses, (array) $this->statusFilters));
 
         if (empty($this->anchor)) {
@@ -82,7 +87,7 @@ class Schedule extends Page implements HasActions
                 ->label('Reminder besok')
                 ->icon('heroicon-o-bell-alert')
                 ->color('warning')
-                ->modalHeading(fn () => 'Pickup & Return — ' . Carbon::parse($this->reminderDate ?? now()->addDay()->toDateString())->translatedFormat('l, d F Y'))
+                ->modalHeading(fn () => 'Pickup & Return — '.Carbon::parse($this->reminderDate ?? now()->addDay()->toDateString())->translatedFormat('l, d F Y'))
                 ->modalDescription('Daftar rental yang harus pickup atau return pada tanggal tersebut.')
                 ->modalSubmitAction(false)
                 ->modalCancelActionLabel('Tutup')
@@ -96,6 +101,7 @@ class Schedule extends Page implements HasActions
     public function getReminderPickups()
     {
         $date = $this->reminderDate ?: now()->addDay()->toDateString();
+
         return Rental::with('customer:id,name')
             ->whereIn('status', [
                 Rental::STATUS_QUOTATION,
@@ -110,15 +116,17 @@ class Schedule extends Page implements HasActions
     public function getReminderReturns()
     {
         $date = $this->reminderDate ?: now()->addDay()->toDateString();
-        return Rental::with('customer:id,name')
+
+        return Rental::with(['customer:id,name', 'items.deliveryItems.delivery'])
             ->whereIn('status', [
                 Rental::STATUS_ACTIVE,
                 Rental::STATUS_PARTIAL_RETURN,
                 Rental::STATUS_LATE_RETURN,
             ])
-            ->whereDate('end_date', $date)
-            ->orderBy('end_date')
-            ->get();
+            ->get()
+            ->filter(fn (Rental $rental) => $rental->nextOutstandingDueAt()?->toDateString() === $date)
+            ->sortBy(fn (Rental $rental) => $rental->nextOutstandingDueAt())
+            ->values();
     }
 
     public function setFilter(string $filter): void
@@ -128,7 +136,7 @@ class Schedule extends Page implements HasActions
 
     public function updatedStatusFilters(): void
     {
-        $allowed = ['quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired'];
+        $allowed = ['quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired', 'over_time'];
         $this->statusFilters = array_values(array_intersect($allowed, $this->statusFilters));
     }
 
@@ -170,6 +178,7 @@ class Schedule extends Page implements HasActions
 
     /**
      * Current visible date range based on filter + view_mode.
+     *
      * @return array{start: Carbon, end: Carbon, label: string}
      */
     public function getVisibleRange(): array
@@ -179,7 +188,8 @@ class Schedule extends Page implements HasActions
         if ($this->filter === 'product') {
             $start = $anchor->copy()->startOfMonth();
             $end = $anchor->copy()->addMonths(2)->endOfMonth();
-            $label = $start->format('M Y') . ' – ' . $end->format('M Y');
+            $label = $start->format('M Y').' – '.$end->format('M Y');
+
             return compact('start', 'end', 'label');
         }
 
@@ -193,7 +203,7 @@ class Schedule extends Page implements HasActions
                 'start' => $anchor->copy()->startOfWeek(Carbon::MONDAY),
                 'end' => $anchor->copy()->endOfWeek(Carbon::SUNDAY),
                 'label' => $anchor->copy()->startOfWeek(Carbon::MONDAY)->format('M j')
-                    . ' – ' . $anchor->copy()->endOfWeek(Carbon::SUNDAY)->format('M j, Y'),
+                    .' – '.$anchor->copy()->endOfWeek(Carbon::SUNDAY)->format('M j, Y'),
             ],
             default => [
                 'start' => $anchor->copy()->startOfMonth()->startOfWeek(Carbon::MONDAY),
@@ -208,20 +218,46 @@ class Schedule extends Page implements HasActions
      */
     protected function fetchRentalsIn(Carbon $start, Carbon $end)
     {
-        return Rental::query()
+        $rentals = Rental::query()
             ->select(['id', 'user_id', 'rental_code', 'status', 'start_date', 'end_date', 'total', 'notes'])
             ->with([
                 'customer:id,name',
-                'items:id,rental_id,product_unit_id',
+                'items:id,rental_id,product_unit_id,effective_due_at,overtime_started_at',
                 'items.productUnit:id,serial_number,product_id',
                 'items.productUnit.product:id,name',
+                'items.deliveryItems.delivery',
             ])
             ->where('start_date', '<=', $end)
-            ->where('end_date', '>=', $start)
-            ->when($this->statusFilters !== [], fn ($query) => $query->whereIn('status', $this->statusFilters))
-            ->orderBy('start_date')
-            ->limit(500)
+            ->where(fn ($q) => $q->where('end_date', '>=', $start)
+                ->orWhereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN])
+                ->orWhereHas('items.deliveryItems', fn ($rows) => $rows->where('is_checked', true)
+                    ->where('checked_at', '>=', $start)
+                    ->whereHas('delivery', fn ($d) => $d->where('type', 'in')->where('status', 'completed'))))
+            ->orderByDesc('start_date')
+            ->limit(1000)
             ->get();
+
+        return $rentals->flatMap(function (Rental $rental) use ($start, $end) {
+            $blocks = collect();
+            foreach ($rental->items as $item) {
+                if (! $item->product_unit_id) {
+                    continue;
+                }
+                foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $end) as $block) {
+                    if ($block['end'] < $start || $block['start'] > $end ||
+                        ($this->statusFilters !== [] && ! in_array($block['status'], $this->statusFilters, true))) {
+                        continue;
+                    }
+                    $copy = clone $rental;
+                    $copy->start_date = $block['start'];
+                    $copy->end_date = $block['end'];
+                    $copy->status = $block['status'];
+                    $blocks->push($copy);
+                }
+            }
+
+            return $blocks->unique(fn ($r) => $r->status.'|'.$r->start_date.'|'.$r->end_date);
+        })->values();
     }
 
     /**
@@ -254,7 +290,9 @@ class Schedule extends Page implements HasActions
             foreach ($rentals as $r) {
                 $rs = $r->start_date->copy()->startOfDay();
                 $re = $r->end_date->copy()->startOfDay();
-                if ($re < $weekStart || $rs > $weekEnd) continue;
+                if ($re < $weekStart || $rs > $weekEnd) {
+                    continue;
+                }
 
                 $segStart = $rs->greaterThan($weekStart) ? $rs : $weekStart;
                 $segEnd = $re->lessThan($weekEnd) ? $re : $weekEnd->copy()->startOfDay();
@@ -267,7 +305,10 @@ class Schedule extends Page implements HasActions
             }
             // Sort by start col desc by length (longest first)
             usort($segs, function ($a, $b) {
-                if ($a['start_col'] !== $b['start_col']) return $a['start_col'] <=> $b['start_col'];
+                if ($a['start_col'] !== $b['start_col']) {
+                    return $a['start_col'] <=> $b['start_col'];
+                }
+
                 return ($b['end_col'] - $b['start_col']) <=> ($a['end_col'] - $a['start_col']);
             });
 
@@ -356,7 +397,9 @@ class Schedule extends Page implements HasActions
 
             $startH = $rs->greaterThanOrEqualTo($start) ? $rs->hour + $rs->minute / 60 : 7;
             $endH = $re->lessThanOrEqualTo($end) ? $re->hour + $re->minute / 60 : 21;
-            if ($endH <= $startH) $endH = min(21, $startH + 1);
+            if ($endH <= $startH) {
+                $endH = min(21, $startH + 1);
+            }
 
             $row = [
                 'rental' => $r,
@@ -393,13 +436,7 @@ class Schedule extends Page implements HasActions
     public function getRentalsForDate(string $date): array
     {
         $d = Carbon::parse($date)->startOfDay();
-        $rentals = Rental::query()
-            ->with(['customer:id,name'])
-            ->where('start_date', '<=', $d->copy()->endOfDay())
-            ->where('end_date', '>=', $d)
-            ->when($this->statusFilters !== [], fn ($query) => $query->whereIn('status', $this->statusFilters))
-            ->orderBy('start_date')
-            ->get();
+        $rentals = $this->fetchRentalsIn($d, $d->copy()->endOfDay());
 
         return $rentals->map(fn ($r) => [
             'id' => $r->id,
@@ -414,12 +451,13 @@ class Schedule extends Page implements HasActions
     public function viewDayRentalsAction(): Action
     {
         return Action::make('viewDayRentals')
-            ->modalHeading(fn (array $arguments) => 'Bookings — ' . Carbon::parse($arguments['date'])->format('l, j F Y'))
+            ->modalHeading(fn (array $arguments) => 'Bookings — '.Carbon::parse($arguments['date'])->format('l, j F Y'))
             ->modalWidth('md')
             ->modalSubmitAction(false)
             ->modalCancelActionLabel('Close')
             ->modalContent(function (array $arguments) {
                 $rentals = $this->getRentalsForDate($arguments['date']);
+
                 return view('filament.pages.schedule.day-rentals-modal', [
                     'rentals' => $rentals,
                     'date' => $arguments['date'],
@@ -462,22 +500,25 @@ class Schedule extends Page implements HasActions
                             ->label('Notes')
                             ->disabled()
                             ->columnSpanFull(),
-                    ])
+                    ]),
             ])
             ->fillForm(function (array $arguments) {
                 $rental = Rental::with(['customer', 'items.productUnit.product'])->find($arguments['rentalId']);
-                if (!$rental) return [];
+                if (! $rental) {
+                    return [];
+                }
 
                 $items = $rental->items->map(function ($item) {
                     $pu = $item->productUnit;
-                    return ($pu?->product?->name ?? '-') . ' (' . ($pu->serial_number ?? '-') . ')';
+
+                    return ($pu?->product?->name ?? '-').' ('.($pu->serial_number ?? '-').')';
                 })->join("\n");
 
                 return [
                     'rental_code' => $rental->rental_code,
                     'status' => ucfirst($rental->status),
                     'customer_name' => $rental->customer->name,
-                    'total' => 'Rp ' . number_format($rental->total, 0, ',', '.'),
+                    'total' => 'Rp '.number_format($rental->total, 0, ',', '.'),
                     'start_date' => $rental->start_date->format('d M Y H:i'),
                     'end_date' => $rental->end_date->format('d M Y H:i'),
                     'items' => $items,
@@ -498,17 +539,17 @@ class Schedule extends Page implements HasActions
         $rangeStart = $range['start'];
         $rangeEnd = $range['end'];
 
-        $query = Product::with(['units.rentalItems.rental.customer'])
+        $query = Product::with(['units.rentalItems.rental.customer', 'units.rentalItems.deliveryItems.delivery'])
             ->whereHas('units');
 
         $search = trim($this->search ?? '');
 
-        if (!empty($search)) {
+        if (! empty($search)) {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
-                  ->orWhereHas('units', function ($q) use ($search) {
-                      $q->where('serial_number', 'like', '%' . $search . '%');
-                  });
+                $q->where('name', 'like', '%'.$search.'%')
+                    ->orWhereHas('units', function ($q) use ($search) {
+                        $q->where('serial_number', 'like', '%'.$search.'%');
+                    });
             });
         }
 
@@ -524,17 +565,21 @@ class Schedule extends Page implements HasActions
                 $rentals = [];
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
-                    if (!$rental) continue;
-                    if ($rental->end_date >= $rangeStart && $rental->start_date <= $rangeEnd && ($this->statusFilters === [] || in_array($rental->status, $this->statusFilters, true))) {
-                        $rentals[] = [
-                            'id' => $rental->id,
-                            'code' => $rental->rental_code,
-                            'customer' => $rental->customer?->name ?? '—',
-                            'start' => $rental->start_date,
-                            'end' => $rental->end_date,
-                            'status' => $rental->status,
-                            'color' => Rental::getStatusColor($rental->status),
-                        ];
+                    if (! $rental) {
+                        continue;
+                    }
+                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $rangeEnd) as $block) {
+                        if ($block['end'] >= $rangeStart && $block['start'] <= $rangeEnd && ($this->statusFilters === [] || in_array($block['status'], $this->statusFilters, true))) {
+                            $rentals[] = [
+                                'id' => $rental->id,
+                                'code' => $rental->rental_code,
+                                'customer' => $rental->customer?->name ?? '—',
+                                'start' => $block['start'],
+                                'end' => $block['end'],
+                                'status' => $block['status'],
+                                'color' => $block['status'] === 'over_time' ? '#8b5cf6' : Rental::getStatusColor($rental->status),
+                            ];
+                        }
                     }
                 }
                 $productData['units'][] = [
@@ -542,6 +587,7 @@ class Schedule extends Page implements HasActions
                     'rentals' => $rentals,
                 ];
             }
+
             return $productData;
         });
 
@@ -570,6 +616,7 @@ class Schedule extends Page implements HasActions
             ];
             $cur->addDay();
         }
+
         return $headers;
     }
 
@@ -591,6 +638,7 @@ class Schedule extends Page implements HasActions
                 $groups[count($groups) - 1]['count']++;
             }
         }
+
         return $groups;
     }
 }

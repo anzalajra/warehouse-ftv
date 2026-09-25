@@ -124,9 +124,9 @@
                                 <div class="gr-prod-booking"
                                     style="height: {{ $ROW_H - 12 }}px; left: {{ $left }}px; width: {{ $width }}px; background: {{ $color }};"
                                     wire:click="mountAction('viewRentalDetails', { rentalId: {{ $rental['id'] }} })"
-                                    title="{{ $rental['code'] }} — {{ $rental['customer'] }} ({{ $rStart->format('j M H:i') }} → {{ $rEnd->format('j M H:i') }})"
+                                    title="{{ $rental['code'] }} — {{ $status === 'over_time' ? 'Over-Time · ' : '' }}{{ $rental['customer'] }} ({{ $rStart->format('j M H:i') }} → {{ $rEnd->format('j M H:i') }})"
                                 >
-                                    {{ $rental['customer'] }}
+                                    {{ $status === 'over_time' ? 'Over-Time · ' : '' }}{{ $rental['customer'] }}
                                 </div>
                             @endif
                         @endforeach

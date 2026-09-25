@@ -1610,6 +1610,7 @@
                         <div>
                             <span class="field-label" style="display:block;margin-bottom:6px;">Late fee</span>
                             <div class="money-input"><span class="pfx">Rp</span><input type="number" x-model.number="lateFee" /></div>
+                            @error('manual_late_fee') <p style="color:#dc2626">{{ $message }}</p> @enderror
                             <span class="muted" style="font-size:12px;">Auto-calculated {{ 'Rp ' . number_format($fin['late_fee'], 0, ',', '.') }}. Adjust if waived.</span>
 
                             @php($lfb = $fin['late_fee_breakdown'] ?? null)
@@ -1654,7 +1655,8 @@
                                     <button type="button" class="radio-card" :aria-pressed="depAction==='partial'" @click="depAction='partial'"><span class="rc-dot"></span><span class="rc-main"><span class="rc-t">Partial refund</span><span class="rc-d">Refund part, forfeit the rest.</span></span></button>
                                 </div>
                                 <div style="margin-top:8px;" x-show="depAction==='partial'" x-cloak>
-                                    <div class="money-input"><span class="pfx">Rp</span><input type="number" x-model.number="refund" max="{{ (float) $fin['deposit'] }}" /></div>
+                                <div class="money-input"><span class="pfx">Rp</span><input type="number" x-model.number="refund" max="{{ (float) $fin['deposit'] }}" /></div>
+                                @error('refund_amount') <p style="color:#dc2626">{{ $message }}</p> @enderror
                                     <span class="muted" style="font-size:12px;">Refund amount (max {{ 'Rp ' . number_format($fin['deposit'], 0, ',', '.') }}).</span>
                                 </div>
                             </div>
@@ -1681,19 +1683,56 @@
         @php($partialLate = (float) ($fin['late_fee'] ?? 0))
         <template x-if="showPartial">
             <div class="scrim" @click.self="showPartial=false" @keydown.escape.window="showPartial=false">
-                <div class="modal{{ $partialLate > 0 ? ' wide' : '' }}"
+                    <div class="modal wide"
                      x-data="{
                         lateFee: {{ $partialLate }},
+                        dueAt: '{{ $this->defaultPartialDueAt() }}',
+                        waiveRemaining: {{ $this->defaultWaiveRemainingFee() ? 'true' : 'false' }},
+                        extensionReason: '',
+                        overrideConflicts: false,
+                        overrideReason: '',
+                        conflicts: [],
+                        extensionCharge: 0,
+                        checking: false,
+                        check() { this.checking = true; this.overrideConflicts = false; $wire.previewPartial(this.dueAt).then(result => { this.conflicts = result.conflicts; this.extensionCharge = result.extension_charge; this.checking = false; }); },
                         fmt(n){ return 'Rp ' + (Number(n)||0).toLocaleString('id-ID'); }
-                     }">
+                     }" x-init="check()">
                     <div class="modal-head"><h3>{!! $icon('layers') !!}Process partial return</h3><p>{{ $checkedCount }} of {{ $total }} items checked. Unchecked items move to a new return checklist; the rental stays in Partial Return.</p></div>
                     <div class="modal-body">
                         <div class="banner banner-warning">{!! $icon('alert') !!}<div class="body"><strong>Partial return.</strong> The remaining {{ $remaining }} item(s) are carried over to a new checklist. The security deposit is settled later, at full completion.</div></div>
+                        <div>
+                            <label class="field-label" for="partial-due-at">Batas pengembalian barang yang tersisa (tanggal dan jam)</label>
+                            <input id="partial-due-at" class="form-input" type="datetime-local" x-model="dueAt" @change="check()" required>
+                            <p class="muted" style="font-size:12px;margin-top:6px;">Blok Over-Time dimulai saat partial return dikonfirmasi. Tarif tambahan berlaku jika batas baru melampaui batas sebelumnya.</p>
+                            <p style="font-size:13px;margin-top:6px">Tambahan sewa barang tersisa: <strong x-text="fmt(extensionCharge)"></strong></p>
+                            @error('due_at') <p style="color:#dc2626">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label class="field-label" for="partial-extension-reason">Catatan perpanjangan / alasan pembebasan denda</label>
+                            <input id="partial-extension-reason" class="form-input" type="text" x-model="extensionReason" :placeholder="waiveRemaining ? 'Alasan pembebasan denda wajib diisi' : 'Opsional'">
+                            @error('extension_reason') <p style="color:#dc2626">{{ $message }}</p> @enderror
+                        </div>
+                        <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" x-model="waiveRemaining"> Bebaskan denda untuk barang yang tersisa</label>
+                        <div x-show="checking" class="muted">Memeriksa jadwal bentrok…</div>
+                        <div x-show="conflicts.length" class="banner banner-danger">
+                            <div class="body" style="width:100%"><strong>Jadwal bentrok</strong>
+                                <template x-for="(conflict, index) in conflicts" :key="index">
+                                    <div style="margin-top:8px"><span x-text="conflict.serial + ' · ' + conflict.rental_code + ' · ' + conflict.customer + ' · ' + conflict.start + ' → ' + conflict.end"></span>
+                                        <a :href="conflict.url" target="_blank" rel="noopener" style="text-decoration:underline;margin-left:8px">Lihat rental</a>
+                                    </div>
+                                </template>
+                                <label style="display:block;margin-top:10px"><input type="checkbox" x-model="overrideConflicts"> Lanjutkan meski bentrok</label>
+                                <input class="form-input" type="text" x-show="overrideConflicts" x-model="overrideReason" placeholder="Alasan override wajib diisi" style="margin-top:8px">
+                            </div>
+                        </div>
+                        @error('overlap') <p style="color:#dc2626">{{ $message }}</p> @enderror
+                        @error('return') <p style="color:#dc2626">{{ $message }}</p> @enderror
 
                         @if ($partialLate > 0)
                             <div>
                                 <span class="field-label" style="display:block;margin-bottom:6px;">Late fee so far</span>
                                 <div class="money-input"><span class="pfx">Rp</span><input type="number" x-model.number="lateFee" /></div>
+                                @error('manual_late_fee') <p style="color:#dc2626">{{ $message }}</p> @enderror
                                 <span class="muted" style="font-size:12px;">Auto-calculated {{ 'Rp ' . number_format($partialLate, 0, ',', '.') }} (per item). Adjust if waived. Items already returned are only charged up to their own return time.</span>
 
                                 @php($lfb = $fin['late_fee_breakdown'] ?? null)
@@ -1733,7 +1772,7 @@
                     <div class="modal-foot">
                         <span style="flex:1"></span>
                         <button class="btn" @click="showPartial=false">Cancel</button>
-                        <button class="btn btn-primary" @click="$wire.validateReturn({ manual_late_fee: lateFee }); showPartial=false">{!! $icon('checkCircle') !!}Process partial return</button>
+                        <button class="btn btn-primary" :disabled="checking || !dueAt || (waiveRemaining && !extensionReason.trim()) || (conflicts.length && (!overrideConflicts || !overrideReason.trim()))" @click="$wire.validateReturn({ manual_late_fee: lateFee, due_at: dueAt, waive_remaining_fee: waiveRemaining, extension_reason: extensionReason, override_conflicts: overrideConflicts, override_reason: overrideReason, conflict_pairs: conflicts.map(c => c.pair) }).then(() => showPartial=false)">{!! $icon('checkCircle') !!}Process partial return</button>
                     </div>
                 </div>
             </div>

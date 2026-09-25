@@ -53,7 +53,7 @@
                                 {{ $r->customer?->name ?? '-' }}
                             </div>
                             <div class="text-xs text-gray-500 dark:text-gray-400">
-                                {{ $r->rental_code }} · {{ optional($r->end_date)->format('H:i') }}
+                                {{ $r->rental_code }} · {{ optional($r->nextOutstandingDueAt() ?? $r->end_date)->format('H:i') }}
                             </div>
                         </div>
                         <a href="{{ url('/admin/rentals/' . $r->id . '/return') }}"

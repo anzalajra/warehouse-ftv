@@ -7,6 +7,7 @@ use App\Helpers\WhatsAppHelper;
 use App\Models\Quotation;
 use App\Models\Rental;
 use App\Models\Setting;
+use App\Services\RentalOccupancyService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Filament\Actions\Action;
@@ -38,6 +39,7 @@ class ViewRental extends Page
             'items.productUnit.product.category',
             'items.product.category',
             'items.rentalItemKits.unitKit',
+            'items.deliveryItems.delivery',
             'dailyDiscount',
             'datePromotion',
             'discountRelation',
@@ -54,6 +56,50 @@ class ViewRental extends Page
     public function getTitle(): string|Htmlable
     {
         return 'View Rental - '.$this->rental->rental_code;
+    }
+
+    /** Current serial-level conflicts, shown on both affected rental pages. */
+    public function overlapWarnings(): array
+    {
+        $warnings = [];
+        foreach ($this->rental->items as $item) {
+            if (! $item->product_unit_id || RentalOccupancyService::returnedAt($item)) {
+                continue;
+            }
+            $start = $this->rental->start_date->greaterThan(now()) ? $this->rental->start_date : now();
+            $due = RentalOccupancyService::dueAt($item);
+            $end = $due->greaterThan(now()) ? $due : now()->addMonths(6);
+            foreach (RentalOccupancyService::conflictsFor($item, $start, $end) as $other) {
+                $override = \Illuminate\Support\Facades\DB::table('rental_overlap_overrides')
+                    ->where(fn ($q) => $q->where('rental_item_id', $item->id)->where('conflicting_rental_item_id', $other->id))
+                    ->orWhere(fn ($q) => $q->where('rental_item_id', $other->id)->where('conflicting_rental_item_id', $item->id))
+                    ->exists();
+                $warnings[$item->id.':'.$other->id] = [
+                    'serial' => $item->productUnit?->serial_number,
+                    'rental_code' => $other->rental->rental_code,
+                    'customer' => $other->rental->customer?->name,
+                    'start' => $other->rental->start_date->format('d M Y H:i'),
+                    'end' => RentalOccupancyService::occupiedUntil($other)?->format('d M Y H:i') ?? 'masih di luar',
+                    'acknowledged' => $override,
+                    'url' => RentalResource::getUrl('view', ['record' => $other->rental_id]),
+                ];
+            }
+        }
+
+        return array_values($warnings);
+    }
+
+    public function overtimeRows(): array
+    {
+        return $this->rental->items
+            ->filter(fn ($item) => $item->overtime_started_at
+                && \App\Services\RentalOccupancyService::returnedAt($item) === null)
+            ->map(fn ($item) => [
+                'serial' => $item->productUnit?->serial_number,
+                'start' => $item->overtime_started_at->format('d M Y H:i'),
+                'due' => \App\Services\RentalOccupancyService::dueAt($item)->format('d M Y H:i'),
+                'waived' => $item->late_fee_waived,
+            ])->values()->all();
     }
 
     // The page renders its own design topbar (in the Blade view), so we fully
@@ -107,7 +153,7 @@ class ViewRental extends Page
             'rental_ref' => $rental->rental_code,
             'items_list' => $itemsList,
             'pickup_date' => Carbon::parse($rental->start_date)->format('d M Y H:i'),
-            'return_date' => Carbon::parse($rental->end_date)->format('d M Y H:i'),
+            'return_date' => ($rental->nextOutstandingDueAt() ?? $rental->end_date)->format('d M Y H:i'),
             'link_pdf' => $pdfLink,
             'company_name' => Setting::get('site_name', 'Gearent'),
         ];

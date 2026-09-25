@@ -190,7 +190,7 @@
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
-     x-data="{ modal:null, loadingModal:false, loadRental(id) { this.loadingModal = true; this.modal = { loading:true }; fetch('{{ url('/schedule/rentals') }}/' + id).then(r => r.json()).then(d => { this.modal = d; this.loadingModal = false; }); }, dayModal:null, loadDay(date) { this.dayModal = { date: date, items: null }; fetch('{{ route('frontend.schedule.day-rentals') }}?date=' + date + '&status={{ implode(',', $statusFilters) }}').then(r => r.json()).then(d => { this.dayModal = { date: date, items: d }; }); } }">
+     x-data="{ modal:null, loadingModal:false, loadRental(id, segment='') { this.loadingModal = true; this.modal = { loading:true }; fetch('{{ url('/schedule/rentals') }}/' + id + (segment ? '?segment=' + encodeURIComponent(segment) : '')).then(r => r.json()).then(d => { this.modal = d; this.loadingModal = false; }); }, dayModal:null, loadDay(date) { this.dayModal = { date: date, items: null }; fetch('{{ route('frontend.schedule.day-rentals') }}?date=' + date + '&status={{ implode(',', $statusFilters) }}').then(r => r.json()).then(d => { this.dayModal = { date: date, items: d }; }); } }">
     <h1 class="text-2xl font-bold mb-6 text-gray-900">Rental Schedule</h1>
 
     <div class="gr-shell" style="min-height: 78vh">
@@ -307,7 +307,7 @@
                     <template x-if="dayModal.items && dayModal.items.length > 0">
                         <div style="display:flex; flex-direction:column; gap:10px;">
                             <template x-for="r in dayModal.items" :key="r.id">
-                                <button type="button" @click="loadRental(r.id); dayModal=null;" style="text-align:left; border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:10px 12px; cursor:pointer; display:flex; align-items:center; gap:10px; font-family:inherit;">
+                                <button type="button" @click="loadRental(r.id, r.segment); dayModal=null;" style="text-align:left; border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:10px 12px; cursor:pointer; display:flex; align-items:center; gap:10px; font-family:inherit;">
                                     <span style="width:10px; height:10px; border-radius:999px; flex-shrink:0;" :style="'background:' + r.status_color"></span>
                                     <div style="flex:1; min-width:0;">
                                         <div style="font-size:13px; font-weight:700; color:#111827;" x-text="r.customer"></div>

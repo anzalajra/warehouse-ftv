@@ -796,26 +796,13 @@ class RentalEditor extends Component
             return [];
         }
 
-        $activeStatuses = [
-            Rental::STATUS_QUOTATION,
-            Rental::STATUS_CONFIRMED,
-            Rental::STATUS_ACTIVE,
-            Rental::STATUS_LATE_PICKUP,
-            Rental::STATUS_LATE_RETURN,
-        ];
-
         $excludeRentalId = $this->record?->id;
 
-        $directlyBooked = RentalItem::query()
-            ->when($excludeRentalId, fn ($q) => $q->where('rental_id', '!=', $excludeRentalId))
-            ->whereHas('rental', function ($query) use ($activeStatuses) {
-                $query->whereIn('status', $activeStatuses)
-                    ->where('start_date', '<', $this->end_date)
-                    ->where('end_date', '>', $this->start_date);
-            })
-            ->pluck('product_unit_id')
-            ->filter()
-            ->toArray();
+        $directlyBooked = \App\Services\RentalOccupancyService::bookedUnitIds(
+            \Illuminate\Support\Carbon::parse($this->start_date),
+            \Illuminate\Support\Carbon::parse($this->end_date),
+            $excludeRentalId,
+        );
 
         if (empty($directlyBooked)) {
             return [];

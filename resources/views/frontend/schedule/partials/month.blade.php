@@ -79,11 +79,11 @@
                 <button type="button"
                     class="gr-event"
                     style="position:absolute; top:{{ $top }}px; height:{{ $barH }}px; left:calc({{ $lp }}% + 2px); width:calc({{ $wp }}% - 4px); background: {{ $color }};"
-                    @click="loadRental({{ $r->id }})"
-                    title="{{ $r->customer?->name }}"
+                    @click="loadRental({{ $r->id }}, '{{ $status }}')"
+                    title="{{ $status === 'over_time' ? 'Over-Time' : $r->customer?->name }}"
                 >
                     <div class="gr-event-title">
-                        {{ $r->start_date->format('g:ia') }} {{ $r->customer?->name ?? '—' }}
+                        {{ $r->start_date->format('g:ia') }} {{ $status === 'over_time' ? 'Over-Time' : ($r->customer?->name ?? '—') }}
                     </div>
                 </button>
             @endforeach

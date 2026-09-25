@@ -30,7 +30,7 @@ class CheckLateRentals extends Command
     public function handle(): int
     {
         $this->info('Checking for late rentals...');
-        
+
         $now = now();
         $isDryRun = $this->option('dry-run');
 
@@ -45,9 +45,10 @@ class CheckLateRentals extends Command
             ->where('start_date', '<', $now)
             ->count();
 
-        $lateReturnsCount = Rental::where('status', Rental::STATUS_ACTIVE)
-            ->where('end_date', '<', $now)
-            ->count();
+        $lateReturns = Rental::with('items.deliveryItems.delivery')
+            ->whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN])
+            ->get()->filter(fn (Rental $rental) => $rental->hasOverdueOutstandingItem());
+        $lateReturnsCount = $lateReturns->count();
 
         if ($isDryRun) {
             $this->warn('DRY RUN MODE - No changes will be made');
@@ -60,7 +61,7 @@ class CheckLateRentals extends Command
             [
                 ['Quotation → Expired', $expiredCount],
                 ['Confirmed → Late Pickup', $latePickupsCount],
-                ['Active → Late Return', $lateReturnsCount],
+                ['Active/Partial Return → Late Return', $lateReturnsCount],
             ]
         );
 
@@ -95,19 +96,14 @@ class CheckLateRentals extends Command
             if ($lateReturnsCount > 0) {
                 $this->newLine();
                 $this->info('Late Return Rentals:');
-                $lateReturns = Rental::with('customer')
-                    ->where('status', Rental::STATUS_ACTIVE)
-                    ->where('end_date', '<', $now)
-                    ->get();
-                
                 foreach ($lateReturns as $rental) {
-                    $this->line("  - {$rental->rental_code} | Customer: {$rental->customer->name} | End: {$rental->end_date->format('Y-m-d H:i')}");
+                    $this->line("  - {$rental->rental_code} | Due: {$rental->nextOutstandingDueAt()?->format('Y-m-d H:i')}");
                 }
             }
 
             $this->newLine();
             $this->info('Run without --dry-run to apply changes.');
-            
+
             return Command::SUCCESS;
         }
 
@@ -136,19 +132,17 @@ class CheckLateRentals extends Command
                 ]);
 
             // Update late returns
-            $updatedReturns = DB::table('rentals')
-                ->where('status', Rental::STATUS_ACTIVE)
-                ->where('end_date', '<', $now)
-                ->update([
-                    'status' => Rental::STATUS_LATE_RETURN,
-                    'updated_at' => $now,
-                ]);
+            $updatedReturns = 0;
+            foreach ($lateReturns as $rental) {
+                $rental->checkAndUpdateLateStatus();
+                $updatedReturns++;
+            }
 
             DB::commit();
 
             // Log the updates
             if ($updatedExpired > 0 || $updatedPickups > 0 || $updatedReturns > 0) {
-                Log::info("Late rentals check completed", [
+                Log::info('Late rentals check completed', [
                     'expired_updated' => $updatedExpired,
                     'late_pickups_updated' => $updatedPickups,
                     'late_returns_updated' => $updatedReturns,
@@ -157,7 +151,7 @@ class CheckLateRentals extends Command
             }
 
             $this->newLine();
-            $this->info("✅ Update completed!");
+            $this->info('✅ Update completed!');
             $this->line("   - Quotations expired: {$updatedExpired}");
             $this->line("   - Late pickups updated: {$updatedPickups}");
             $this->line("   - Late returns updated: {$updatedReturns}");
@@ -166,9 +160,9 @@ class CheckLateRentals extends Command
 
         } catch (\Exception $e) {
             DB::rollBack();
-            
-            $this->error("❌ Error updating rentals: " . $e->getMessage());
-            Log::error("Failed to update late rentals", [
+
+            $this->error('❌ Error updating rentals: '.$e->getMessage());
+            Log::error('Failed to update late rentals', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);

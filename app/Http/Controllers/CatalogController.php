@@ -2,17 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Product;
 use App\Models\Brand;
 use App\Models\Category;
+use App\Models\Product;
 use App\Models\ProductTag;
-use App\Models\Rental;
 use App\Models\ProductUnit;
 use App\Models\Setting;
 use App\Services\RentalValidationService;
-use Illuminate\Http\Request;
 use Carbon\Carbon;
-
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class CatalogController extends Controller
@@ -24,7 +22,7 @@ class CatalogController extends Controller
             ->visibleForCustomer(Auth::guard('customer')->user())
             ->where(function ($q) {
                 $q->whereNull('category_id')
-                  ->orWhereHas('category', fn ($cq) => $cq->where('slug', '!=', 'accessories-kits'));
+                    ->orWhereHas('category', fn ($cq) => $cq->where('slug', '!=', 'accessories-kits'));
             });
 
         // Filter by date range availability
@@ -32,29 +30,24 @@ class CatalogController extends Controller
             try {
                 $pickupTime = $request->input('pickup_time', '09:00');
                 $returnTime = $request->input('return_time', '09:00');
-                
-                $startDate = Carbon::parse($request->start_date . ' ' . $pickupTime);
-                $endDate = Carbon::parse($request->end_date . ' ' . $returnTime);
-                
+
+                $startDate = Carbon::parse($request->start_date.' '.$pickupTime);
+                $endDate = Carbon::parse($request->end_date.' '.$returnTime);
+
                 $bufferHours = (int) Setting::get('rental_buffer_time', 0);
 
-                $query->whereHas('units', function ($unitQuery) use ($startDate, $endDate, $bufferHours) {
-                    $unitQuery->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
-                        ->whereDoesntHave('rentalItems', function ($rentalQuery) use ($startDate, $endDate, $bufferHours) {
-                            $rentalQuery->whereHas('rental', function ($rQuery) use ($startDate, $endDate, $bufferHours) {
-                                $rQuery->whereIn('status', [
-                                    Rental::STATUS_QUOTATION,
-                                    Rental::STATUS_CONFIRMED,
-                                    Rental::STATUS_ACTIVE,
-                                    Rental::STATUS_LATE_PICKUP,
-                                    Rental::STATUS_LATE_RETURN
-                                ])->where(function ($overlap) use ($startDate, $endDate, $bufferHours) {
-                                    $overlap->where('start_date', '<', $endDate->copy()->addHours($bufferHours))
-                                            ->whereRaw("DATE_ADD(end_date, INTERVAL ? HOUR) > ?", [$bufferHours, $startDate]);
-                                });
-                            });
-                        });
-                });
+                $bookedIds = \App\Services\RentalOccupancyService::bookedUnitIds(
+                    $startDate->copy()->subHours($bufferHours),
+                    $endDate->copy()->addHours($bufferHours),
+                );
+                $relatedIds = \App\Models\UnitKit::query()->whereIn('unit_id', $bookedIds)->pluck('linked_unit_id')
+                    ->merge(\App\Models\UnitKit::whereIn('linked_unit_id', $bookedIds)->pluck('unit_id'))
+                    ->filter()->all();
+                $excludedIds = array_values(array_unique(array_merge($bookedIds, $relatedIds)));
+                $query->whereHas('units', fn ($unitQuery) => $unitQuery
+                    ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
+                    ->whereNotIn('condition', ['broken', 'lost'])
+                    ->when($excludedIds, fn ($q) => $q->whereNotIn('id', $excludedIds)));
             } catch (\Exception $e) {
                 // Invalid date format, ignore filter
             }
@@ -81,8 +74,8 @@ class CatalogController extends Controller
         // Search
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->search . '%')
-                  ->orWhere('description', 'like', '%' . $request->search . '%');
+                $q->where('name', 'like', '%'.$request->search.'%')
+                    ->orWhere('description', 'like', '%'.$request->search.'%');
             });
         }
 
@@ -122,10 +115,10 @@ class CatalogController extends Controller
             ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED])
             ->where(function ($q) {
                 $q->whereNull('warehouse_id')
-                  ->orWhereHas('warehouse', function ($wq) {
-                      $wq->where('is_active', true)
-                         ->where('is_available_for_rental', true);
-                  });
+                    ->orWhereHas('warehouse', function ($wq) {
+                        $wq->where('is_active', true)
+                            ->where('is_available_for_rental', true);
+                    });
             })
             ->get();
 
@@ -139,8 +132,8 @@ class CatalogController extends Controller
             ->limit(4)
             ->get();
 
-        $operationalDays     = array_map('strval', json_decode(Setting::get('operational_days'), true) ?? ['1', '2', '3', '4', '5', '6', '0']);
-        $holidays            = json_decode(Setting::get('holidays'), true) ?? [];
+        $operationalDays = array_map('strval', json_decode(Setting::get('operational_days'), true) ?? ['1', '2', '3', '4', '5', '6', '0']);
+        $holidays = json_decode(Setting::get('holidays'), true) ?? [];
         $operationalSchedule = json_decode(Setting::get('operational_schedule'), true) ?? [];
 
         return view('frontend.catalog.show', compact('product', 'availableUnits', 'bookedDates', 'partialDates', 'relatedProducts', 'operationalDays', 'holidays', 'operationalSchedule'));
@@ -160,23 +153,18 @@ class CatalogController extends Controller
         if (! empty($scheduleErrors)) {
             return response()->json([
                 'available' => false,
-                'message'   => reset($scheduleErrors),
-                'errors'    => $scheduleErrors,
+                'message' => reset($scheduleErrors),
+                'errors' => $scheduleErrors,
             ], 422);
         }
 
         $bufferHours = (int) Setting::get('rental_buffer_time', 0);
 
         // Check if unit is available for the given dates
-        $isAvailable = !$unit->rentalItems()
-            ->whereHas('rental', function ($query) use ($startDate, $endDate, $bufferHours) {
-                $query->whereIn('status', [Rental::STATUS_QUOTATION, Rental::STATUS_CONFIRMED, Rental::STATUS_ACTIVE, Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN])
-                    ->where(function ($q) use ($startDate, $endDate, $bufferHours) {
-                        $q->where('start_date', '<', $endDate->copy()->addHours($bufferHours))
-                          ->whereRaw("DATE_ADD(end_date, INTERVAL ? HOUR) > ?", [$bufferHours, $startDate]);
-                    });
-            })
-            ->exists();
+        $isAvailable = $unit->isAvailable(
+            $startDate->copy()->subHours($bufferHours),
+            $endDate->copy()->addHours($bufferHours),
+        );
 
         $days = max(1, $startDate->diffInDays($endDate));
         $totalPrice = $unit->product->daily_rate * $days;

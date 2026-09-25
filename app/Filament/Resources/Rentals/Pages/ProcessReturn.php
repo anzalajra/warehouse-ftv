@@ -8,12 +8,16 @@ use App\Models\DeliveryItem;
 use App\Models\Rental;
 use App\Services\JournalService;
 use App\Services\RentalAccountingService;
+use App\Services\RentalOccupancyService;
+use App\Services\RentalValidationService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Livewire\WithFileUploads;
 
 class ProcessReturn extends Page
@@ -147,6 +151,24 @@ class ProcessReturn extends Page
         return $this->delivery->items->count();
     }
 
+    public function defaultWaiveRemainingFee(): bool
+    {
+        $ids = $this->delivery->items()->where('is_checked', false)->whereNull('rental_item_kit_id')->pluck('rental_item_id');
+
+        return $ids->isNotEmpty() && $this->rental->items()->whereIn('id', $ids)->where('late_fee_waived', false)->doesntExist();
+    }
+
+    public function defaultPartialDueAt(): string
+    {
+        $ids = $this->delivery->items()->where('is_checked', false)
+            ->whereNull('rental_item_kit_id')->pluck('rental_item_id');
+        $latestDue = $this->rental->items()->whereIn('id', $ids)->get()
+            ->map(fn ($item) => RentalOccupancyService::dueAt($item))
+            ->sortDesc()->first() ?? $this->rental->end_date;
+
+        return $latestDue->isFuture() ? $latestDue->format('Y-m-d\TH:i') : now()->addDay()->format('Y-m-d\TH:i');
+    }
+
     public function customerHistory()
     {
         return Rental::where('user_id', $this->rental->user_id)
@@ -159,7 +181,7 @@ class ProcessReturn extends Page
     /** Financial figures for the settlement modal. */
     public function settlementData(): array
     {
-        $lateFee = $this->rental->calculateOverdueFee();
+        $lateFee = $this->rental->currentLateFee();
         $deposit = (float) $this->rental->security_deposit_amount;
 
         return [
@@ -431,21 +453,48 @@ class ProcessReturn extends Page
      */
     public function validateReturn(array $data = []): void
     {
+        if (isset($data['manual_late_fee']) && (! is_numeric($data['manual_late_fee']) || (float) $data['manual_late_fee'] < 0)) {
+            throw ValidationException::withMessages(['manual_late_fee' => 'Denda harus berupa angka nol atau lebih.']);
+        }
+        if (($data['final_deposit_action'] ?? null) === 'partial'
+            && (! is_numeric($data['refund_amount'] ?? null)
+                || (float) $data['refund_amount'] < 0
+                || (float) $data['refund_amount'] > (float) $this->rental->security_deposit_amount)) {
+            throw ValidationException::withMessages(['refund_amount' => 'Jumlah refund harus berada dalam batas deposit.']);
+        }
+        $this->delivery->refresh();
+        $this->delivery->unsetRelation('items');
+        if ($this->delivery->status === Delivery::STATUS_COMPLETED || $this->delivery->items()->count() === 0) {
+            throw ValidationException::withMessages(['return' => 'Checklist pengembalian sudah selesai atau kosong. Muat ulang halaman.']);
+        }
+
         if ($this->allItemsChecked()) {
             // Resolve the final late fee once: a manual value from the settlement modal
             // wins over the auto-calculated amount (so it can be adjusted or waived).
-            $lateFee = isset($data['manual_late_fee'])
-                ? (float) $data['manual_late_fee']
-                : $this->rental->calculateOverdueFee();
+            $displayedFee = $this->rental->currentLateFee();
+            $manualChanged = isset($data['manual_late_fee']) && abs((float) $data['manual_late_fee'] - $displayedFee) > 0.01;
 
             // Whole settlement runs in one transaction: it commits together (one round-trip
             // instead of ~a dozen) and rolls back cleanly if any journal/sync step fails.
-            DB::transaction(function () use ($data, $lateFee) {
+            DB::transaction(function () use ($data, $manualChanged) {
+                $locked = $this->rental->newQuery()->whereKey($this->rental->id)->lockForUpdate()->firstOrFail();
+                $this->delivery->refresh();
+                if ($locked->status === Rental::STATUS_COMPLETED || $this->delivery->status === Delivery::STATUS_COMPLETED || ! $this->delivery->allItemsChecked()) {
+                    throw ValidationException::withMessages(['return' => 'Checklist telah berubah atau selesai diproses. Muat ulang halaman.']);
+                }
+                $before = $this->financialSnapshot();
                 // Complete the rental first — validateReturn() persists the late fee and runs
                 // the full recalculateTotal() (subtotal/discount/tax/deposit/total). Doing it
                 // here means we recalc ONCE instead of the previous recalc-then-validate (which
                 // ran recalculateTotal() twice). $this->rental->total is correct afterwards.
-                $this->rental->validateReturn($lateFee);
+                $this->delivery->complete();
+                $this->rental->load('items.deliveryItems.delivery');
+                $autoFee = $this->rental->calculateOverdueFee();
+                if ($manualChanged) {
+                    $this->rental->late_fee_adjustment = (float) $data['manual_late_fee'] - $autoFee;
+                }
+                $this->rental->validateReturn($this->rental->currentLateFee());
+                $this->postReturnFinancialAdjustments($before);
 
                 // Recognize rental revenue — ONCE, and only under IFRS/ASC (SAK recognizes
                 // it at invoice issuance). Idempotent via rentals.revenue_recognized_at, so
@@ -483,7 +532,6 @@ class ProcessReturn extends Page
                 // or issue an invoice when a balance is now owed but none was ever created.
                 $this->syncInvoiceAfterReturn();
 
-                $this->delivery->complete();
             });
 
             Notification::make()
@@ -498,29 +546,124 @@ class ProcessReturn extends Page
         }
 
         // ---- PARTIAL RETURN ----
-        // Resolve the late fee before the transaction (a manual value from the modal wins).
-        $lateFee = isset($data['manual_late_fee'])
-            ? (float) $data['manual_late_fee']
-            : $this->rental->calculateOverdueFee();
+        if ($this->delivery->items()->where('is_checked', true)->count() === 0) {
+            throw ValidationException::withMessages(['return' => 'Pilih minimal satu barang yang benar-benar kembali.']);
+        }
+        $uncheckedKitParentIds = $this->delivery->items()->where('is_checked', false)
+            ->whereNotNull('rental_item_kit_id')->pluck('rental_item_id')->unique();
+        if ($uncheckedKitParentIds->isNotEmpty() && $this->delivery->items()
+            ->whereIn('rental_item_id', $uncheckedKitParentIds)
+            ->whereNull('rental_item_kit_id')->where('is_checked', true)->exists()) {
+            throw ValidationException::withMessages(['return' => 'Aksesori unit masih di luar. Biarkan unit induk belum dicentang sampai aksesori lengkap.']);
+        }
+
+        try {
+            $due = Carbon::parse($data['due_at'] ?? $this->rental->end_date);
+        } catch (\Throwable) {
+            throw ValidationException::withMessages(['due_at' => 'Tanggal dan jam akhir tidak valid.']);
+        }
+        if ($due->lte(now())) {
+            throw ValidationException::withMessages(['due_at' => 'Tanggal dan jam akhir barang tersisa harus di masa depan.']);
+        }
+        $remainingItemIds = $this->delivery->items()->where('is_checked', false)
+            ->whereNull('rental_item_kit_id')->pluck('rental_item_id')->unique();
+        foreach ($this->rental->items()->whereIn('id', $remainingItemIds)->get() as $remainingItem) {
+            if ($due->lt(RentalOccupancyService::dueAt($remainingItem))) {
+                throw ValidationException::withMessages(['due_at' => 'Batas baru tidak boleh lebih awal dari batas yang sudah disepakati.']);
+            }
+        }
+        if (RentalValidationService::isHoliday($due, RentalValidationService::getHolidays())) {
+            throw ValidationException::withMessages(['due_at' => 'Tanggal akhir berada pada hari libur operasional.']);
+        }
+        if ($operationalError = RentalValidationService::validateOperationalDateTime($due, RentalValidationService::getSchedule())) {
+            throw ValidationException::withMessages(['due_at' => $operationalError]);
+        }
+        if (! empty($data['waive_remaining_fee']) && trim((string) ($data['extension_reason'] ?? '')) === '') {
+            throw ValidationException::withMessages(['extension_reason' => 'Alasan pembebasan denda harus diisi.']);
+        }
+
+        $preview = $this->previewPartial($due->toDateTimeString());
+        if ($preview['conflicts'] !== [] && (empty($data['override_conflicts']) || trim((string) ($data['override_reason'] ?? '')) === '')) {
+            throw ValidationException::withMessages(['overlap' => 'Ada jadwal bentrok. Buka detail rental lalu konfirmasi override beserta alasannya.']);
+        }
+
+        $oldDisplayedFee = $this->rental->currentLateFee();
 
         // One transaction for the whole partial settlement (split delivery, unit-status
         // refresh/maintenance, recalc + AR sync) — commits together, rolls back on failure.
-        DB::transaction(function () use ($lateFee) {
+        DB::transaction(function () use ($data, $due, $oldDisplayedFee) {
+            $locked = $this->rental->newQuery()->whereKey($this->rental->id)->lockForUpdate()->firstOrFail();
+            $before = $this->financialSnapshot();
+            $this->delivery->refresh();
+            if ($locked->status === Rental::STATUS_COMPLETED || $this->delivery->status === Delivery::STATUS_COMPLETED) {
+                throw ValidationException::withMessages(['return' => 'Checklist telah diproses oleh admin lain.']);
+            }
+            $checked = $this->delivery->items()->where('is_checked', true)->get();
+            $uncheckedItems = $this->delivery->items()->where('is_checked', false)->get();
+            if ($checked->isEmpty() || $uncheckedItems->isEmpty()) {
+                throw ValidationException::withMessages(['return' => 'Isi checklist berubah. Muat ulang halaman.']);
+            }
+
+            $remainingUnitIds = $uncheckedItems->whereNull('rental_item_kit_id')->pluck('rental_item_id')->unique();
+            $conflicts = [];
+            foreach ($remainingUnitIds as $itemId) {
+                $rentalItem = $this->rental->items()->findOrFail($itemId);
+                foreach (RentalOccupancyService::conflictsFor($rentalItem, now(), $due) as $other) {
+                    $conflicts[] = [$rentalItem, $other];
+                }
+            }
+            $currentPairs = collect($conflicts)->map(fn ($pair) => $pair[0]->id.':'.$pair[1]->id)->sort()->values()->all();
+            $acknowledgedPairs = collect($data['conflict_pairs'] ?? [])->sort()->values()->all();
+            if ($conflicts && ($currentPairs !== $acknowledgedPairs || empty($data['override_conflicts']) || trim((string) ($data['override_reason'] ?? '')) === '')) {
+                throw ValidationException::withMessages(['overlap' => 'Jadwal bentrok berubah. Periksa dan konfirmasi ulang.']);
+            }
+
             $newDelivery = Delivery::create([
                 'rental_id' => $this->rental->id,
                 'type' => Delivery::TYPE_IN,
                 'date' => now(),
-                'scheduled_at' => now(),
+                'scheduled_at' => $due,
                 'address' => $this->rental->delivery_address,
                 'status' => Delivery::STATUS_DRAFT,
             ]);
 
-            $uncheckedItems = $this->delivery->items()->where('is_checked', false)->get();
             foreach ($uncheckedItems as $item) {
                 $item->update(['delivery_id' => $newDelivery->id]);
             }
 
             $this->delivery->complete();
+            $this->rental->load('items.deliveryItems.delivery');
+            $autoBeforeExtension = $this->rental->calculateOverdueFee();
+
+            foreach ($remainingUnitIds as $itemId) {
+                $rentalItem = $this->rental->items()->findOrFail($itemId);
+                $oldDue = RentalOccupancyService::dueAt($rentalItem);
+                $charge = $due->gt($oldDue)
+                    ? (float) $rentalItem->daily_rate * Rental::periodsBetween($oldDue, $due, $rentalItem->rate_type ?? $this->rental->pricing_period ?? 'day')
+                    : 0;
+                $rentalItem->update([
+                    'effective_due_at' => $due,
+                    'overtime_started_at' => $rentalItem->overtime_started_at ?? now(),
+                    'late_fee_waived' => (bool) ($data['waive_remaining_fee'] ?? false),
+                    'extension_charge' => (float) $rentalItem->extension_charge + $charge,
+                ]);
+                DB::table('rental_item_extensions')->insert([
+                    'rental_item_id' => $itemId, 'old_due_at' => $oldDue, 'new_due_at' => $due,
+                    'started_at' => now(), 'charge' => $charge,
+                    'late_fee_waived' => (bool) ($data['waive_remaining_fee'] ?? false),
+                    'confirmed_by' => auth()->id(), 'reason' => $data['extension_reason'] ?? null,
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+
+            foreach ($conflicts as [$item, $other]) {
+                DB::table('rental_overlap_overrides')->insert([
+                    'rental_item_id' => $item->id, 'conflicting_rental_item_id' => $other->id,
+                    'overlap_start' => now(), 'overlap_end' => $due,
+                    'confirmed_by' => auth()->id(), 'reason' => $data['override_reason'],
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
 
             foreach ($this->delivery->items as $item) {
                 if ($item->rental_item_kit_id) {
@@ -550,9 +693,21 @@ class ProcessReturn extends Page
             // NOTE: revenue-recognition (RENTAL_COMPLETION) and deposit settlement journals
             // stay EXCLUSIVE to full completion — posting them per batch would double-count
             // revenue. Partial settlement is late-fee + invoice (AR) only.
-            $this->rental->late_fee = $lateFee;
+            $this->rental->load('items.deliveryItems.delivery');
+            $autoFee = $this->rental->calculateOverdueFee();
+            if (empty($data['waive_remaining_fee'])) {
+                $this->rental->late_fee_adjustment = (float) $this->rental->late_fee_adjustment
+                    + max(0, $autoBeforeExtension - $autoFee);
+            }
+            if (isset($data['manual_late_fee']) && abs((float) $data['manual_late_fee'] - $oldDisplayedFee) > 0.01) {
+                $this->rental->late_fee_adjustment = (float) $data['manual_late_fee'] - $autoFee;
+            }
+            $this->rental->late_fee = $this->rental->currentLateFee();
             $this->rental->status = Rental::STATUS_PARTIAL_RETURN;
             $this->rental->recalculateTotal(); // persists late_fee + status + recomputed total
+            $this->postReturnFinancialAdjustments($before);
+
+            $this->rental->logActivity('Partial return: batas sisa barang '.$due->format('d M Y H:i').(count($conflicts) ? '; override '.count($conflicts).' bentrok' : ''), 'status');
 
             $this->syncInvoiceAfterReturn('partial return');
         });
@@ -566,6 +721,63 @@ class ProcessReturn extends Page
             ->send();
 
         $this->redirect(RentalResource::getUrl('return', ['record' => $this->rental]));
+    }
+
+    private function financialSnapshot(): array
+    {
+        return [
+            'net' => (float) $this->rental->total - (float) $this->rental->security_deposit_amount
+                - (float) $this->rental->ppn_amount - (float) $this->rental->late_fee,
+            'ppn' => (float) $this->rental->ppn_amount,
+            'late_fee' => (float) $this->rental->late_fee,
+        ];
+    }
+
+    private function postReturnFinancialAdjustments(array $before): void
+    {
+        if (! $this->rental->invoice_id) {
+            return; // First invoice issuance posts all components once.
+        }
+
+        RentalAccountingService::postDiscountAdjustment($this->rental, $before['net'], $before['ppn']);
+        RentalAccountingService::postLateFee($this->rental, round((float) $this->rental->late_fee - $before['late_fee'], 2));
+    }
+
+    /** Conflict preview for the partial-return modal, recalculated at save time. */
+    public function previewPartial(string $dueAt): array
+    {
+        try {
+            $due = Carbon::parse($dueAt);
+        } catch (\Throwable) {
+            return ['conflicts' => [], 'extension_charge' => 0];
+        }
+        $result = [];
+        $extensionCharge = 0;
+        $ids = $this->delivery->items()->where('is_checked', false)->whereNull('rental_item_kit_id')->pluck('rental_item_id')->unique();
+        foreach ($ids as $id) {
+            $item = $this->rental->items()->with('productUnit.product')->find($id);
+            if (! $item) {
+                continue;
+            }
+            $oldDue = RentalOccupancyService::dueAt($item);
+            if ($due->gt($oldDue)) {
+                $extensionCharge += (float) $item->daily_rate * Rental::periodsBetween($oldDue, $due, $item->rate_type ?? $this->rental->pricing_period ?? 'day');
+            }
+            foreach (RentalOccupancyService::conflictsFor($item, now(), $due) as $other) {
+                $result[] = [
+                    'item_id' => $item->id,
+                    'pair' => $item->id.':'.$other->id,
+                    'serial' => $item->productUnit?->serial_number,
+                    'rental_code' => $other->rental->rental_code,
+                    'customer' => $other->rental->customer?->name,
+                    'start' => $other->rental->start_date->format('d M Y H:i'),
+                    'end' => RentalOccupancyService::occupiedUntil($other)?->format('d M Y H:i') ?? 'Masih di luar',
+                    'url' => RentalResource::getUrl('view', ['record' => $other->rental_id]),
+                ];
+            }
+        }
+
+        return ['conflicts' => $result, 'extension_charge' => round($extensionCharge, 2)];
     }
 
     /**
@@ -590,7 +802,7 @@ class ProcessReturn extends Page
         } elseif ($result['action'] === 'created' && $result['invoice']) {
             Notification::make()
                 ->title('Invoice issued')
-                ->body('Outstanding balance (incl. late fee) — invoice ' . $result['invoice']->number . ' created. Collect it from Finance → Accounts Receivable.')
+                ->body('Outstanding balance (incl. late fee) — invoice '.$result['invoice']->number.' created. Collect it from Finance → Accounts Receivable.')
                 ->success()
                 ->send();
         }
@@ -616,7 +828,7 @@ class ProcessReturn extends Page
         $message = \App\Helpers\WhatsAppHelper::parseTemplate('whatsapp_template_rental_return', [
             'customer_name' => $customer->name,
             'rental_ref' => $this->rental->rental_code,
-            'return_date' => \Carbon\Carbon::parse($this->rental->end_date)->format('d M Y H:i'),
+            'return_date' => ($this->rental->nextOutstandingDueAt() ?? $this->rental->end_date)->format('d M Y H:i'),
             'link_pdf' => $pdfLink,
             'company_name' => \App\Models\Setting::get('site_name', 'Gearent'),
         ]);

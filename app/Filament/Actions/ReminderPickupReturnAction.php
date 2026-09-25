@@ -57,15 +57,15 @@ class ReminderPickupReturnAction
             ->orderBy('start_date')
             ->get();
 
-        $returns = Rental::with('customer:id,name')
+        $returns = Rental::with(['customer:id,name', 'items.deliveryItems.delivery'])
             ->whereIn('status', [
                 Rental::STATUS_ACTIVE,
                 Rental::STATUS_PARTIAL_RETURN,
                 Rental::STATUS_LATE_RETURN,
             ])
-            ->whereDate('end_date', $tomorrow)
-            ->orderBy('end_date')
-            ->get();
+            ->get()
+            ->filter(fn (Rental $rental) => $rental->nextOutstandingDueAt()?->toDateString() === $tomorrow)
+            ->sortBy(fn (Rental $rental) => $rental->nextOutstandingDueAt());
 
         $lines = [];
         $lines[] = '*Reminder H-1 Pickup Alat:*';
@@ -86,7 +86,7 @@ class ReminderPickupReturnAction
         } else {
             foreach ($returns as $r) {
                 $name = $r->customer?->name ?? '-';
-                $time = optional($r->end_date)->format('H:i');
+                $time = optional($r->nextOutstandingDueAt() ?? $r->end_date)->format('H:i');
                 $lines[] = "- {$name} ({$r->rental_code}) - {$time}";
             }
         }

@@ -13,8 +13,11 @@ use Illuminate\Support\Facades\Cache;
 class Home extends Dashboard
 {
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-home';
+
     protected static ?string $navigationLabel = 'Home';
+
     protected static ?string $title = 'Home';
+
     protected static ?int $navigationSort = -1;
 
     protected static string $routePath = '/home';
@@ -49,12 +52,12 @@ class Home extends Dashboard
                     Rental::STATUS_LATE_PICKUP,
                 ])->count();
 
-            $returnsToday = Rental::whereDate('end_date', $today)
+            $returnsToday = Rental::with('items.deliveryItems.delivery')
                 ->whereIn('status', [
                     Rental::STATUS_ACTIVE,
                     Rental::STATUS_PARTIAL_RETURN,
                     Rental::STATUS_LATE_RETURN,
-                ])->count();
+                ])->get()->filter(fn (Rental $rental) => $rental->nextOutstandingDueAt()?->toDateString() === $today->toDateString())->count();
 
             $overdue = Rental::whereIn('status', [
                 Rental::STATUS_LATE_PICKUP,
@@ -85,7 +88,7 @@ class Home extends Dashboard
             ->with(['customer:id,name'])
             ->where(function ($q) use ($today, $tomorrow) {
                 $q->whereBetween('start_date', [$today, $tomorrow])
-                  ->orWhereBetween('end_date', [$today, $tomorrow]);
+                    ->orWhereBetween('end_date', [$today, $tomorrow]);
             })
             ->whereNotIn('status', [Rental::STATUS_CANCELLED])
             ->orderBy('start_date')
@@ -93,6 +96,7 @@ class Home extends Dashboard
             ->get()
             ->map(function ($r) use ($today) {
                 $isPickup = $r->start_date->isSameDay($today);
+
                 return [
                     'id' => $r->id,
                     'code' => $r->rental_code,
@@ -120,7 +124,7 @@ class Home extends Dashboard
                     'customer' => $r->customer?->name ?? '—',
                     'status' => $r->status,
                     'start' => $r->start_date?->format('j M'),
-                    'total' => 'Rp ' . number_format((float) $r->total, 0, ',', '.'),
+                    'total' => 'Rp '.number_format((float) $r->total, 0, ',', '.'),
                 ];
             })
             ->toArray();
@@ -129,9 +133,10 @@ class Home extends Dashboard
     public function getMenuItems(): array
     {
         $stats = $this->getStats();
+
         return [
             ['id' => 'schedule',   'label' => 'Schedule',   'icon' => 'calendar',  'desc' => 'Rental calendar',        'url' => url('/admin/schedule'),   'badge' => $stats['pickups'] + $stats['returns']],
-            ['id' => 'bookings',   'label' => 'Bookings',   'icon' => 'bookings',  'desc' => 'Active rentals & quotes','url' => url('/admin/rentals'),    'badge' => $stats['active']],
+            ['id' => 'bookings',   'label' => 'Bookings',   'icon' => 'bookings',  'desc' => 'Active rentals & quotes', 'url' => url('/admin/rentals'),    'badge' => $stats['active']],
             ['id' => 'inventory',  'label' => 'Inventory',  'icon' => 'box',       'desc' => 'Products & units',       'url' => url('/admin/products'),   'badge' => null],
             ['id' => 'deliveries', 'label' => 'Deliveries', 'icon' => 'truck',     'desc' => 'Pickup & return',        'url' => url('/admin/deliveries'), 'badge' => null],
             ['id' => 'customers',  'label' => 'Customers',  'icon' => 'users',     'desc' => 'Customers directory',    'url' => url('/admin/customers'),  'badge' => null],
@@ -145,9 +150,16 @@ class Home extends Dashboard
     {
         $hour = (int) now()->format('H');
         $name = Auth::user()?->name ?? '';
-        if ($hour < 11) return "Selamat pagi, {$name} 👋";
-        if ($hour < 15) return "Selamat siang, {$name} 👋";
-        if ($hour < 18) return "Selamat sore, {$name} 👋";
+        if ($hour < 11) {
+            return "Selamat pagi, {$name} 👋";
+        }
+        if ($hour < 15) {
+            return "Selamat siang, {$name} 👋";
+        }
+        if ($hour < 18) {
+            return "Selamat sore, {$name} 👋";
+        }
+
         return "Selamat malam, {$name} 👋";
     }
 }

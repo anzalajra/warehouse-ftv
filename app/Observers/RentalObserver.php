@@ -118,7 +118,8 @@ class RentalObserver
 
         $totalDiscount = $discountAmount + $dailyDiscountAmount + $datePromotionAmount + $categoryDiscountAmount;
 
-        $taxableAmount = max(0, $subtotal - $totalDiscount);
+        $netSubtotal = max(0, $subtotal - $totalDiscount);
+        $taxableAmount = $netSubtotal + (float) ($rental->late_fee ?? 0);
 
         // Calculate Tax using TaxService
         $taxResult = TaxService::calculateTax(
@@ -128,20 +129,25 @@ class RentalObserver
             $rental->customer
         );
 
-        $total = $taxResult['total'];
+        $deposit = $rental->deposit_type === 'percent'
+            ? $netSubtotal * ((float) $rental->deposit / 100)
+            : (float) $rental->deposit;
+        $total = $taxResult['total'] + $deposit;
         $ppnAmount = $taxResult['tax_amount'];
         $taxBase = $taxResult['tax_base'];
 
         if (
             abs(($rental->subtotal ?? 0) - $subtotal) > 0.01 ||
             abs(($rental->total ?? 0) - $total) > 0.01 ||
-            abs(($rental->ppn_amount ?? 0) - $ppnAmount) > 0.01
+            abs(($rental->ppn_amount ?? 0) - $ppnAmount) > 0.01 ||
+            abs(($rental->security_deposit_amount ?? 0) - $deposit) > 0.01
         ) {
             $rental->updateQuietly([
                 'subtotal' => $subtotal,
                 'tax_base' => $taxBase,
                 'ppn_amount' => $ppnAmount,
                 'total' => $total,
+                'security_deposit_amount' => $deposit,
                 'ppn_rate' => $taxResult['tax_rate'],
                 'tax_name' => $taxResult['tax_name'],
             ]);

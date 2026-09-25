@@ -32,6 +32,8 @@ class ScheduleController extends Controller
         foreach ($keys as $k) {
             $out[$k] = [Rental::getStatusHexColor($k), Rental::getStatusLabel($k)];
         }
+        $out['over_time'] = ['#8b5cf6', 'Over-Time'];
+
         return $out;
     }
 
@@ -41,15 +43,19 @@ class ScheduleController extends Controller
         $seen = [];
         $legend = [];
         foreach ($this->buildStatuses() as $row) {
-            $key = $row[0] . '|' . $row[1];
-            if (isset($seen[$key])) continue;
+            $key = $row[0].'|'.$row[1];
+            if (isset($seen[$key])) {
+                continue;
+            }
             $seen[$key] = true;
             $legend[] = $row;
         }
+
         return $legend;
     }
 
     protected array $statuses = [];
+
     protected array $legend = [];
 
     public function __construct()
@@ -105,19 +111,22 @@ class ScheduleController extends Controller
 
     public function rentalDetails(Rental $rental)
     {
-        $rental->load(['customer:id,name', 'items.productUnit.product:id,name']);
+        $rental->load(['customer:id,name', 'items.productUnit.product:id,name', 'items.deliveryItems.delivery']);
+        $overTime = request()->query('segment') === 'over_time';
+        $overTimeStart = $overTime ? $rental->items->pluck('overtime_started_at')->filter()->sort()->first() : null;
 
         $items = $rental->items->map(function ($item) {
             $pu = $item->productUnit;
-            return ($pu?->product?->name ?? '-');
+
+            return $pu?->product?->name ?? '-';
         })->filter()->values()->unique()->join(', ');
 
         return response()->json([
-            'customer' => $rental->customer?->name ?? '—',
-            'status' => ucfirst(str_replace('_', ' ', $rental->status)),
-            'status_color' => $this->statuses[$rental->status][0] ?? '#6b7280',
-            'start' => $rental->start_date?->format('d M Y H:i'),
-            'end' => $rental->end_date?->format('d M Y H:i'),
+            'customer' => $overTime ? 'Terpakai' : ($rental->customer?->name ?? '—'),
+            'status' => $overTime ? 'Over-Time' : ucfirst(str_replace('_', ' ', $rental->status)),
+            'status_color' => $overTime ? '#8b5cf6' : ($this->statuses[$rental->status][0] ?? '#6b7280'),
+            'start' => ($overTimeStart ?? $rental->start_date)?->format('d M Y H:i'),
+            'end' => ($overTime ? $rental->nextOutstandingDueAt() : $rental->end_date)?->format('d M Y H:i'),
             'items' => $items,
         ]);
     }
@@ -129,7 +138,8 @@ class ScheduleController extends Controller
         if ($filter === 'product') {
             $start = $anchor->copy()->startOfMonth();
             $end = $anchor->copy()->addMonths(2)->endOfMonth();
-            $label = $start->format('M Y') . ' – ' . $end->format('M Y');
+            $label = $start->format('M Y').' – '.$end->format('M Y');
+
             return compact('start', 'end', 'label');
         }
 
@@ -143,7 +153,7 @@ class ScheduleController extends Controller
                 'start' => $anchor->copy()->startOfWeek(Carbon::MONDAY),
                 'end' => $anchor->copy()->endOfWeek(Carbon::SUNDAY),
                 'label' => $anchor->copy()->startOfWeek(Carbon::MONDAY)->format('M j')
-                    . ' – ' . $anchor->copy()->endOfWeek(Carbon::SUNDAY)->format('M j, Y'),
+                    .' – '.$anchor->copy()->endOfWeek(Carbon::SUNDAY)->format('M j, Y'),
             ],
             default => [
                 'start' => $anchor->copy()->startOfMonth()->startOfWeek(Carbon::MONDAY),
@@ -155,17 +165,44 @@ class ScheduleController extends Controller
 
     protected function fetchRentalsIn(Carbon $start, Carbon $end, array $statusFilters = [])
     {
-        return Rental::query()
+        $rentals = Rental::query()
             ->select(['id', 'user_id', 'status', 'start_date', 'end_date'])
             ->with([
                 'customer:id,name',
+                'items:id,rental_id,product_unit_id,effective_due_at,overtime_started_at',
+                'items.deliveryItems.delivery',
             ])
             ->where('start_date', '<=', $end)
-            ->where('end_date', '>=', $start)
-            ->when($statusFilters !== [], fn ($query) => $query->whereIn('status', $statusFilters))
-            ->orderBy('start_date')
-            ->limit(500)
+            ->where(fn ($q) => $q->where('end_date', '>=', $start)
+                ->orWhereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN])
+                ->orWhereHas('items.deliveryItems', fn ($rows) => $rows->where('is_checked', true)
+                    ->where('checked_at', '>=', $start)
+                    ->whereHas('delivery', fn ($d) => $d->where('type', 'in')->where('status', 'completed'))))
+            ->orderByDesc('start_date')
+            ->limit(1000)
             ->get();
+
+        return $rentals->flatMap(function (Rental $rental) use ($start, $end, $statusFilters) {
+            $blocks = collect();
+            foreach ($rental->items as $item) {
+                if (! $item->product_unit_id) {
+                    continue;
+                }
+                foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $end) as $block) {
+                    if ($block['end'] < $start || $block['start'] > $end ||
+                        ($statusFilters !== [] && ! in_array($block['status'], $statusFilters, true))) {
+                        continue;
+                    }
+                    $copy = clone $rental;
+                    $copy->start_date = $block['start'];
+                    $copy->end_date = $block['end'];
+                    $copy->status = $block['status'];
+                    $blocks->push($copy);
+                }
+            }
+
+            return $blocks->unique(fn ($r) => $r->status.'|'.$r->start_date.'|'.$r->end_date);
+        })->values();
     }
 
     protected function getMonthData(string $anchorDate, array $statusFilters = []): array
@@ -194,7 +231,9 @@ class ScheduleController extends Controller
             foreach ($rentals as $r) {
                 $rs = $r->start_date->copy()->startOfDay();
                 $re = $r->end_date->copy()->startOfDay();
-                if ($re < $weekStart || $rs > $weekEnd) continue;
+                if ($re < $weekStart || $rs > $weekEnd) {
+                    continue;
+                }
 
                 $segStart = $rs->greaterThan($weekStart) ? $rs : $weekStart;
                 $segEnd = $re->lessThan($weekEnd) ? $re : $weekEnd->copy()->startOfDay();
@@ -207,7 +246,10 @@ class ScheduleController extends Controller
             }
 
             usort($segs, function ($a, $b) {
-                if ($a['start_col'] !== $b['start_col']) return $a['start_col'] <=> $b['start_col'];
+                if ($a['start_col'] !== $b['start_col']) {
+                    return $a['start_col'] <=> $b['start_col'];
+                }
+
                 return ($b['end_col'] - $b['start_col']) <=> ($a['end_col'] - $a['start_col']);
             });
 
@@ -288,7 +330,9 @@ class ScheduleController extends Controller
 
             $startH = $rs->greaterThanOrEqualTo($start) ? $rs->hour + $rs->minute / 60 : 7;
             $endH = $re->lessThanOrEqualTo($end) ? $re->hour + $re->minute / 60 : 21;
-            if ($endH <= $startH) $endH = min(21, $startH + 1);
+            if ($endH <= $startH) {
+                $endH = min(21, $startH + 1);
+            }
 
             $row = [
                 'rental' => $r,
@@ -328,18 +372,13 @@ class ScheduleController extends Controller
         $requestedStatuses = $request->query('status', []);
         $requestedStatuses = is_array($requestedStatuses) ? $requestedStatuses : explode(',', (string) $requestedStatuses);
         $statusFilters = array_values(array_intersect(array_keys($this->statuses), $requestedStatuses));
-        $rentals = Rental::query()
-            ->with(['customer:id,name'])
-            ->where('start_date', '<=', $d->copy()->endOfDay())
-            ->where('end_date', '>=', $d)
-            ->when($statusFilters !== [], fn ($query) => $query->whereIn('status', $statusFilters))
-            ->orderBy('start_date')
-            ->get();
+        $rentals = $this->fetchRentalsIn($d, $d->copy()->endOfDay(), $statusFilters);
 
         return response()->json($rentals->map(fn ($r) => [
             'id' => $r->id,
-            'customer' => $r->customer?->name ?? '—',
-            'status' => ucfirst(str_replace('_', ' ', $r->status)),
+            'customer' => $r->status === 'over_time' ? 'Terpakai' : ($r->customer?->name ?? '—'),
+            'status' => $r->status === 'over_time' ? 'Over-Time' : ucfirst(str_replace('_', ' ', $r->status)),
+            'segment' => $r->status,
             'status_color' => $this->statuses[$r->status][0] ?? '#6b7280',
             'start' => $r->start_date?->format('j M H:i'),
             'end' => $r->end_date?->format('j M H:i'),
@@ -351,14 +390,14 @@ class ScheduleController extends Controller
         $rangeStart = $range['start'];
         $rangeEnd = $range['end'];
 
-        $query = Product::with(['units.rentalItems.rental.customer'])
+        $query = Product::with(['units.rentalItems.rental.customer', 'units.rentalItems.deliveryItems.delivery'])
             ->whereHas('units');
 
         if (! empty($search)) {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
+                $q->where('name', 'like', '%'.$search.'%')
                     ->orWhereHas('units', function ($q) use ($search) {
-                        $q->where('serial_number', 'like', '%' . $search . '%');
+                        $q->where('serial_number', 'like', '%'.$search.'%');
                     });
             });
         }
@@ -375,15 +414,19 @@ class ScheduleController extends Controller
                 $rentals = [];
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
-                    if (! $rental) continue;
-                    if (($statusFilters === [] || in_array($rental->status, $statusFilters, true)) && $rental->end_date >= $rangeStart && $rental->start_date <= $rangeEnd) {
-                        $rentals[] = [
-                            'id' => $rental->id,
-                            'customer' => $rental->customer?->name ?? '—',
-                            'start' => $rental->start_date,
-                            'end' => $rental->end_date,
-                            'status' => $rental->status,
-                        ];
+                    if (! $rental) {
+                        continue;
+                    }
+                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $rangeEnd) as $block) {
+                        if (($statusFilters === [] || in_array($block['status'], $statusFilters, true)) && $block['end'] >= $rangeStart && $block['start'] <= $rangeEnd) {
+                            $rentals[] = [
+                                'id' => $rental->id,
+                                'customer' => $rental->customer?->name ?? '—',
+                                'start' => $block['start'],
+                                'end' => $block['end'],
+                                'status' => $block['status'],
+                            ];
+                        }
                     }
                 }
                 $productData['units'][] = [
@@ -391,6 +434,7 @@ class ScheduleController extends Controller
                     'rentals' => $rentals,
                 ];
             }
+
             return $productData;
         });
 
@@ -414,6 +458,7 @@ class ScheduleController extends Controller
             ];
             $cur->addDay();
         }
+
         return $headers;
     }
 
@@ -432,6 +477,7 @@ class ScheduleController extends Controller
                 $groups[count($groups) - 1]['count']++;
             }
         }
+
         return $groups;
     }
 }

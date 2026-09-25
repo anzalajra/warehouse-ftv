@@ -39,6 +39,7 @@ class Rental extends Model
         'discount_type',
         'total',
         'late_fee',
+        'late_fee_adjustment',
         'deposit',
         'deposit_type',
         'security_deposit_amount',
@@ -644,10 +645,10 @@ class Rental extends Model
         }
 
         // Check for Partial Return condition (Dynamic)
-        $hasPartialReturn = $this->deliveries->where('type', Delivery::TYPE_IN)->count() > 1;
+        $hasPartialReturn = $this->hasPendingPartialReturn();
 
-        if ($this->end_date < $now) {
-            if ($this->status === self::STATUS_ACTIVE || $this->status === self::STATUS_PARTIAL_RETURN || ($this->status === self::STATUS_ACTIVE && $hasPartialReturn)) {
+        if ($this->hasOverdueOutstandingItem()) {
+            if ($this->status === self::STATUS_ACTIVE || $this->status === self::STATUS_PARTIAL_RETURN) {
                 return self::STATUS_LATE_RETURN;
             }
         }
@@ -680,7 +681,7 @@ class Rental extends Model
             $newStatus = self::STATUS_LATE_PICKUP;
         }
 
-        if (($this->status === self::STATUS_ACTIVE || $this->status === self::STATUS_PARTIAL_RETURN) && $this->end_date < $now) {
+        if (($this->status === self::STATUS_ACTIVE || $this->status === self::STATUS_PARTIAL_RETURN) && $this->hasOverdueOutstandingItem()) {
             $newStatus = self::STATUS_LATE_RETURN;
         }
 
@@ -688,6 +689,27 @@ class Rental extends Model
             $this->update(['status' => $newStatus]);
             $this->refreshUnitStatuses();
         }
+    }
+
+    public function hasOverdueOutstandingItem(): bool
+    {
+        $this->loadMissing('items.deliveryItems.delivery');
+
+        return $this->items->whereNotNull('product_unit_id')->contains(
+            fn (RentalItem $item) => \App\Services\RentalOccupancyService::returnedAt($item) === null
+                && \App\Services\RentalOccupancyService::dueAt($item)->isPast()
+        );
+    }
+
+    public function nextOutstandingDueAt(): ?\Carbon\Carbon
+    {
+        $this->loadMissing('items.deliveryItems.delivery');
+
+        return $this->items->whereNotNull('product_unit_id')
+            ->filter(fn (RentalItem $item) => \App\Services\RentalOccupancyService::returnedAt($item) === null)
+            ->map(fn (RentalItem $item) => \App\Services\RentalOccupancyService::dueAt($item))
+            ->sort()
+            ->first();
     }
 
     /** Reopen an expired storefront quotation after its dates/items have been revised in admin. */
@@ -891,10 +913,9 @@ class Rental extends Model
         }
 
         $overlappingRentals = self::whereIn('id', $candidateRentalIds)
-            ->whereIn('status', [self::STATUS_QUOTATION, self::STATUS_CONFIRMED, self::STATUS_ACTIVE, self::STATUS_LATE_PICKUP, self::STATUS_LATE_RETURN])
+            ->whereIn('status', \App\Services\RentalOccupancyService::BLOCKING_STATUSES)
             ->where('start_date', '<', $this->end_date)
-            ->where('end_date', '>', $this->start_date)
-            ->with(['customer', 'items.productUnit.product', 'items.productUnit.kits'])
+            ->with(['customer', 'items.productUnit.product', 'items.productUnit.kits', 'items.deliveryItems.delivery'])
             ->get();
 
         if ($overlappingRentals->isEmpty()) {
@@ -911,7 +932,8 @@ class Rental extends Model
 
             $matchedRentals = $overlappingRentals->filter(function ($otherRental) use ($itemConflictIds) {
                 foreach ($otherRental->items as $otherItem) {
-                    if (in_array($otherItem->product_unit_id, $itemConflictIds, true)) {
+                    if (in_array($otherItem->product_unit_id, $itemConflictIds, true)
+                        && \App\Services\RentalOccupancyService::overlaps($otherItem, $this->start_date, $this->end_date)) {
                         return true;
                     }
                     if ($otherItem->productUnit && $otherItem->productUnit->relationLoaded('kits')) {
@@ -919,7 +941,8 @@ class Rental extends Model
                             ->whereNotNull('linked_unit_id')
                             ->pluck('linked_unit_id')
                             ->all();
-                        if (array_intersect($linkedIds, $itemConflictIds)) {
+                        if (array_intersect($linkedIds, $itemConflictIds)
+                            && \App\Services\RentalOccupancyService::overlaps($otherItem, $this->start_date, $this->end_date)) {
                             return true;
                         }
                     }
@@ -1314,9 +1337,9 @@ class Rental extends Model
 
         // Jam telat PER ITEM, dihitung dari waktu kembali efektif item itu sendiri
         // (checked_at di delivery IN bila sudah dikembalikan, atau now() bila masih di luar).
-        $hoursLateFor = fn (RentalItem $item): float => max(
+        $hoursLateFor = fn (RentalItem $item): float => $item->late_fee_waived ? 0.0 : max(
             0.0,
-            (float) $this->end_date->diffInHours($this->effectiveReturnTime($item), false)
+            (float) ($item->effective_due_at ?? $this->end_date)->diffInHours($this->effectiveReturnTime($item), false)
         );
 
         // Tiered mode dihitung per-jam, per-item (menghormati override produk).
@@ -1375,6 +1398,11 @@ class Rental extends Model
         return round($fee, 2);
     }
 
+    public function currentLateFee(): float
+    {
+        return max(0, round($this->calculateOverdueFee() + (float) ($this->late_fee_adjustment ?? 0), 2));
+    }
+
     /**
      * Resolve the configured late-fee mode, deriving from the legacy late_fee_type
      * setting when the newer late_fee_mode is unset (backward compatibility).
@@ -1411,7 +1439,8 @@ class Rental extends Model
             if ($deliveryItem->rental_item_kit_id !== null
                 || ! $deliveryItem->is_checked
                 || $deliveryItem->checked_at === null
-                || $deliveryItem->delivery?->type !== Delivery::TYPE_IN) {
+                || $deliveryItem->delivery?->type !== Delivery::TYPE_IN
+                || $deliveryItem->delivery?->status !== Delivery::STATUS_COMPLETED) {
                 continue;
             }
 
@@ -1502,7 +1531,7 @@ class Rental extends Model
             'mode_label' => '',
             'hours_late' => 0.0,
             'overdue_days' => 0,
-            'end_date' => $this->end_date?->format('d M Y H:i'),
+            'end_date' => ($this->nextOutstandingDueAt() ?? $this->end_date)?->format('d M Y H:i'),
             'now' => $now->format('d M Y H:i'),
             'amount_setting' => 0.0,
             'summary' => null,
@@ -1521,9 +1550,9 @@ class Rental extends Model
         $items = $this->items->whereNotNull('product_unit_id');
 
         // Jam & hari telat per item, dari waktu kembali efektif item itu sendiri.
-        $hoursLateFor = fn (RentalItem $item): float => max(
+        $hoursLateFor = fn (RentalItem $item): float => $item->late_fee_waived ? 0.0 : max(
             0.0,
-            (float) $this->end_date->diffInHours($this->effectiveReturnTime($item), false)
+            (float) ($item->effective_due_at ?? $this->end_date)->diffInHours($this->effectiveReturnTime($item), false)
         );
         $daysLateFor = fn (RentalItem $item): int => (int) ceil($hoursLateFor($item) / 24);
 
@@ -1916,13 +1945,14 @@ class Rental extends Model
                 'scheduled_at' => $this->start_date,
             ]);
 
+        $nextReturn = $this->nextOutstandingDueAt() ?? $this->end_date;
         $this->deliveries()
             ->where('type', Delivery::TYPE_IN)
             ->where('status', Delivery::STATUS_DRAFT)
             ->whereNull('driver_id')
             ->update([
-                'date' => $this->end_date,
-                'scheduled_at' => $this->end_date,
+                'date' => $nextReturn,
+                'scheduled_at' => $nextReturn,
             ]);
     }
 
@@ -2000,6 +2030,14 @@ class Rental extends Model
         }
 
         if ($deliveryIn->status === Delivery::STATUS_DRAFT) {
+            $returnedRows = DeliveryItem::query()
+                ->whereHas('delivery', fn ($q) => $q->where('rental_id', $this->id)
+                    ->where('type', Delivery::TYPE_IN)
+                    ->where('status', Delivery::STATUS_COMPLETED))
+                ->where('is_checked', true)
+                ->get();
+            $returnedUnits = $returnedRows->whereNull('rental_item_kit_id')->pluck('rental_item_id')->all();
+            $returnedKits = $returnedRows->whereNotNull('rental_item_kit_id')->pluck('rental_item_kit_id')->all();
             // Kits flagged "not taken" on the OUT delivery were never handed to the
             // customer, so there is nothing to receive back — skip them entirely so
             // they don't appear in the return checklist or block its completion gate.
@@ -2019,17 +2057,30 @@ class Rental extends Model
                     continue;
                 }
 
-                // Main Unit
-                $deliveryIn->items()->firstOrCreate([
-                    'rental_item_id' => $item->id,
-                    'rental_item_kit_id' => null,
-                ], [
-                    'is_checked' => false,
-                ]);
+                if (in_array($item->id, $returnedUnits, true)) {
+                    $this->mergeDuplicateReturnRows(
+                        $deliveryIn->items()->where('rental_item_id', $item->id)->whereNull('rental_item_kit_id'),
+                        $returnedRows->first(fn ($row) => $row->rental_item_id === $item->id && $row->rental_item_kit_id === null),
+                    );
+                } else {
+
+                    // Main Unit
+                    $deliveryIn->items()->firstOrCreate([
+                        'rental_item_id' => $item->id,
+                        'rental_item_kit_id' => null,
+                    ], [
+                        'is_checked' => false,
+                    ]);
+                }
 
                 // Kits
                 foreach ($item->rentalItemKits as $kit) {
-                    if (in_array($kit->id, $outNotTakenKitIds, true)) {
+                    if (in_array($kit->id, $outNotTakenKitIds, true) || in_array($kit->id, $returnedKits, true)) {
+                        $this->mergeDuplicateReturnRows(
+                            $deliveryIn->items()->where('rental_item_kit_id', $kit->id),
+                            $returnedRows->first(fn ($row) => $row->rental_item_kit_id === $kit->id),
+                        );
+
                         continue;
                     }
 
@@ -2041,6 +2092,22 @@ class Rental extends Model
                     ]);
                 }
             }
+        }
+    }
+
+    private function mergeDuplicateReturnRows($draftRows, ?DeliveryItem $completedRow): void
+    {
+        foreach ($draftRows->get() as $draft) {
+            if ($completedRow) {
+                $photos = array_values(array_unique(array_merge($completedRow->photos ?? [], $draft->photos ?? [])));
+                $notes = trim(implode("\n", array_filter([$completedRow->notes, $draft->notes])));
+                $completedRow->update([
+                    'photos' => $photos ?: null,
+                    'notes' => $notes ?: null,
+                    'condition' => $completedRow->condition ?: $draft->condition,
+                ]);
+            }
+            $draft->delete();
         }
     }
 
@@ -2078,7 +2145,7 @@ class Rental extends Model
 
         // Status transition is auto-logged by RentalObserver; record the reason too.
         if (trim($reason) !== '') {
-            $this->logActivity('Dibatalkan. Alasan: ' . $reason, 'status');
+            $this->logActivity('Dibatalkan. Alasan: '.$reason, 'status');
         }
 
         // Cancel all associated deliveries

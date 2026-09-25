@@ -22,11 +22,19 @@ class RentalItem extends Model
         'subtotal',
         'discount',
         'sort_order',
+        'effective_due_at',
+        'overtime_started_at',
+        'late_fee_waived',
+        'extension_charge',
     ];
 
     protected $casts = [
         'daily_rate' => 'decimal:2',
         'subtotal' => 'decimal:2',
+        'effective_due_at' => 'datetime',
+        'overtime_started_at' => 'datetime',
+        'late_fee_waived' => 'boolean',
+        'extension_charge' => 'decimal:2',
     ];
 
     protected static function booted()
@@ -34,7 +42,7 @@ class RentalItem extends Model
         static::saving(function ($item) {
             $gross = $item->daily_rate * $item->days;
             $discountAmount = $gross * ($item->discount / 100);
-            $item->subtotal = max(0, $gross - $discountAmount);
+            $item->subtotal = max(0, $gross - $discountAmount) + (float) ($item->extension_charge ?? 0);
         });
 
         static::created(function ($item) {
@@ -65,24 +73,24 @@ class RentalItem extends Model
             $item->productUnit?->refreshStatus();
 
             // Link shadow item to parent if applicable
-            if ($item->product_unit_id && !$item->parent_item_id) {
-                 // Check if this unit is a linked component of another unit
-                 // Get all parent unit IDs that have this unit as a component
-                 $parentUnitIds = \App\Models\UnitKit::where('linked_unit_id', $item->product_unit_id)
-                     ->pluck('unit_id');
-                 
-                 if ($parentUnitIds->isNotEmpty()) {
-                     // Find if any of these parent units are in the same rental
-                     $parentItem = \App\Models\RentalItem::where('rental_id', $item->rental_id)
-                         ->where('id', '!=', $item->id) // Avoid self-reference just in case
-                         ->whereIn('product_unit_id', $parentUnitIds)
-                         ->first();
-                     
-                     if ($parentItem) {
-                         $item->parent_item_id = $parentItem->id;
-                         $item->saveQuietly();
-                     }
-                 }
+            if ($item->product_unit_id && ! $item->parent_item_id) {
+                // Check if this unit is a linked component of another unit
+                // Get all parent unit IDs that have this unit as a component
+                $parentUnitIds = \App\Models\UnitKit::where('linked_unit_id', $item->product_unit_id)
+                    ->pluck('unit_id');
+
+                if ($parentUnitIds->isNotEmpty()) {
+                    // Find if any of these parent units are in the same rental
+                    $parentItem = \App\Models\RentalItem::where('rental_id', $item->rental_id)
+                        ->where('id', '!=', $item->id) // Avoid self-reference just in case
+                        ->whereIn('product_unit_id', $parentUnitIds)
+                        ->first();
+
+                    if ($parentItem) {
+                        $item->parent_item_id = $parentItem->id;
+                        $item->saveQuietly();
+                    }
+                }
             }
 
             // Reverse check: Is THIS item a parent to any existing unlinked items?
@@ -96,17 +104,17 @@ class RentalItem extends Model
                 : collect();
 
             if ($childUnitIds->isNotEmpty()) {
-                 // Find unlinked items in this rental that match these child units
-                 $unlinkedChildren = \App\Models\RentalItem::where('rental_id', $item->rental_id)
-                     ->where('id', '!=', $item->id)
-                     ->whereNull('parent_item_id')
-                     ->whereIn('product_unit_id', $childUnitIds)
-                     ->get();
-                 
-                 foreach ($unlinkedChildren as $child) {
-                     $child->parent_item_id = $item->id;
-                     $child->saveQuietly();
-                 }
+                // Find unlinked items in this rental that match these child units
+                $unlinkedChildren = \App\Models\RentalItem::where('rental_id', $item->rental_id)
+                    ->where('id', '!=', $item->id)
+                    ->whereNull('parent_item_id')
+                    ->whereIn('product_unit_id', $childUnitIds)
+                    ->get();
+
+                foreach ($unlinkedChildren as $child) {
+                    $child->parent_item_id = $item->id;
+                    $child->saveQuietly();
+                }
             }
         });
 
@@ -168,7 +176,7 @@ class RentalItem extends Model
         $kits = $this->productUnit->kits()
             ->whereNotIn('condition', ['broken', 'lost']) // Filter out broken/lost kits
             ->get();
-        
+
         foreach ($kits as $kit) {
             $this->rentalItemKits()->updateOrCreate(
                 ['unit_kit_id' => $kit->id],
@@ -185,6 +193,7 @@ class RentalItem extends Model
         if ($this->rentalItemKits()->count() === 0) {
             return true;
         }
+
         return $this->rentalItemKits()->where('is_returned', false)->count() === 0;
     }
 
@@ -214,6 +223,7 @@ class RentalItem extends Model
             return 'No kits';
         }
         $returned = $this->returnedKitsCount();
+
         return "{$returned}/{$total}";
     }
 }

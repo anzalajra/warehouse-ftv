@@ -38,7 +38,7 @@ class PartialReturnLateFeeTest extends TestCase
 
         $endDate = $now->copy()->subDays(5); // rental was due 5 days ago
 
-        $inDelivery = new Delivery(['type' => Delivery::TYPE_IN]);
+        $inDelivery = new Delivery(['type' => Delivery::TYPE_IN, 'status' => Delivery::STATUS_COMPLETED]);
 
         // Item A — returned ON TIME (checked in at end_date, e.g. an earlier partial batch).
         $itemA = new RentalItem(['product_unit_id' => 1, 'daily_rate' => 100000, 'days' => 1]);
@@ -76,7 +76,7 @@ class PartialReturnLateFeeTest extends TestCase
 
         $endDate = $now->copy()->subDays(5);
 
-        $inDelivery = new Delivery(['type' => Delivery::TYPE_IN]);
+        $inDelivery = new Delivery(['type' => Delivery::TYPE_IN, 'status' => Delivery::STATUS_COMPLETED]);
 
         $item = new RentalItem(['product_unit_id' => 1, 'daily_rate' => 100000, 'days' => 1]);
         $di = new DeliveryItem(['is_checked' => true]);
@@ -89,6 +89,32 @@ class PartialReturnLateFeeTest extends TestCase
         $rental = new Rental(['end_date' => $endDate, 'status' => Rental::STATUS_PARTIAL_RETURN]);
         $rental->setRelation('items', collect([$item]));
 
+        $this->assertSame(0.0, $rental->calculateOverdueFee());
+    }
+
+    public function test_extended_due_date_and_persisted_waiver_control_remaining_fee(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-19 12:00:00'));
+        $item = new RentalItem([
+            'product_unit_id' => 2,
+            'daily_rate' => 100000,
+            'days' => 1,
+            'effective_due_at' => Carbon::parse('2026-06-20 12:00:00'),
+        ]);
+        $item->setRelation('deliveryItems', collect());
+        $item->setRelation('productUnit', null);
+        $rental = new Rental([
+            'end_date' => Carbon::parse('2026-06-17 12:00:00'),
+            'status' => Rental::STATUS_PARTIAL_RETURN,
+        ]);
+        $rental->setRelation('items', collect([$item]));
+
+        $this->assertSame(0.0, $rental->calculateOverdueFee());
+
+        $item->effective_due_at = Carbon::parse('2026-06-18 12:00:00');
+        $this->assertSame(100000.0, $rental->calculateOverdueFee());
+
+        $item->late_fee_waived = true;
         $this->assertSame(0.0, $rental->calculateOverdueFee());
     }
 }

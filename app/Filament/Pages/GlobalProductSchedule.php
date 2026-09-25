@@ -10,13 +10,12 @@ use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Components\Grid;
 use Filament\Pages\Page;
-use Illuminate\Support\Carbon;
-use UnitEnum;
-
-use Livewire\WithPagination;
+use Filament\Schemas\Components\Grid;
 use Illuminate\Contracts\Pagination\Paginator;
+use Illuminate\Support\Carbon;
+use Livewire\WithPagination;
+use UnitEnum;
 
 class GlobalProductSchedule extends Page implements HasActions
 {
@@ -24,11 +23,11 @@ class GlobalProductSchedule extends Page implements HasActions
     use WithPagination;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-calendar';
-    
+
     protected static string|UnitEnum|null $navigationGroup = 'Inventory';
-    
+
     protected static ?string $title = 'Global Schedule';
-    
+
     protected static ?string $navigationLabel = 'Global Schedule';
 
     protected static bool $shouldRegisterNavigation = false;
@@ -36,7 +35,9 @@ class GlobalProductSchedule extends Page implements HasActions
     protected string $view = 'filament.pages.global-product-schedule';
 
     public Carbon $startDate;
+
     public Carbon $endDate;
+
     public array $days = [];
 
     public function mount(): void
@@ -105,22 +106,25 @@ class GlobalProductSchedule extends Page implements HasActions
                             ->label('Notes')
                             ->disabled()
                             ->columnSpanFull(),
-                    ])
+                    ]),
             ])
             ->fillForm(function (array $arguments) {
                 $rental = Rental::with(['customer', 'items.productUnit.product'])->find($arguments['rentalId']);
-                if (!$rental) return [];
+                if (! $rental) {
+                    return [];
+                }
 
                 $items = $rental->items->map(function ($item) {
                     $pu = $item->productUnit;
-                    return ($pu?->product?->name ?? '-') . ' (' . ($pu->serial_number ?? '-') . ')';
+
+                    return ($pu?->product?->name ?? '-').' ('.($pu->serial_number ?? '-').')';
                 })->join("\n");
 
                 return [
                     'rental_code' => $rental->rental_code,
                     'status' => ucfirst($rental->status),
                     'customer_name' => $rental->customer->name,
-                    'total' => 'Rp ' . number_format($rental->total, 0, ',', '.'),
+                    'total' => 'Rp '.number_format($rental->total, 0, ',', '.'),
                     'start_date' => $rental->start_date->format('d M Y H:i'),
                     'end_date' => $rental->end_date->format('d M Y H:i'),
                     'items' => $items,
@@ -137,10 +141,10 @@ class GlobalProductSchedule extends Page implements HasActions
 
     public function getProductsWithUnitsAndRentals(): Paginator
     {
-        $products = Product::with(['units.rentalItems.rental.customer'])
+        $products = Product::with(['units.rentalItems.rental.customer', 'units.rentalItems.deliveryItems.delivery'])
             ->whereHas('units')
             ->paginate(5); // Adjust items per page as needed
-        
+
         $products->getCollection()->transform(function ($product) {
             $productData = [
                 'product' => $product,
@@ -151,17 +155,18 @@ class GlobalProductSchedule extends Page implements HasActions
                 $rentals = [];
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
-                    // Only include rentals that overlap with our view range
-                    if ($rental->end_date >= $this->startDate && $rental->start_date <= $this->endDate) {
-                        $rentals[] = [
-                            'id' => $rental->id,
-                            'code' => $rental->rental_code,
-                            'customer' => $rental->customer->name,
-                            'start' => $rental->start_date,
-                            'end' => $rental->end_date,
-                            'status' => $rental->status,
-                            'color' => \App\Models\Rental::getStatusColor($rental->status),
-                        ];
+                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $this->endDate) as $block) {
+                        if ($block['end'] >= $this->startDate && $block['start'] <= $this->endDate) {
+                            $rentals[] = [
+                                'id' => $rental->id,
+                                'code' => $rental->rental_code,
+                                'customer' => $rental->customer->name,
+                                'start' => $block['start'],
+                                'end' => $block['end'],
+                                'status' => $block['status'],
+                                'color' => $block['status'] === 'over_time' ? 'purple' : \App\Models\Rental::getStatusColor($rental->status),
+                            ];
+                        }
                     }
                 }
                 $productData['units'][] = [
@@ -169,9 +174,10 @@ class GlobalProductSchedule extends Page implements HasActions
                     'rentals' => $rentals,
                 ];
             }
+
             return $productData;
         });
-        
+
         return $products;
     }
 }

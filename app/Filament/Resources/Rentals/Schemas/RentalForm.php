@@ -2,11 +2,11 @@
 
 namespace App\Filament\Resources\Rentals\Schemas;
 
-use App\Models\User;
 use App\Models\ProductUnit;
 use App\Models\Rental;
 use App\Models\RentalItem;
-use Filament\Schemas\Components\Actions;
+use App\Models\User;
+use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Hidden;
@@ -14,14 +14,16 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Schema;
-use Carbon\Carbon;
 
 class RentalForm
 {
     // ── Cached data to avoid repeated queries during a single request ──
     private static ?array $cachedProductOptions = null;
+
     private static ?array $cachedProductList = null;
+
     private static ?array $cachedProductVariationMap = null;
 
     /**
@@ -50,6 +52,7 @@ class RentalForm
         }
 
         self::$cachedProductOptions = $options;
+
         return $options;
     }
 
@@ -85,6 +88,7 @@ class RentalForm
         }
 
         self::$cachedProductVariationMap = $map;
+
         return $map;
     }
 
@@ -134,10 +138,15 @@ class RentalForm
                             $totalHours = (int) $start->diffInHours($end);
                             $days = (int) floor($totalHours / 24);
                             $hours = $totalHours % 24;
-                            if ($days > 0 && $hours > 0) return "📅 Durasi: {$days} hari {$hours} jam";
-                            elseif ($days > 0) return "📅 Durasi: {$days} hari";
-                            else return "📅 Durasi: {$hours} jam";
+                            if ($days > 0 && $hours > 0) {
+                                return "📅 Durasi: {$days} hari {$hours} jam";
+                            } elseif ($days > 0) {
+                                return "📅 Durasi: {$days} hari";
+                            } else {
+                                return "📅 Durasi: {$hours} jam";
+                            }
                         }
+
                         return null;
                     }),
 
@@ -145,7 +154,7 @@ class RentalForm
                     ->options(Rental::getStatusOptions())
                     ->required()
                     ->default('quotation')
-                    ->disabled(fn ($record) => $record && (!$record->canBeEdited() || in_array($record->status, [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN]))),
+                    ->disabled(fn ($record) => $record && (! $record->canBeEdited() || in_array($record->status, [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN]))),
 
                 // ── Grouped Rental Items Repeater ──
                 Repeater::make('grouped_items')
@@ -198,11 +207,12 @@ class RentalForm
                                         $fields = [];
                                         for ($i = 0; $i < $quantity; $i++) {
                                             $fields[] = Select::make("unit_{$i}")
-                                                ->label("Unit #" . ($i + 1))
+                                                ->label('Unit #'.($i + 1))
                                                 ->options($options)
                                                 ->searchable()
                                                 ->required();
                                         }
+
                                         return $fields;
                                     })
                                     ->fillForm(function (callable $get): array {
@@ -211,6 +221,7 @@ class RentalForm
                                         foreach ($unitIds as $i => $uid) {
                                             $fill["unit_{$i}"] = $uid;
                                         }
+
                                         return $fill;
                                     })
                                     ->action(function (array $data, callable $get, callable $set) {
@@ -270,7 +281,7 @@ class RentalForm
                         ->label('Add Product')
                         ->icon('heroicon-m-plus')
                         ->button()
-                        ->visible(fn ($record) => !$record || !in_array($record->status, [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN]))
+                        ->visible(fn ($record) => ! $record || ! in_array($record->status, [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN]))
                         ->form(function () {
                             // Pre-load variation map once
                             $variationMap = self::getProductVariationMap();
@@ -288,16 +299,21 @@ class RentalForm
                                     ->label('Variation')
                                     ->options(function (callable $get) use ($variationMap) {
                                         $productId = $get('product_id');
-                                        if (!$productId) return [];
+                                        if (! $productId) {
+                                            return [];
+                                        }
+
                                         return $variationMap[$productId] ?? [];
                                     })
                                     ->visible(function (callable $get) use ($variationMap) {
                                         $productId = $get('product_id');
-                                        return $productId && !empty($variationMap[$productId] ?? []);
+
+                                        return $productId && ! empty($variationMap[$productId] ?? []);
                                     })
                                     ->required(function (callable $get) use ($variationMap) {
                                         $productId = $get('product_id');
-                                        return $productId && !empty($variationMap[$productId] ?? []);
+
+                                        return $productId && ! empty($variationMap[$productId] ?? []);
                                     })
                                     ->live(),
 
@@ -310,12 +326,15 @@ class RentalForm
                                     ->visible(fn (callable $get) => (bool) $get('product_id'))
                                     ->helperText(function (callable $get) {
                                         $productId = $get('product_id');
-                                        if (!$productId) return '';
+                                        if (! $productId) {
+                                            return '';
+                                        }
                                         $query = ProductUnit::where('product_id', $productId)
                                             ->whereNotIn('status', [ProductUnit::STATUS_MAINTENANCE, ProductUnit::STATUS_RETIRED]);
                                         if ($get('product_variation_id')) {
                                             $query->where('product_variation_id', $get('product_variation_id'));
                                         }
+
                                         return "Total unit tersedia: {$query->count()}";
                                     }),
                             ];
@@ -359,7 +378,7 @@ class RentalForm
                             ->label('Diskon Promo Harian')
                             ->numeric()->prefix('Rp')->default(0)->disabled()->dehydrated(false)
                             ->visible(fn ($record) => $record && $record->daily_discount_amount > 0),
-                            
+
                         TextInput::make('date_promotion_amount')
                             ->label('Diskon Promo Tanggal')
                             ->numeric()->prefix('Rp')->default(0)->disabled()->dehydrated(false)
@@ -457,6 +476,7 @@ class RentalForm
                 ->title('Unit Tidak Cukup')
                 ->body("Hanya tersedia {$available->count()} unit untuk tanggal yang dipilih.")
                 ->danger()->send();
+
             return;
         }
 
@@ -513,7 +533,9 @@ class RentalForm
     // ═══════════════════════════════════════════════
     public static function handleQuantityChange(int $newQty, int $oldQty, callable $get, callable $set): void
     {
-        if ($newQty === $oldQty || $newQty < 1) return;
+        if ($newQty === $oldQty || $newQty < 1) {
+            return;
+        }
 
         $unitIds = json_decode($get('unit_ids') ?? '[]', true);
         $compositeId = $get('product_id');
@@ -544,6 +566,7 @@ class RentalForm
                     ->body("Hanya tersedia {$available->count()} unit tambahan.")
                     ->danger()->send();
                 $set('quantity', $oldQty);
+
                 return;
             }
 
@@ -567,26 +590,15 @@ class RentalForm
      */
     private static function getBookedUnitIds($startDate, $endDate, $excludeRentalId = null): array
     {
-        if (!$startDate || !$endDate) return [];
+        if (! $startDate || ! $endDate) {
+            return [];
+        }
 
-        $activeStatuses = [
-            Rental::STATUS_QUOTATION,
-            Rental::STATUS_CONFIRMED,
-            Rental::STATUS_ACTIVE,
-            Rental::STATUS_LATE_PICKUP,
-            Rental::STATUS_LATE_RETURN,
-        ];
-
-        // 1. Units directly rented in overlapping period
-        $directlyBooked = RentalItem::query()
-            ->when($excludeRentalId, fn ($q) => $q->where('rental_id', '!=', $excludeRentalId))
-            ->whereHas('rental', function ($query) use ($startDate, $endDate, $activeStatuses) {
-                $query->whereIn('status', $activeStatuses)
-                    ->where('start_date', '<', $endDate)
-                    ->where('end_date', '>', $startDate);
-            })
-            ->pluck('product_unit_id')
-            ->toArray();
+        $directlyBooked = \App\Services\RentalOccupancyService::bookedUnitIds(
+            \Illuminate\Support\Carbon::parse($startDate),
+            \Illuminate\Support\Carbon::parse($endDate),
+            $excludeRentalId ? (int) $excludeRentalId : null,
+        );
 
         // 2. Units that are components of booked bundles (parent is rented → child unavailable)
         $componentBooked = \App\Models\UnitKit::whereNotNull('linked_unit_id')
@@ -622,7 +634,7 @@ class RentalForm
             ->whereNotIn('condition', ['broken', 'lost'])
             ->when($productId, fn ($q) => $q->where('product_id', $productId))
             ->when($variationId, fn ($q) => $q->where('product_variation_id', $variationId))
-            ->when(!empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
+            ->when(! empty($allExcluded), fn ($q) => $q->whereNotIn('id', $allExcluded))
             ->get();
     }
 
@@ -658,7 +670,9 @@ class RentalForm
     {
         $startDate = $get('start_date');
         $endDate = $get('end_date');
-        if (!$startDate || !$endDate) return;
+        if (! $startDate || ! $endDate) {
+            return;
+        }
 
         $start = Carbon::parse($startDate);
         $end = Carbon::parse($endDate);
@@ -709,7 +723,7 @@ class RentalForm
         $discountAmount = $discountType === 'percent'
             ? $grossSubtotal * ($discountValue / 100)
             : $discountValue;
-            
+
         $totalDiscount = $discountAmount + $dailyDiscountAmount + $datePromotionAmount;
         $netSubtotal = max(0, $grossSubtotal - $totalDiscount);
 
@@ -757,8 +771,9 @@ class RentalForm
             $existingGhosts = $existingItems->whereNull('product_unit_id')->groupBy(function ($it) {
                 $key = $it->product_id;
                 if ($it->product_variation_id) {
-                    $key .= ':' . $it->product_variation_id;
+                    $key .= ':'.$it->product_variation_id;
                 }
+
                 return (string) $key;
             });
             // Convert to a mutable structure keyed by composite_id => array of items.
@@ -788,7 +803,7 @@ class RentalForm
                     $rowProductId = (int) $compositeId;
                 }
                 // Fallback: look up via first unit_id when composite isn't usable.
-                if (!$rowProductId && !empty($unitIds)) {
+                if (! $rowProductId && ! empty($unitIds)) {
                     $u = \App\Models\ProductUnit::find($unitIds[0]);
                     if ($u) {
                         $rowProductId = $u->product_id;
@@ -836,7 +851,7 @@ class RentalForm
                     $availableGhosts = $ghostPool[$compositeKey] ?? [];
 
                     for ($i = 0; $i < $ghostCount; $i++) {
-                        if (!empty($availableGhosts)) {
+                        if (! empty($availableGhosts)) {
                             $reused = array_shift($availableGhosts);
                             $reused->update([
                                 'daily_rate' => $dailyRate,
@@ -868,7 +883,7 @@ class RentalForm
 
             // Delete items no longer present (real + leftover ghosts).
             $toDelete = $existingItems->pluck('id')->diff($processedIds)->toArray();
-            if (!empty($toDelete)) {
+            if (! empty($toDelete)) {
                 $rental->items()->whereIn('parent_item_id', $toDelete)->delete();
                 $rental->items()->whereIn('id', $toDelete)->delete();
             }
@@ -902,7 +917,9 @@ class RentalForm
         ])->values();
 
         foreach ($items as $item) {
-            if ($item->parent_item_id) continue;
+            if ($item->parent_item_id) {
+                continue;
+            }
 
             $unit = $item->productUnit;
 
@@ -915,14 +932,16 @@ class RentalForm
             } else {
                 $productId = $item->product_id;
                 $variationId = $item->product_variation_id;
-                if (!$productId) continue; // truly orphaned row — skip
+                if (! $productId) {
+                    continue;
+                } // truly orphaned row — skip
             }
 
             $compositeId = $variationId
                 ? "{$productId}:{$variationId}"
                 : (string) $productId;
 
-            if (!isset($grouped[$compositeId])) {
+            if (! isset($grouped[$compositeId])) {
                 $grouped[$compositeId] = [
                     'product_id' => $compositeId,
                     'quantity' => 0,

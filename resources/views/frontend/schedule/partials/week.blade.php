@@ -54,7 +54,7 @@
             @endphp
             <div class="gr-gantt-row">
                 <div class="gr-gantt-row-label">
-                    <div class="gr-gantt-row-customer">{{ $r->customer?->name ?? '—' }}</div>
+                    <div class="gr-gantt-row-customer">{{ $status === 'over_time' ? 'Over-Time' : ($r->customer?->name ?? '—') }}</div>
                     <div class="gr-gantt-row-dates">
                         {{ $r->start_date->format('j M') }} → {{ $r->end_date->format('j M') }}
                     </div>
@@ -65,10 +65,10 @@
                     @endforeach
                     <button type="button" class="gr-event"
                         style="position:absolute; top:8px; height:{{ $rowH - 16 }}px; left:calc({{ $lp }}% + 3px); width:calc({{ $wp }}% - 6px); background: {{ $color }};"
-                        @click="loadRental({{ $r->id }})"
-                        title="{{ $r->customer?->name }}"
+                        @click="loadRental({{ $r->id }}, '{{ $status }}')"
+                        title="{{ $status === 'over_time' ? 'Over-Time' : $r->customer?->name }}"
                     >
-                        <div class="gr-event-title">{{ $r->customer?->name ?? '—' }}</div>
+                        <div class="gr-event-title">{{ $status === 'over_time' ? 'Over-Time' : ($r->customer?->name ?? '—') }}</div>
                         <div class="gr-event-sub">{{ $r->start_date->format('j M') }} → {{ $r->end_date->format('j M') }}</div>
                     </button>
                 </div>

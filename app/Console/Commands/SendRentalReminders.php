@@ -49,15 +49,16 @@ class SendRentalReminders extends Command
         }
 
         // 2. Return Reminder (H-1 atau sudah terlewat)
-        $returnRentals = Rental::whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN])
-            ->whereDate('end_date', '<=', now()->addDay()->toDateString())
-            ->get();
+        $returnRentals = Rental::with('items.deliveryItems.delivery')
+            ->whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN])
+            ->get()
+            ->filter(fn (Rental $rental) => $rental->nextOutstandingDueAt()?->toDateString() === now()->addDay()->toDateString());
 
         foreach ($returnRentals as $rental) {
-             if ($rental->customer) {
+            if ($rental->customer) {
                 $rental->customer->notify(new ReturnReminderNotification($rental));
                 $this->info("Sent Return Reminder for {$rental->rental_code}");
-             }
+            }
         }
 
         // 2b. Daily summary ke admin (gabungan pickup + return H-1)
@@ -78,9 +79,10 @@ class SendRentalReminders extends Command
 
         // 3. Overdue Alert
         // Check active rentals that are past due date
-        $overdueRentals = Rental::whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_LATE_RETURN])
-            ->whereDate('end_date', '<', now()->toDateString())
-            ->get();
+        $overdueRentals = Rental::with('items.deliveryItems.delivery')
+            ->whereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN])
+            ->get()
+            ->filter(fn (Rental $rental) => $rental->hasOverdueOutstandingItem());
 
         foreach ($overdueRentals as $rental) {
             // Notify Customer
@@ -99,7 +101,7 @@ class SendRentalReminders extends Command
             Notification::send($admins, new MaintenanceReminderNotification($maintenanceUnitsCount));
             $this->info("Sent Maintenance Reminder for {$maintenanceUnitsCount} units");
         }
-        
+
         $this->info('Done.');
     }
 }

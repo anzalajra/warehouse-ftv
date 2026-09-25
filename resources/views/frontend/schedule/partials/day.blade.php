@@ -85,10 +85,10 @@
             @php $r = $e['rental']; $color = $statuses[$r->status][0] ?? '#6b7280'; @endphp
             <button type="button" class="gr-event"
                 style="height:20px; background: {{ $color }};"
-                @click="loadRental({{ $r->id }})"
-                title="{{ $r->customer?->name }}"
+                @click="loadRental({{ $r->id }}, '{{ $r->status }}')"
+                title="{{ $r->status === 'over_time' ? 'Over-Time' : $r->customer?->name }}"
             >
-                <div class="gr-event-title">All-day · {{ $r->customer?->name ?? '—' }}</div>
+                <div class="gr-event-title">All-day · {{ $r->status === 'over_time' ? 'Over-Time' : ($r->customer?->name ?? '—') }}</div>
             </button>
         @endforeach
     </div>
@@ -124,10 +124,10 @@
             <div style="position:absolute; top:{{ $top }}px; height:{{ $height }}px; left:calc({{ $gutter }}px + (100% - {{ $gutter + 8 }}px) * {{ $e['col'] }} / {{ $maxCols }}); width:calc((100% - {{ $gutter + 8 }}px) / {{ $maxCols }} - 4px);">
                 <button type="button" class="gr-event"
                     style="height:100%; width:100%; background: {{ $color }};"
-                    @click="loadRental({{ $r->id }})"
-                    title="{{ $r->customer?->name }}"
+                    @click="loadRental({{ $r->id }}, '{{ $r->status }}')"
+                    title="{{ $r->status === 'over_time' ? 'Over-Time' : $r->customer?->name }}"
                 >
-                    <div class="gr-event-title">{{ $r->customer?->name ?? '—' }}</div>
+                    <div class="gr-event-title">{{ $r->status === 'over_time' ? 'Over-Time' : ($r->customer?->name ?? '—') }}</div>
                 </button>
             </div>
         @endforeach
