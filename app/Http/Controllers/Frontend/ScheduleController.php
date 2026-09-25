@@ -366,7 +366,7 @@ class ScheduleController extends Controller
 
         $products = $query->paginate($perPage)->withQueryString();
 
-        $products->getCollection()->transform(function ($product) use ($rangeStart, $rangeEnd) {
+        $products->getCollection()->transform(function ($product) use ($rangeStart, $rangeEnd, $statusFilter) {
             $productData = [
                 'product' => $product,
                 'units' => [],
