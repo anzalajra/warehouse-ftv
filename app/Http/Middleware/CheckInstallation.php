@@ -16,7 +16,7 @@ class CheckInstallation
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $isInstalled = File::exists(storage_path('installed'));
+        $isInstalled = app()->environment('testing') || File::exists(storage_path('installed'));
 
         // If installed and trying to access setup, redirect to home
         if ($isInstalled && $request->is('setup*')) {

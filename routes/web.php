@@ -18,7 +18,7 @@ use App\Http\Controllers\SetupController;
 use Illuminate\Support\Facades\File;
 
 // Check installation status
-$isInstalled = File::exists(storage_path('installed'));
+$isInstalled = app()->environment('testing') || File::exists(storage_path('installed'));
 
 if (!$isInstalled) {
     // If NOT installed, only allow setup routes and redirect root to setup

@@ -1,59 +1,51 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Warehouse FTV / Gearent
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Aplikasi rental peralatan berbasis Laravel 12, Filament 4, dan Vite. Panduan ini untuk pengembangan dan pengujian **lokal** di macOS.
 
-## About Laravel
+## Persiapan pertama
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+Instal [Homebrew](https://brew.sh/) jika belum tersedia, lalu:
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+```bash
+brew install php@8.4 composer node
+brew link php@8.4
+php -v
+composer --version
+node -v
+```
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+PHP harus memiliki ekstensi `pdo_sqlite`, `sqlite3`, `mbstring`, `bcmath`, `gd`, dan `zip`. Dari akar repo, jalankan:
 
-## Learning Laravel
+Jika `php` versi lain sudah aktif melalui Homebrew, jalankan `brew unlink php` sebelum `brew link php@8.4`. Lockfile saat ini tidak kompatibel dengan PHP 8.5.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+```bash
+bash scripts/setup-local.sh
+composer test
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Script menyiapkan `.env` dan database SQLite lokal, memasang dependensi dari lockfile, menjalankan migrasi, mengisi data awal bila database baru atau data awal belum lengkap, dan mengaktifkan rute aplikasi lewat `storage/installed`. Script menolak `.env` yang bukan `APP_ENV=local` dan `DB_CONNECTION=sqlite`. File `.env`, database, dependensi, dan marker instalasi diabaikan Git. Jangan gunakan database produksi untuk langkah ini.
 
-## Laravel Sponsors
+Seeder lokal membuat admin `admin@gearent.com` dengan kata sandi `password`. Ubah kata sandi setelah login, terutama bila server dapat diakses dari jaringan lain.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Menjalankan aplikasi
 
-### Premium Partners
+```bash
+composer dev
+```
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+Buka `http://127.0.0.1:8000` untuk storefront atau `http://127.0.0.1:8000/admin` untuk panel admin. `composer dev` juga menjalankan Vite dan queue worker.
 
-## Contributing
+## Menguji perubahan
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+composer test                         # seluruh suite PHP, SQLite in-memory
+composer test:smoke                   # tes inti yang lulus pada checkout ini
+php artisan test --filter=NamaTest    # tes tertentu
+npm run build                         # periksa kompilasi aset frontend
+```
 
-## Code of Conduct
+`npm run build` mengubah file `public/build` yang terlacak Git; periksa diff sebelum menyimpan perubahan. Tes memakai `phpunit.xml` dan database SQLite `:memory:`, terpisah dari `database/database.sqlite` lokal. Mode testing memuat rute aplikasi walaupun marker `storage/installed` tidak ada.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Jika dependensi sudah terpasang, jalankan `composer test` langsung; tidak perlu mengulang `composer install` untuk setiap perubahan. Untuk perubahan PHP, jalankan `php -l path/ke/file.php` dan tes terkait. Untuk perubahan frontend, jalankan `npm run build`.
 
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Pada checkout saat panduan ini ditulis, suite penuh menghasilkan **11 lulus, 21 gagal**. Kegagalan tersisa berasal dari tes auth/profil lama yang masih memakai rute Breeze dan dua asersi finance yang mengharapkan pemetaan jurnal lama. Gunakan `composer test:smoke` untuk pemeriksaan awal yang hijau, lalu jalankan tes terkait perubahan dan `composer test` agar kegagalan baru tetap terlihat. Jangan menganggap hasil smoke sebagai bukti seluruh fitur telah teruji.

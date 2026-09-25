@@ -5,18 +5,20 @@ namespace Database\Seeders;
 use App\Models\Computer;
 use App\Models\ComputerRoom;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Str;
 
 class ComputerSeeder extends Seeder
 {
     public function run(): void
     {
-        $editing = ComputerRoom::firstOrCreate(['name' => 'Lab Editing 1'], ['is_active' => true]);
-        $color = ComputerRoom::firstOrCreate(['name' => 'Lab Color Grading'], ['is_active' => true]);
+        $editing = ComputerRoom::firstOrCreate(['name' => 'Lab Editing 1'], ['code' => 'lab-editing-1', 'is_active' => true]);
+        $color = ComputerRoom::firstOrCreate(['name' => 'Lab Color Grading'], ['code' => 'lab-color-grading', 'is_active' => true]);
 
         $computers = [
             [
                 'room_id' => $editing->id,
                 'name' => 'PC Editing 1',
+                'code' => 'pc-editing-1',
                 'brand' => 'Asus',
                 'specs' => [
                     'CPU' => 'Intel i7-13700',
@@ -29,6 +31,7 @@ class ComputerSeeder extends Seeder
             [
                 'room_id' => $editing->id,
                 'name' => 'PC Editing 2',
+                'code' => 'pc-editing-2',
                 'brand' => 'Asus',
                 'specs' => [
                     'CPU' => 'Intel i7-13700',
@@ -40,6 +43,7 @@ class ComputerSeeder extends Seeder
             [
                 'room_id' => $color->id,
                 'name' => 'Workstation Color Grading',
+                'code' => 'workstation-color-grading',
                 'brand' => 'Apple',
                 'specs' => [
                     'CPU' => 'Apple M2 Ultra',
@@ -54,7 +58,7 @@ class ComputerSeeder extends Seeder
         foreach ($computers as $data) {
             Computer::firstOrCreate(
                 ['name' => $data['name']],
-                array_merge($data, ['status' => Computer::STATUS_AVAILABLE]),
+                array_merge($data, ['status' => Computer::STATUS_AVAILABLE, 'checkin_slug' => Str::random(24)]),
             );
         }
     }

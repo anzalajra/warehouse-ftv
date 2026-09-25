@@ -12,10 +12,12 @@ class ComputerRoomSeeder extends Seeder
         $rooms = [
             [
                 'name' => 'Lab Editing 1',
+                'code' => 'lab-editing-1',
                 'description' => 'Ruang editing video utama lantai 2.',
             ],
             [
                 'name' => 'Lab Color Grading',
+                'code' => 'lab-color-grading',
                 'description' => 'Ruangan khusus color grading & finishing.',
             ],
         ];

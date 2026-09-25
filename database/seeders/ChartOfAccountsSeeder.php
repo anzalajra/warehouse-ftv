@@ -5,7 +5,7 @@ namespace Database\Seeders;
 use App\Models\Account;
 use App\Models\AccountMapping;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ChartOfAccountsSeeder extends Seeder
 {
@@ -15,10 +15,13 @@ class ChartOfAccountsSeeder extends Seeder
     public function run(): void
     {
         // Disable foreign key checks to allow truncation
-        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
-        AccountMapping::truncate();
-        Account::truncate();
-        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+        Schema::disableForeignKeyConstraints();
+        try {
+            AccountMapping::truncate();
+            Account::truncate();
+        } finally {
+            Schema::enableForeignKeyConstraints();
+        }
 
         $accounts = [
             // 1. ASET (ASSETS)

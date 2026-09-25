@@ -13,7 +13,9 @@ return new class extends Migration
     public function up(): void
     {
         // Fix the status enum to include 'pending' and remove 'quotation'
-        DB::statement("ALTER TABLE rentals MODIFY COLUMN status ENUM('pending', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return') NOT NULL DEFAULT 'pending'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE rentals MODIFY COLUMN status ENUM('pending', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return') NOT NULL DEFAULT 'pending'");
+        }
     }
 
     /**
@@ -26,6 +28,8 @@ return new class extends Migration
         // Let's just keep it safe and maybe not revert to the broken state.
         // Or revert to a safe previous state if known.
         // For now, I will just leave it as is or revert to a generic state.
-        DB::statement("ALTER TABLE rentals MODIFY COLUMN status ENUM('quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return') NOT NULL DEFAULT 'quotation'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE rentals MODIFY COLUMN status ENUM('quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return') NOT NULL DEFAULT 'quotation'");
+        }
     }
 };

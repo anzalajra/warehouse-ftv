@@ -46,6 +46,7 @@ class RentalQuotationExpiryTest extends TestCase
     private function rental(User $customer, string $status, \Carbon\Carbon $start): Rental
     {
         return Rental::withoutEvents(fn () => Rental::create([
+            'rental_code' => 'TEST-'.\Illuminate\Support\Str::uuid(),
             'user_id' => $customer->id,
             'start_date' => $start,
             'end_date' => $start->copy()->addDay(),

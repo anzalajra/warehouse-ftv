@@ -36,7 +36,9 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
 
-         \Illuminate\Support\Facades\URL::forceScheme('https');
+         if (! $this->app->environment('local', 'testing')) {
+             \Illuminate\Support\Facades\URL::forceScheme('https');
+         }
 
          // Auto-create the public/storage symlink if missing (self-heals on every
          // deploy where public/ is rebuilt fresh while storage/ persists in a volume,
