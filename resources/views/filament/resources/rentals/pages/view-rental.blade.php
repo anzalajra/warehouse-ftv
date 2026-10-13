@@ -90,10 +90,26 @@
             <strong>Jadwal alat bentrok</strong>
             @foreach($overlapWarnings as $warning)
                 <div style="margin-top:8px">
-                    <strong>{{ $warning['serial'] }}</strong> · {{ $warning['rental_code'] }} · {{ $warning['customer'] }}
-                    ({{ $warning['start'] }} → {{ $warning['end'] }})
-                    @if($warning['acknowledged']) <span>· Override telah dikonfirmasi</span> @endif
-                    <a href="{{ $warning['url'] }}" style="text-decoration:underline;margin-left:8px">Lihat rental</a>
+                    @if($warning['same_rental'])
+                        <strong>{{ $warning['serial'] }}</strong> ↔ <strong>{{ $warning['other_serial'] }}</strong> · Dalam rental ini
+                    @else
+                        <strong>{{ $warning['serial'] }}</strong> · {{ $warning['rental_code'] }} · {{ $warning['customer'] }}
+                        ({{ $warning['start'] }} → {{ $warning['end'] }})
+                        @if($warning['acknowledged']) <span>· Override telah dikonfirmasi</span> @endif
+                        <a href="{{ $warning['url'] }}" style="text-decoration:underline;margin-left:8px">Lihat rental</a>
+                    @endif
+                    <div style="margin-top:3px;font-size:13px">
+                        @if($warning['cause']['type'] === 'kit')
+                            Penyebab: unit <strong>{{ $warning['serial'] }}</strong> dan <strong>{{ $warning['other_serial'] }}</strong>
+                            memakai kit <strong>{{ $warning['cause']['name'] }}</strong>
+                            dengan serial <strong>{{ $warning['cause']['serial'] }}</strong> yang sama.
+                        @elseif($warning['cause']['type'] === 'unit')
+                            Penyebab: unit fisik dengan serial <strong>{{ $warning['cause']['serial'] }}</strong>
+                            tercatat pada dua item di periode yang sama.
+                        @else
+                            Penyebab: unit atau kit yang terhubung dipakai pada periode yang sama.
+                        @endif
+                    </div>
                 </div>
             @endforeach
         </div>

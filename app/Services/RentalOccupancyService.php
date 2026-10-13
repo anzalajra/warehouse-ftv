@@ -82,7 +82,7 @@ class RentalOccupancyService
     }
 
     /** @return array<int, RentalItem> */
-    public static function conflictsFor(RentalItem $item, Carbon $start, Carbon $end): array
+    public static function conflictsFor(RentalItem $item, Carbon $start, Carbon $end, bool $includeSameRental = false): array
     {
         if (! $item->product_unit_id) {
             return [];
@@ -92,12 +92,47 @@ class RentalOccupancyService
 
         return RentalItem::query()
             ->where('id', '!=', $item->id)
+            ->when(! $includeSameRental, fn ($q) => $q->where('rental_id', '!=', $item->rental_id))
             ->whereIn('product_unit_id', $unitIds)
             ->whereHas('rental', fn ($q) => $q->whereIn('status', self::BLOCKING_STATUSES)->where('start_date', '<', $end))
             ->with(['rental.customer', 'productUnit.product', 'deliveryItems.delivery'])
             ->get()
             ->filter(fn (RentalItem $other) => self::overlaps($other, $start, $end))
             ->all();
+    }
+
+    /** Describe the physical resource shared by two conflicting rental items. */
+    public static function conflictCause(RentalItem $item, RentalItem $other): array
+    {
+        if ($item->product_unit_id === $other->product_unit_id) {
+            return [
+                'type' => 'unit',
+                'serial' => $item->productUnit?->serial_number,
+            ];
+        }
+
+        $kits = UnitKit::query()
+            ->whereIn('unit_id', [$item->product_unit_id, $other->product_unit_id])
+            ->whereNotNull('linked_unit_id')
+            ->with('linkedUnit:id,serial_number')
+            ->orderBy('id')
+            ->get();
+
+        $resourcesFor = fn (int $unitId): array => array_merge(
+            [$unitId],
+            $kits->where('unit_id', $unitId)->pluck('linked_unit_id')->all(),
+        );
+        $sharedId = array_values(array_intersect(
+            $resourcesFor($item->product_unit_id),
+            $resourcesFor($other->product_unit_id),
+        ))[0] ?? null;
+        $kit = $kits->firstWhere('linked_unit_id', $sharedId);
+
+        return $kit ? [
+            'type' => 'kit',
+            'name' => $kit->name,
+            'serial' => $kit->linkedUnit?->serial_number ?? $kit->serial_number,
+        ] : ['type' => 'related'];
     }
 
     /** @return array<int, int> */

@@ -59,8 +59,12 @@ class PartialReturnSchedulingTest extends TestCase
             ->assertOk()->assertExactJson([]);
     }
 
-    public function test_tracked_kit_unit_blocks_every_parent_that_uses_it(): void
+    public function test_shared_tracked_kit_warning_names_the_kit_and_other_rental_conflicts(): void
     {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $user = User::factory()->create();
+        Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+        $user->assignRole('super_admin');
         $categoryId = DB::table('categories')->insertGetId(['name' => 'Camera', 'slug' => 'camera']);
         $brandId = DB::table('brands')->insertGetId(['name' => 'Test', 'slug' => 'test']);
         $productId = DB::table('products')->insertGetId([
@@ -72,14 +76,75 @@ class PartialReturnSchedulingTest extends TestCase
         $component = DB::table('product_units')->insertGetId(['product_id' => $productId, 'serial_number' => 'KIT-C']);
         $unrelated = DB::table('product_units')->insertGetId(['product_id' => $productId, 'serial_number' => 'KIT-D']);
         DB::table('unit_kits')->insert([
-            ['unit_id' => $parentA, 'linked_unit_id' => $component, 'name' => 'Battery A'],
-            ['unit_id' => $parentB, 'linked_unit_id' => $component, 'name' => 'Battery B'],
+            ['unit_id' => $parentA, 'linked_unit_id' => $component, 'name' => 'Battery A', 'serial_number' => 'KIT-C'],
+            ['unit_id' => $parentB, 'linked_unit_id' => $component, 'name' => 'Battery B', 'serial_number' => 'KIT-C'],
         ]);
 
         $blocked = RentalOccupancyService::blockedUnitIds([$parentA]);
         $this->assertContains($parentB, $blocked);
         $this->assertContains($component, $blocked);
         $this->assertNotContains($unrelated, $blocked);
+
+        $rental = Rental::withoutEvents(fn () => Rental::create([
+            'rental_code' => 'SHARED-KIT', 'user_id' => $user->id,
+            'start_date' => now()->subHour(), 'end_date' => now()->addDay(),
+            'status' => Rental::STATUS_ACTIVE,
+        ]));
+        $itemA = DB::table('rental_items')->insertGetId([
+            'rental_id' => $rental->id, 'product_unit_id' => $parentA,
+            'daily_rate' => 100000, 'days' => 1, 'subtotal' => 100000,
+        ]);
+        DB::table('rental_items')->insert([
+            'rental_id' => $rental->id, 'product_unit_id' => $parentB,
+            'daily_rate' => 100000, 'days' => 1, 'subtotal' => 100000,
+        ]);
+
+        $this->assertSame([], RentalOccupancyService::conflictsFor(
+            RentalItem::findOrFail($itemA), now(), now()->addDay()
+        ));
+        $view = Livewire::actingAs($user)->test(ViewRental::class, ['record' => $rental->id]);
+        $internalWarnings = $view->instance()->overlapWarnings();
+        $this->assertCount(1, $internalWarnings);
+        $this->assertTrue($internalWarnings[0]['same_rental']);
+        $this->assertSame('KIT-A', $internalWarnings[0]['serial']);
+        $this->assertSame('KIT-B', $internalWarnings[0]['other_serial']);
+        $this->assertSame([
+            'type' => 'kit', 'name' => 'Battery A', 'serial' => 'KIT-C',
+        ], $internalWarnings[0]['cause']);
+        $view->assertSee('Dalam rental ini')
+            ->assertSee('Penyebab: unit')
+            ->assertSee('Battery A')
+            ->assertSee('KIT-C');
+
+        $replacement = DB::table('product_units')->insertGetId([
+            'product_id' => $productId, 'serial_number' => 'KIT-E',
+        ]);
+        DB::table('unit_kits')->where('unit_id', $parentB)->update([
+            'linked_unit_id' => $replacement, 'serial_number' => 'KIT-E',
+        ]);
+        $this->assertSame([], Livewire::actingAs($user)
+            ->test(ViewRental::class, ['record' => $rental->id])->instance()->overlapWarnings());
+        DB::table('unit_kits')->where('unit_id', $parentB)->update([
+            'linked_unit_id' => $component, 'serial_number' => 'KIT-C',
+        ]);
+
+        $otherRental = Rental::withoutEvents(fn () => Rental::create([
+            'rental_code' => 'OTHER-KIT', 'user_id' => $user->id,
+            'start_date' => now(), 'end_date' => now()->addDay(),
+            'status' => Rental::STATUS_CONFIRMED,
+        ]));
+        DB::table('rental_items')->insert([
+            'rental_id' => $otherRental->id, 'product_unit_id' => $parentB,
+            'daily_rate' => 100000, 'days' => 1, 'subtotal' => 100000,
+        ]);
+
+        $warnings = Livewire::actingAs($user)
+            ->test(ViewRental::class, ['record' => $rental->id])->instance()->overlapWarnings();
+        $externalWarnings = array_values(array_filter($warnings, fn ($warning) => ! $warning['same_rental']));
+        $this->assertNotEmpty($externalWarnings);
+        $this->assertSame(['OTHER-KIT'], array_values(array_unique(array_column($externalWarnings, 'rental_code'))));
+        $this->assertContains('kit', array_column(array_column($externalWarnings, 'cause'), 'type'));
+        $this->assertContains('unit', array_column(array_column($externalWarnings, 'cause'), 'type'));
     }
 
     public function test_returned_unit_is_released_and_not_recreated_on_next_checklist(): void

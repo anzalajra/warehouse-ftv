@@ -58,7 +58,7 @@ class ViewRental extends Page
         return 'View Rental - '.$this->rental->rental_code;
     }
 
-    /** Current serial-level conflicts, shown on both affected rental pages. */
+    /** Current physical-unit and tracked-kit conflicts. */
     public function overlapWarnings(): array
     {
         $warnings = [];
@@ -69,13 +69,24 @@ class ViewRental extends Page
             $start = $this->rental->start_date->greaterThan(now()) ? $this->rental->start_date : now();
             $due = RentalOccupancyService::dueAt($item);
             $end = $due->greaterThan(now()) ? $due : now()->addMonths(6);
-            foreach (RentalOccupancyService::conflictsFor($item, $start, $end) as $other) {
-                $override = \Illuminate\Support\Facades\DB::table('rental_overlap_overrides')
+            foreach (RentalOccupancyService::conflictsFor($item, $start, $end, true) as $other) {
+                $sameRental = $other->rental_id === $this->rental->id;
+                $key = $sameRental
+                    ? min($item->id, $other->id).':'.max($item->id, $other->id)
+                    : $item->id.':'.$other->id;
+                if (isset($warnings[$key])) {
+                    continue;
+                }
+
+                $override = ! $sameRental && \Illuminate\Support\Facades\DB::table('rental_overlap_overrides')
                     ->where(fn ($q) => $q->where('rental_item_id', $item->id)->where('conflicting_rental_item_id', $other->id))
                     ->orWhere(fn ($q) => $q->where('rental_item_id', $other->id)->where('conflicting_rental_item_id', $item->id))
                     ->exists();
-                $warnings[$item->id.':'.$other->id] = [
+                $warnings[$key] = [
                     'serial' => $item->productUnit?->serial_number,
+                    'other_serial' => $other->productUnit?->serial_number,
+                    'cause' => RentalOccupancyService::conflictCause($item, $other),
+                    'same_rental' => $sameRental,
                     'rental_code' => $other->rental->rental_code,
                     'customer' => $other->rental->customer?->name,
                     'start' => $other->rental->start_date->format('d M Y H:i'),
