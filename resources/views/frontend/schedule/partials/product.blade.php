@@ -106,9 +106,9 @@
                                 <button type="button" class="gr-prod-booking"
                                     style="height: {{ $ROW_H - 12 }}px; left: {{ $left }}px; width: {{ $width }}px; background: {{ $color }};"
                                     @click="loadRental({{ $rental['id'] }}, '{{ $status }}')"
-                                    title="{{ $statuses[$status][1] ?? 'Rental' }} · rencana sampai {{ $rental['end']->format('d M Y H:i') }}"
+                                    title="{{ $rental['customer'] }} · rencana sampai {{ $rental['end']->format('d M Y H:i') }}"
                                 >
-                                    {{ $statuses[$status][1] ?? 'Terpakai' }}
+                                    {{ $rental['customer'] }}
                                 </button>
                             @endif
                         @endforeach
