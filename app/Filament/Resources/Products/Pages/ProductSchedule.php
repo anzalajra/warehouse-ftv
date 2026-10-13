@@ -146,13 +146,20 @@ class ProductSchedule extends Page implements HasActions
 
     public function getUnitsWithRentals(): array
     {
-        $units = $this->record->units()->with(['rentalItems.rental.customer'])->get();
+        $units = $this->record->units()->with(['rentalItems.rental.customer', 'rentalItems.deliveryItems.delivery'])->get();
         
         $data = [];
         foreach ($units as $unit) {
             $rentals = [];
+            $overdue = [];
             foreach ($unit->rentalItems as $item) {
                 $rental = $item->rental;
+                if (! $rental) {
+                    continue;
+                }
+                if (\App\Services\RentalOccupancyService::overdueHolder($item)) {
+                    $overdue[$rental->id] = $rental->customer?->name ?? '—';
+                }
                 // Only include rentals that overlap with our view range
                 if ($rental->end_date >= $this->startDate && $rental->start_date <= $this->endDate) {
                     $rentals[] = [
@@ -169,6 +176,7 @@ class ProductSchedule extends Page implements HasActions
             $data[] = [
                 'unit' => $unit,
                 'rentals' => $rentals,
+                'overdue' => array_values($overdue),
             ];
         }
         

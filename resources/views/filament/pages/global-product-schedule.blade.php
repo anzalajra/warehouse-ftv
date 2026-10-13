@@ -52,6 +52,9 @@
                                             <span class="text-xs font-mono bg-gray-100 dark:bg-white/10 px-2 py-0.5 rounded text-gray-600 dark:text-gray-400">
                                                 {{ $data['unit']->serial_number }}
                                             </span>
+                                            @if($data['overdue'])
+                                                <span class="truncate rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white" style="max-width:112px" title="Masih tertahan di {{ implode(', ', $data['overdue']) }}" aria-label="Terlambat: masih tertahan di {{ implode(', ', $data['overdue']) }}">! {{ implode(', ', $data['overdue']) }}</span>
+                                            @endif
                                         </div>
                                     </td>
                                     
@@ -105,7 +108,6 @@
                                                 'late_pickup' => ['bg' => 'bg-red-600', 'text' => 'text-white'],
                                                 'late_return' => ['bg' => 'bg-red-600', 'text' => 'text-white'],
                                                 'partial_return' => ['bg' => 'bg-yellow-500', 'text' => 'text-white'],
-                                                'over_time' => ['bg' => 'bg-violet-500', 'text' => 'text-white'],
                                             ];
                                             $status = strtolower($rental['status'] ?? '');
                                             $colors = $colorMap[$status] ?? ['bg' => 'bg-gray-100 dark:bg-white/5', 'text' => 'text-transparent'];
@@ -118,7 +120,7 @@
                                                     title="{{ $rental['code'] }} - {{ $rental['customer'] }} ({{ ucfirst($status) }})"
                                                 >
                                                     <span class="text-[9px] font-bold {{ $colors['text'] }} truncate whitespace-nowrap leading-none px-1">
-                                                        {{ $status === 'over_time' ? 'Over-Time · ' : '' }}{{ $rental['customer'] }}
+                                                        {{ $rental['customer'] }}
                                                     </span>
                                                 </div>
                                             @endif
@@ -145,7 +147,6 @@
             <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-purple-500"></div> Completed</div>
             <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-gray-500"></div> Cancelled</div>
             <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-red-600"></div> Late Pickup/Return</div>
-            <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-violet-500"></div> Over-Time</div>
         </div>
     </div>
 

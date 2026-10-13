@@ -78,6 +78,9 @@
                 <div class="gr-prod-unitrow">
                     <div class="gr-prod-unitlabel" style="width: {{ $NAME_W }}px;">
                         <span class="gr-prod-sku">{{ $data['unit']->serial_number }}</span>
+                        @if($data['overdue'])
+                            <span style="margin-left:4px;max-width:95px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#dc2626;color:#fff;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700" title="Masih tertahan di {{ implode(', ', $data['overdue']) }}" aria-label="Terlambat: masih tertahan di {{ implode(', ', $data['overdue']) }}">! {{ implode(', ', $data['overdue']) }}</span>
+                        @endif
                     </div>
                     <div class="gr-prod-unitarea">
                         @foreach($dayHeaders as $h)
@@ -103,9 +106,9 @@
                                 <button type="button" class="gr-prod-booking"
                                     style="height: {{ $ROW_H - 12 }}px; left: {{ $left }}px; width: {{ $width }}px; background: {{ $color }};"
                                     @click="loadRental({{ $rental['id'] }}, '{{ $status }}')"
-                                    title="{{ $status === 'late_return' ? 'Late Return · masih di luar' : (($status === 'over_time' ? 'Over-Time · ' : '') . 'Terpakai sampai ' . $rental['end']->format('d M Y H:i')) }}"
+                                    title="{{ $statuses[$status][1] ?? 'Rental' }} · rencana sampai {{ $rental['end']->format('d M Y H:i') }}"
                                 >
-                                    {{ $status === 'over_time' ? 'Over-Time' : $statuses[$status][1] ?? 'Terpakai' }}
+                                    {{ $statuses[$status][1] ?? 'Terpakai' }}
                                 </button>
                             @endif
                         @endforeach

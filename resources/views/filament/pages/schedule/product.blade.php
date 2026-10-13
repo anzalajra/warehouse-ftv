@@ -90,6 +90,9 @@
                 <div class="gr-prod-unitrow" wire:key="unit-{{ $data['unit']->id }}">
                     <div class="gr-prod-unitlabel" style="width: {{ $NAME_W }}px;">
                         <span class="gr-prod-sku">{{ $data['unit']->serial_number }}</span>
+                        @if($data['overdue'])
+                            <span class="ml-1 truncate rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white" style="max-width:95px" title="Masih tertahan di {{ implode(', ', $data['overdue']) }}" aria-label="Terlambat: masih tertahan di {{ implode(', ', $data['overdue']) }}">! {{ implode(', ', $data['overdue']) }}</span>
+                        @endif
                     </div>
                     <div class="gr-prod-unitarea">
                         @foreach($dayHeaders as $h)
@@ -124,9 +127,9 @@
                                 <div class="gr-prod-booking"
                                     style="height: {{ $ROW_H - 12 }}px; left: {{ $left }}px; width: {{ $width }}px; background: {{ $color }};"
                                     wire:click="mountAction('viewRentalDetails', { rentalId: {{ $rental['id'] }} })"
-                                    title="{{ $rental['code'] }} — {{ $status === 'over_time' ? 'Over-Time · ' : '' }}{{ $rental['customer'] }} ({{ $rStart->format('j M H:i') }} → {{ $rEnd->format('j M H:i') }})"
+                                    title="{{ $rental['code'] }} — {{ $rental['customer'] }} ({{ $rStart->format('j M H:i') }} → {{ $rEnd->format('j M H:i') }})"
                                 >
-                                    {{ $status === 'over_time' ? 'Over-Time · ' : '' }}{{ $rental['customer'] }}
+                                    {{ $rental['customer'] }}
                                 </div>
                             @endif
                         @endforeach

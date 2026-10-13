@@ -22,6 +22,43 @@ class PartialReturnSchedulingTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_product_calendars_mark_an_overdue_unit_without_extending_its_booking(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $user = User::factory()->create(['name' => 'Peminjam A']);
+        Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+        $user->assignRole('super_admin');
+        $categoryId = DB::table('categories')->insertGetId(['name' => 'Camera', 'slug' => 'camera']);
+        $brandId = DB::table('brands')->insertGetId(['name' => 'Test', 'slug' => 'test']);
+        $productId = DB::table('products')->insertGetId([
+            'category_id' => $categoryId, 'brand_id' => $brandId,
+            'name' => 'Camera', 'slug' => 'camera', 'daily_rate' => 100000,
+        ]);
+        $unitId = DB::table('product_units')->insertGetId(['product_id' => $productId, 'serial_number' => 'LATE-A']);
+        $rental = Rental::withoutEvents(fn () => Rental::create([
+            'rental_code' => 'LATE-CALENDAR', 'user_id' => $user->id,
+            'start_date' => now()->subDays(2), 'end_date' => now()->subDay(),
+            'status' => Rental::STATUS_LATE_RETURN,
+        ]));
+        DB::table('rental_items')->insert([
+            'rental_id' => $rental->id, 'product_unit_id' => $unitId,
+            'daily_rate' => 100000, 'days' => 1, 'subtotal' => 100000,
+        ]);
+
+        $this->get('/schedule?filter=product&anchor='.$rental->start_date->toDateString())
+            ->assertOk()->assertSee('Masih tertahan di Peminjam A');
+        Livewire::actingAs($user)->test(\App\Filament\Pages\Schedule::class)
+            ->set('filter', 'product')->set('anchor', $rental->start_date->toDateString())
+            ->assertSee('Masih tertahan di Peminjam A');
+        $this->getJson('/schedule/day-rentals?date='.$rental->start_date->toDateString())
+            ->assertOk()->assertJsonFragment([
+                'segment' => Rental::STATUS_LATE_RETURN,
+                'end' => $rental->end_date->format('j M H:i'),
+            ]);
+        $this->getJson('/schedule/day-rentals?date='.now()->addDay()->toDateString())
+            ->assertOk()->assertExactJson([]);
+    }
+
     public function test_tracked_kit_unit_blocks_every_parent_that_uses_it(): void
     {
         $categoryId = DB::table('categories')->insertGetId(['name' => 'Camera', 'slug' => 'camera']);
@@ -99,7 +136,9 @@ class PartialReturnSchedulingTest extends TestCase
             ->findAvailableUnits(now()->toDateTimeString(), now()->addDay()->toDateTimeString())->pluck('id')->all());
         $this->assertTrue(ProductUnit::findOrFail($unitA)->isAvailable(now(), now()->addDay()));
         $this->assertFalse(ProductUnit::findOrFail($unitB)->isAvailable(now(), now()->addDay()));
-        $this->assertCount(2, RentalOccupancyService::scheduleBlocks(RentalItem::findOrFail($itemB)));
+        $blocks = RentalOccupancyService::scheduleBlocks(RentalItem::findOrFail($itemB));
+        $this->assertCount(1, $blocks);
+        $this->assertTrue($blocks[0]['end']->equalTo($rental->end_date));
         $candidate = Rental::withoutEvents(fn () => Rental::create([
             'rental_code' => 'PART-CANDIDATE', 'user_id' => $user->id,
             'start_date' => now(), 'end_date' => now()->addDay(),
@@ -185,17 +224,14 @@ class PartialReturnSchedulingTest extends TestCase
         $this->assertEquals(200000, DB::table('rental_items')->where('product_unit_id', $unitB)->value('extension_charge'));
         $this->assertEquals(600000, $rental->fresh()->subtotal);
         $this->assertEquals(600000, $rental->fresh()->invoice?->total);
-        $this->get('/schedule?filter=product')->assertOk()->assertSee('Over-Time');
-        $this->get('/schedule?filter=order&view_mode=day&anchor='.now()->toDateString().'&status[]=over_time')
-            ->assertOk()->assertSee('loadRental('.$rental->id.', \'over_time\')', false);
-        $this->getJson('/schedule/rentals/'.$rental->id.'?segment=over_time')
-            ->assertOk()->assertJsonPath('status', 'Over-Time')
-            ->assertJsonPath('customer', 'Terpakai')
-            ->assertJsonPath('end', \Illuminate\Support\Carbon::parse($due)->format('d M Y H:i'));
-        $this->getJson('/schedule/day-rentals?date='.now()->toDateString().'&status=over_time')
-            ->assertOk()->assertJsonFragment(['segment' => 'over_time', 'customer' => 'Terpakai']);
+        $this->get('/schedule?filter=product')->assertOk()->assertDontSee('Over-Time');
+        $this->getJson('/schedule/day-rentals?date='.now()->toDateString())
+            ->assertOk()->assertJsonFragment([
+                'segment' => Rental::STATUS_PARTIAL_RETURN,
+                'end' => $rental->end_date->format('j M H:i'),
+            ]);
         Livewire::actingAs($user)->test(\App\Filament\Pages\Schedule::class)
-            ->set('filter', 'product')->assertSee('Over-Time ·');
+            ->set('filter', 'product')->assertDontSee('Over-Time ·');
         $this->assertNotContains($unitA, RentalOccupancyService::bookedUnitIds(now(), now()->addDay()));
         $this->assertContains($unitB, RentalOccupancyService::bookedUnitIds(now(), now()->addDay()));
 

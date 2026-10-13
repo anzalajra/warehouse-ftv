@@ -78,6 +78,9 @@
                             <div style="width: {{ $NAME_W }}px; position:sticky; left:0; z-index:10;"
                                  class="px-3 bg-white dark:bg-gray-900 border-b border-r border-gray-200 dark:border-white/10 flex items-center">
                                 <span class="font-mono text-[10px] font-bold text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-white/10 px-2 py-1 rounded truncate">{{ $data['unit']->serial_number }}</span>
+                                @if($data['overdue'])
+                                    <span class="ml-1 truncate rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white" style="max-width:95px" title="Masih tertahan di {{ implode(', ', $data['overdue']) }}" aria-label="Terlambat: masih tertahan di {{ implode(', ', $data['overdue']) }}">! {{ implode(', ', $data['overdue']) }}</span>
+                                @endif
                             </div>
                             <div style="position:relative; flex:1; height: {{ $ROW_H }}px;">
                                 {{-- Day grid background --}}
@@ -143,4 +146,3 @@
 
     <x-filament-actions::modals />
 </x-filament-panels::page>
-

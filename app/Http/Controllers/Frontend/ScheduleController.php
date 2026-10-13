@@ -32,7 +32,6 @@ class ScheduleController extends Controller
         foreach ($keys as $k) {
             $out[$k] = [Rental::getStatusHexColor($k), Rental::getStatusLabel($k)];
         }
-        $out['over_time'] = ['#8b5cf6', 'Over-Time'];
 
         return $out;
     }
@@ -112,9 +111,6 @@ class ScheduleController extends Controller
     public function rentalDetails(Rental $rental)
     {
         $rental->load(['customer:id,name', 'items.productUnit.product:id,name', 'items.deliveryItems.delivery']);
-        $overTime = request()->query('segment') === 'over_time';
-        $overTimeStart = $overTime ? $rental->items->pluck('overtime_started_at')->filter()->sort()->first() : null;
-
         $items = $rental->items->map(function ($item) {
             $pu = $item->productUnit;
 
@@ -122,11 +118,11 @@ class ScheduleController extends Controller
         })->filter()->values()->unique()->join(', ');
 
         return response()->json([
-            'customer' => $overTime ? 'Terpakai' : ($rental->customer?->name ?? '—'),
-            'status' => $overTime ? 'Over-Time' : ucfirst(str_replace('_', ' ', $rental->status)),
-            'status_color' => $overTime ? '#8b5cf6' : ($this->statuses[$rental->status][0] ?? '#6b7280'),
-            'start' => ($overTimeStart ?? $rental->start_date)?->format('d M Y H:i'),
-            'end' => ($overTime ? $rental->nextOutstandingDueAt() : $rental->end_date)?->format('d M Y H:i'),
+            'customer' => $rental->customer?->name ?? '—',
+            'status' => ucfirst(str_replace('_', ' ', $rental->status)),
+            'status_color' => $this->statuses[$rental->status][0] ?? '#6b7280',
+            'start' => $rental->start_date?->format('d M Y H:i'),
+            'end' => $rental->end_date?->format('d M Y H:i'),
             'items' => $items,
         ]);
     }
@@ -169,15 +165,11 @@ class ScheduleController extends Controller
             ->select(['id', 'user_id', 'status', 'start_date', 'end_date'])
             ->with([
                 'customer:id,name',
-                'items:id,rental_id,product_unit_id,effective_due_at,overtime_started_at',
+                'items:id,rental_id,product_unit_id',
                 'items.deliveryItems.delivery',
             ])
             ->where('start_date', '<=', $end)
-            ->where(fn ($q) => $q->where('end_date', '>=', $start)
-                ->orWhereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN])
-                ->orWhereHas('items.deliveryItems', fn ($rows) => $rows->where('is_checked', true)
-                    ->where('checked_at', '>=', $start)
-                    ->whereHas('delivery', fn ($d) => $d->where('type', 'in')->where('status', 'completed'))))
+            ->where('end_date', '>=', $start)
             ->orderByDesc('start_date')
             ->limit(1000)
             ->get();
@@ -188,7 +180,7 @@ class ScheduleController extends Controller
                 if (! $item->product_unit_id) {
                     continue;
                 }
-                foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $end) as $block) {
+                foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item) as $block) {
                     if ($block['end'] < $start || $block['start'] > $end ||
                         ($statusFilters !== [] && ! in_array($block['status'], $statusFilters, true))) {
                         continue;
@@ -376,8 +368,8 @@ class ScheduleController extends Controller
 
         return response()->json($rentals->map(fn ($r) => [
             'id' => $r->id,
-            'customer' => $r->status === 'over_time' ? 'Terpakai' : ($r->customer?->name ?? '—'),
-            'status' => $r->status === 'over_time' ? 'Over-Time' : ucfirst(str_replace('_', ' ', $r->status)),
+            'customer' => $r->customer?->name ?? '—',
+            'status' => ucfirst(str_replace('_', ' ', $r->status)),
             'segment' => $r->status,
             'status_color' => $this->statuses[$r->status][0] ?? '#6b7280',
             'start' => $r->start_date?->format('j M H:i'),
@@ -412,12 +404,16 @@ class ScheduleController extends Controller
 
             foreach ($product->units as $unit) {
                 $rentals = [];
+                $overdue = [];
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
                     if (! $rental) {
                         continue;
                     }
-                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $rangeEnd) as $block) {
+                    if (\App\Services\RentalOccupancyService::overdueHolder($item)) {
+                        $overdue[$rental->id] = $rental->customer?->name ?? '—';
+                    }
+                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item) as $block) {
                         if (($statusFilters === [] || in_array($block['status'], $statusFilters, true)) && $block['end'] >= $rangeStart && $block['start'] <= $rangeEnd) {
                             $rentals[] = [
                                 'id' => $rental->id,
@@ -432,6 +428,7 @@ class ScheduleController extends Controller
                 $productData['units'][] = [
                     'unit' => $unit,
                     'rentals' => $rentals,
+                    'overdue' => array_values($overdue),
                 ];
             }
 

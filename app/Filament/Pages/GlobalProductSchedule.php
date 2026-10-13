@@ -153,9 +153,16 @@ class GlobalProductSchedule extends Page implements HasActions
 
             foreach ($product->units as $unit) {
                 $rentals = [];
+                $overdue = [];
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
-                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $this->endDate) as $block) {
+                    if (! $rental) {
+                        continue;
+                    }
+                    if (\App\Services\RentalOccupancyService::overdueHolder($item)) {
+                        $overdue[$rental->id] = $rental->customer?->name ?? '—';
+                    }
+                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item) as $block) {
                         if ($block['end'] >= $this->startDate && $block['start'] <= $this->endDate) {
                             $rentals[] = [
                                 'id' => $rental->id,
@@ -164,7 +171,7 @@ class GlobalProductSchedule extends Page implements HasActions
                                 'start' => $block['start'],
                                 'end' => $block['end'],
                                 'status' => $block['status'],
-                                'color' => $block['status'] === 'over_time' ? 'purple' : \App\Models\Rental::getStatusColor($rental->status),
+                                'color' => \App\Models\Rental::getStatusColor($rental->status),
                             ];
                         }
                     }
@@ -172,6 +179,7 @@ class GlobalProductSchedule extends Page implements HasActions
                 $productData['units'][] = [
                     'unit' => $unit,
                     'rentals' => $rentals,
+                    'overdue' => array_values($overdue),
                 ];
             }
 

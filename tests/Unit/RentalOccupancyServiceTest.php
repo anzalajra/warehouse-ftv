@@ -39,9 +39,10 @@ class RentalOccupancyServiceTest extends TestCase
         $this->assertFalse(RentalOccupancyService::overlaps($returned, $newStart, $newEnd));
         $this->assertTrue(RentalOccupancyService::overlaps($remaining, $newStart, $newEnd));
         $blocks = RentalOccupancyService::scheduleBlocks($remaining);
-        $this->assertCount(2, $blocks);
-        $this->assertSame('over_time', $blocks[1]['status']);
-        $this->assertTrue($blocks[1]['start']->equalTo($returnedAt));
+        $this->assertCount(1, $blocks);
+        $this->assertSame(Rental::STATUS_PARTIAL_RETURN, $blocks[0]['status']);
+        $this->assertTrue($blocks[0]['start']->equalTo($start));
+        $this->assertTrue($blocks[0]['end']->equalTo($originalDue));
     }
 
     public function test_draft_check_does_not_release_unit(): void
@@ -78,8 +79,31 @@ class RentalOccupancyServiceTest extends TestCase
 
         $this->assertNull(RentalOccupancyService::occupiedUntil($item));
         $this->assertTrue(RentalOccupancyService::overlaps($item, now(), $visibleEnd));
-        $blocks = RentalOccupancyService::scheduleBlocks($item, $visibleEnd);
-        $this->assertSame(Rental::STATUS_LATE_RETURN, $blocks[1]['status']);
-        $this->assertSame($due->toDateTimeString(), $blocks[1]['start']->toDateTimeString());
+        $blocks = RentalOccupancyService::scheduleBlocks($item);
+        $this->assertCount(1, $blocks);
+        $this->assertSame(Rental::STATUS_LATE_RETURN, $blocks[0]['status']);
+        $this->assertSame($start->toDateTimeString(), $blocks[0]['start']->toDateTimeString());
+        $this->assertSame($due->toDateTimeString(), $blocks[0]['end']->toDateTimeString());
+        $this->assertSame($rental, RentalOccupancyService::overdueHolder($item));
+    }
+
+    public function test_returned_or_extended_item_has_no_overdue_holder(): void
+    {
+        $rental = new Rental([
+            'status' => Rental::STATUS_PARTIAL_RETURN,
+            'start_date' => now()->subDays(3),
+            'end_date' => now()->subDay(),
+        ]);
+        $item = new RentalItem(['product_unit_id' => 1, 'effective_due_at' => now()->addDay()]);
+        $item->setRelation('rental', $rental);
+        $item->setRelation('deliveryItems', collect());
+        $this->assertNull(RentalOccupancyService::overdueHolder($item));
+
+        $item->effective_due_at = now()->subHour();
+        $completed = new Delivery(['type' => Delivery::TYPE_IN, 'status' => Delivery::STATUS_COMPLETED]);
+        $row = new DeliveryItem(['is_checked' => true, 'checked_at' => now()->subHour()]);
+        $row->setRelation('delivery', $completed);
+        $item->setRelation('deliveryItems', collect([$row]));
+        $this->assertNull(RentalOccupancyService::overdueHolder($item));
     }
 }

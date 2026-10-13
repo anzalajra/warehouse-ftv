@@ -65,7 +65,7 @@ class Schedule extends Page implements HasActions
 
     public function mount(): void
     {
-        $allowedStatuses = ['all', 'quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired', 'over_time'];
+        $allowedStatuses = ['all', 'quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired'];
         $this->statusFilters = array_values(array_intersect($allowedStatuses, (array) $this->statusFilters));
 
         if (empty($this->anchor)) {
@@ -136,7 +136,7 @@ class Schedule extends Page implements HasActions
 
     public function updatedStatusFilters(): void
     {
-        $allowed = ['quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired', 'over_time'];
+        $allowed = ['quotation', 'confirmed', 'active', 'completed', 'cancelled', 'late_pickup', 'late_return', 'partial_return', 'expired'];
         $this->statusFilters = array_values(array_intersect($allowed, $this->statusFilters));
     }
 
@@ -222,17 +222,13 @@ class Schedule extends Page implements HasActions
             ->select(['id', 'user_id', 'rental_code', 'status', 'start_date', 'end_date', 'total', 'notes'])
             ->with([
                 'customer:id,name',
-                'items:id,rental_id,product_unit_id,effective_due_at,overtime_started_at',
+                'items:id,rental_id,product_unit_id',
                 'items.productUnit:id,serial_number,product_id',
                 'items.productUnit.product:id,name',
                 'items.deliveryItems.delivery',
             ])
             ->where('start_date', '<=', $end)
-            ->where(fn ($q) => $q->where('end_date', '>=', $start)
-                ->orWhereIn('status', [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN])
-                ->orWhereHas('items.deliveryItems', fn ($rows) => $rows->where('is_checked', true)
-                    ->where('checked_at', '>=', $start)
-                    ->whereHas('delivery', fn ($d) => $d->where('type', 'in')->where('status', 'completed'))))
+            ->where('end_date', '>=', $start)
             ->orderByDesc('start_date')
             ->limit(1000)
             ->get();
@@ -243,7 +239,7 @@ class Schedule extends Page implements HasActions
                 if (! $item->product_unit_id) {
                     continue;
                 }
-                foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $end) as $block) {
+                foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item) as $block) {
                     if ($block['end'] < $start || $block['start'] > $end ||
                         ($this->statusFilters !== [] && ! in_array($block['status'], $this->statusFilters, true))) {
                         continue;
@@ -563,12 +559,16 @@ class Schedule extends Page implements HasActions
 
             foreach ($product->units as $unit) {
                 $rentals = [];
+                $overdue = [];
                 foreach ($unit->rentalItems as $item) {
                     $rental = $item->rental;
                     if (! $rental) {
                         continue;
                     }
-                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item, $rangeEnd) as $block) {
+                    if (\App\Services\RentalOccupancyService::overdueHolder($item)) {
+                        $overdue[$rental->id] = $rental->customer?->name ?? '—';
+                    }
+                    foreach (\App\Services\RentalOccupancyService::scheduleBlocks($item) as $block) {
                         if ($block['end'] >= $rangeStart && $block['start'] <= $rangeEnd && ($this->statusFilters === [] || in_array($block['status'], $this->statusFilters, true))) {
                             $rentals[] = [
                                 'id' => $rental->id,
@@ -577,7 +577,7 @@ class Schedule extends Page implements HasActions
                                 'start' => $block['start'],
                                 'end' => $block['end'],
                                 'status' => $block['status'],
-                                'color' => $block['status'] === 'over_time' ? '#8b5cf6' : Rental::getStatusColor($rental->status),
+                                'color' => Rental::getStatusColor($rental->status),
                             ];
                         }
                     }
@@ -585,6 +585,7 @@ class Schedule extends Page implements HasActions
                 $productData['units'][] = [
                     'unit' => $unit,
                     'rentals' => $rentals,
+                    'overdue' => array_values($overdue),
                 ];
             }
 

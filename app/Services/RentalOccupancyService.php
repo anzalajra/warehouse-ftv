@@ -115,33 +115,29 @@ class RentalOccupancyService
         return self::blockedUnitIds($assigned);
     }
 
-    /** Original block followed by an Over-Time block for the remaining item. */
-    public static function scheduleBlocks(RentalItem $item, ?Carbon $visibleEnd = null): array
+    /** Calendar dates describe the booking, regardless of physical return or extensions. */
+    public static function scheduleBlocks(RentalItem $item): array
     {
         $item->loadMissing('rental');
-        $start = $item->rental->start_date;
-        $end = self::occupiedUntil($item) ?? ($visibleEnd ?? now());
-        $due = self::dueAt($item);
-        $overtime = $item->overtime_started_at;
-        $normalStatus = $item->rental->status === Rental::STATUS_LATE_RETURN
-            ? Rental::STATUS_ACTIVE : $item->rental->status;
-        $blocks = [];
-        $append = function (Carbon $from, Carbon $to, string $status) use (&$blocks): void {
-            if ($to->gt($from)) {
-                $blocks[] = ['start' => $from, 'end' => $to, 'status' => $status];
-            }
-        };
+        $rental = $item->rental;
 
-        if ($overtime && $overtime->gt($start)) {
-            $append($start, $overtime->min($end), $normalStatus);
-            $append($overtime, $due->min($end), 'over_time');
-        } else {
-            $append($start, $due->min($end), $normalStatus);
+        return [[
+            'start' => $rental->start_date,
+            'end' => $rental->end_date,
+            'status' => $rental->status,
+        ]];
+    }
+
+    /** The current borrower of an overdue physical unit, if it has not been checked in. */
+    public static function overdueHolder(RentalItem $item): ?Rental
+    {
+        $item->loadMissing('rental');
+        $rental = $item->rental;
+
+        if (! $rental || ! in_array($rental->status, [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN], true)) {
+            return null;
         }
 
-        $lateStart = $overtime && $overtime->gt($due) ? $overtime : $due;
-        $append($lateStart, $end, Rental::STATUS_LATE_RETURN);
-
-        return $blocks;
+        return self::dueAt($item)->isPast() && self::returnedAt($item) === null ? $rental : null;
     }
 }
