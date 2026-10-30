@@ -1,0 +1,8 @@
+# Keep the PHP provider's install/assets/build steps. Never migrate at build time.
+[phases.build]
+cmds = ['composer check-platform-reqs --no-dev', '...']
+
+[start]
+# Match the Nixpacks PHP provider's prestart + PHP-FPM/Nginx command, with
+# Laravel preparation after prestart permissions and before either server.
+cmd = "node /assets/scripts/prestart.mjs /assets/nginx.template.conf /nginx.conf && sh scripts/start-container.sh sh -c 'php-fpm -y /assets/php-fpm.conf & exec nginx -c /nginx.conf'"

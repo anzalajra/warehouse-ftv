@@ -2,13 +2,15 @@
 
 Aplikasi rental peralatan berbasis Laravel 12, Filament 4, dan Vite. Panduan ini untuk pengembangan dan pengujian **lokal** di macOS.
 
+Untuk produksi, lihat [panduan deploy Dokploy](docs/dokploy-deployment.md) dan wrapper startup `scripts/start-container.sh` agar migrasi serta pembersihan cache kode berjalan sebelum server dimulai.
+
 ## Persiapan pertama
 
 Instal [Homebrew](https://brew.sh/) jika belum tersedia, lalu:
 
 ```bash
-brew install php@8.4 composer node
-brew link php@8.4
+brew install php composer node
+brew upgrade php
 php -v
 composer --version
 node -v
@@ -16,7 +18,9 @@ node -v
 
 PHP harus memiliki ekstensi `pdo_sqlite`, `sqlite3`, `mbstring`, `bcmath`, `gd`, dan `zip`. Dari akar repo, jalankan:
 
-Jika `php` versi lain sudah aktif melalui Homebrew, jalankan `brew unlink php` sebelum `brew link php@8.4`. Lockfile saat ini tidak kompatibel dengan PHP 8.5.
+Target lokal adalah PHP **8.5.12 atau patch 8.5.x yang lebih baru**. PHP 8.4 tetap didukung mulai **8.4.27**. Jika PHP 8.4 masih aktif melalui Homebrew, jalankan `brew unlink php@8.4` lalu `brew link php`, kemudian periksa `php -v`. OpenSpout pada lockfile telah diperbarui untuk mendukung PHP 8.5. Script setup memeriksa versi PHP dan ekstensi terhadap lockfile sebelum menyiapkan aplikasi.
+
+Versi minimum tersebut memuat perbaikan CVE-2026-109618 dan CVE-2026-109619 pada [rilis keamanan PHP 21 Oktober 2026](https://www.php.net/archive/2026.php#2026-10-21-5). Ikuti [panduan pembaruan Dokploy](docs/php-security-update-dokploy.md) untuk lingkungan produksi.
 
 ```bash
 bash scripts/setup-local.sh

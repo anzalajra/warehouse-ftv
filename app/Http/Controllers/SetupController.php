@@ -15,7 +15,8 @@ class SetupController extends Controller
     public function index()
     {
         $requirements = [
-            'PHP Version >= 8.2' => version_compare(phpversion(), '8.2.0', '>='),
+            'PHP 8.4.27+ / 8.5.12+' => (PHP_VERSION_ID >= 80427 && PHP_VERSION_ID < 80500)
+                || (PHP_VERSION_ID >= 80512 && PHP_VERSION_ID < 80600),
             'BCMath' => extension_loaded('bcmath'),
             'Ctype' => extension_loaded('ctype'),
             'JSON' => extension_loaded('json'),

@@ -10,8 +10,8 @@ for command in php composer npm sqlite3; do
     fi
 done
 
-if ! php -r 'exit(PHP_VERSION_ID >= 80200 && PHP_VERSION_ID < 80500 ? 0 : 1);'; then
-    echo "composer.lock memerlukan PHP 8.2-8.4. Aktifkan PHP 8.4 sebelum setup." >&2
+if ! composer check-platform-reqs --lock; then
+    echo "Persyaratan runtime belum terpenuhi. Gunakan PHP 8.5.12+ (8.5.x) atau 8.4.27+ (8.4.x), beserta ekstensi yang diminta composer.lock." >&2
     exit 1
 fi
 

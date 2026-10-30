@@ -5,7 +5,7 @@ Dokumen ini adalah peta kerja untuk agen yang mengubah repositori ini. Baca bagi
 ## Identitas dan teknologi
 
 - Satu codebase melayani panel admin `/admin` dan storefront pelanggan. Nama produk di kode/dokumen adalah **Gearent**; identitas penerapan ini adalah **Warehouse FTV UPI**. Nama lama "Zewalo" masih dapat muncul di dokumen atau nama CSS.
-- Backend: PHP `^8.2`, Laravel `^12`, Filament `^4`, Livewire, Blade, Eloquent. Admin memakai Filament Resources/Pages/Clusters/Widgets; frontend memakai controller Laravel dan Blade. CMS memakai LaraZeus Sky, izin admin memakai Filament Shield.
+- Backend: PHP `~8.4.27 || ~8.5.12` (target lokal 8.5.12+, minimum patch keamanan 21 Oktober 2026), Laravel `^12`, Filament `^4`, Livewire, Blade, Eloquent. OpenSpout telah diperbarui untuk PHP 8.5. Admin memakai Filament Resources/Pages/Clusters/Widgets; frontend memakai controller Laravel dan Blade. CMS memakai LaraZeus Sky, izin admin memakai Filament Shield.
 - Aset web: Vite 7, Tailwind 4, Alpine, JavaScript. Input Vite ada di `vite.config.js`: `resources/css/app.css`, `resources/js/app.js`, `resources/js/unit-scanner.js`, dan `resources/css/filament/admin/theme.css`.
 - Aplikasi desktop kiosk adalah package Electron tersendiri di `desktop-kiosk/`, tetapi **bukan repo Git terpisah**.
 - Default `.env.example`: SQLite, serta session/queue/cache driver database. `phpunit.xml` memakai SQLite `:memory:` dengan session array dan queue sync. `phpunit.mysql.xml` tersedia untuk pengujian MySQL.
@@ -78,6 +78,8 @@ Dokumen ini adalah peta kerja untuk agen yang mengubah repositori ini. Baca bagi
 - Layout admin default sidebar; setting `navigation_layout='top'` memilih top nav. `resources/views/filament/hooks/responsive-navigation.blade.php` memberi class `body.gr-compact` bila portrait **atau** lebar <1024px; CSS compact dan bottom bar ada di hook dan `resources/css/filament/admin/theme.css`. Gunakan class itu untuk fitur UI baru yang mengikuti chrome compact. Halaman rental/view/pickup/return punya UI mobile dan action bar khusus. Tema primer dinamis lewat `ThemeService`, dipakai admin dan layout frontend.
 
 ## Command, verifikasi, dan lingkungan lokal
+
+- Deployment Dokploy memakai Nixpacks: `nixpacks.toml` mempertahankan build provider, memeriksa persyaratan PHP Composer, lalu membungkus prestart/PHP-FPM/Nginx standar dengan `scripts/start-container.sh <server command> [args...]`. Script membersihkan cache kode lalu menjalankan migrasi sebelum `exec` server. Pemasangan dan batas satu replica/migrasi ada di `docs/dokploy-deployment.md`; tes wrapper: `sh tests/deploy/start-container-test.sh`. Override environment/CLI dapat menimpa start command dari repo. `WAREHOUSE_RUN_MIGRATIONS=0` untuk worker/replica yang memakai migrasi terpusat; jangan flush seluruh cache aplikasi pada setiap startup.
 
 - `composer setup` memasang dependensi, membuat `.env`/key, migrasi, npm install, dan build; jalankan hanya ketika memang menyiapkan lingkungan. `composer dev` menjalankan server, queue listener, Pail, Vite. `npm run dev`/`npm run build` untuk aset. `composer test` membersihkan config lalu menjalankan tes; `vendor/bin/pint` untuk format.
 - `routes/console.php` saat ini menjadwalkan `rentals:check-late` (5 menit), `app:send-rental-reminders` (harian pada setting `daily_reminder_time`, default **17:00**), `finance:run-depreciation` (akhir bulan 23:00), `computer-bookings:process` (5 menit), `maintenance:flag-due` (harian 08:00), dan `rentals:generate-recurring` (harian 06:00). Server tetap perlu menjalankan Laravel scheduler.
