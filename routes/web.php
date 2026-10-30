@@ -130,6 +130,24 @@ if (!$isInstalled) {
         Route::post('/computer-bookings/{booking}/cancel', [ComputerBookingController::class, 'cancel'])->name('computer-bookings.cancel');
     });
 
+    Route::middleware('customer.auth')->prefix('customer/connections/mufise')->name('customer.mufise.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\MufiseController::class, 'index'])->name('index');
+        Route::post('/connect', [\App\Http\Controllers\MufiseController::class, 'start'])->middleware('throttle:6,1')->name('connect');
+        Route::post('/poll', [\App\Http\Controllers\MufiseController::class, 'poll'])->middleware('throttle:20,1')->name('poll');
+        Route::post('/disconnect', [\App\Http\Controllers\MufiseController::class, 'disconnect'])->name('disconnect');
+        Route::get('/projects/{project}', [\App\Http\Controllers\MufiseController::class, 'project'])->whereUuid('project')->name('project');
+        Route::post('/projects/{project}', [\App\Http\Controllers\MufiseController::class, 'mutate'])->whereUuid('project')->name('project.mutate');
+        Route::get('/projects/{project}/call-sheets/{day}', [\App\Http\Controllers\MufiseController::class, 'callSheet'])->whereUuid(['project', 'day'])->name('project.sheet');
+        Route::get('/rentals/{rental}', [\App\Http\Controllers\MufiseController::class, 'project'])->name('rental');
+        Route::post('/rentals/{rental}', [\App\Http\Controllers\MufiseController::class, 'mutate'])->name('rental.mutate');
+        Route::get('/rentals/{rental}/call-sheets/{day}', [\App\Http\Controllers\MufiseController::class, 'callSheet'])->whereUuid('day')->name('rental.sheet');
+    });
+    Route::middleware('auth')->prefix('admin/mufise/rentals/{rental}')->name('admin.mufise')->group(function () {
+        Route::get('/', [\App\Http\Controllers\MufiseController::class, 'project']);
+        Route::post('/', [\App\Http\Controllers\MufiseController::class, 'mutate'])->name('.mutate');
+        Route::get('/call-sheets/{day}', [\App\Http\Controllers\MufiseController::class, 'callSheet'])->whereUuid('day')->name('.sheet');
+    });
+
     // Cart
     Route::middleware('customer.auth')->group(function () {
         Route::get('/cart', [CartController::class, 'index'])->name('cart.index');

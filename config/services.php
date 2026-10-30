@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'mufise' => [
+        'url' => env('MUFISE_URL'),
+        'connection_id' => env('MUFISE_CONNECTION_ID'),
+        'api_key' => env('MUFISE_API_KEY'),
+    ],
 
     /*
     |--------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 
 @section('content')
 @php
-    $itineraryHasErrors = collect($errors->keys())->contains(fn ($key) => in_array($key, ['usage_type', 'outside_purpose', 'production_name'])
+    $itineraryHasErrors = collect($errors->keys())->contains(fn ($key) => in_array($key, ['usage_type', 'outside_purpose', 'production_name', 'mufise_project_id'])
         || str_starts_with($key, 'shooting_locations')
         || str_starts_with($key, 'shooting_crew'));
     $initialLocations = old('shooting_locations') ?: [['location_name' => '', 'start_at' => '', 'end_at' => '']];
@@ -92,6 +92,22 @@
                     <a href="{{ route('customer.profile') }}" class="text-primary-600 text-sm hover:underline mt-2 inline-block">Update Profile</a>
                 </div>
 
+                @if($mufiseEnabled)
+                <div x-show="usageType === 'outside_class'" x-cloak class="bg-white rounded-lg shadow p-6 mb-6 space-y-3">
+                    <h2 class="text-lg font-semibold">Proyek Mufise</h2>
+                    <p class="text-sm">Pilih proyek aktif yang memiliki produser atau sutradara dan lokasi lengkap. Call sheet Day 1 wajib terkunci sebelum pengambilan.</p>
+                    @if($mufiseError)<p class="text-red-600">{{ $mufiseError }}</p>@endif
+                    @if($mufiseStatus && ($mufiseStatus['next_action'] ?? '') !== 'ready')<p>Lengkapi organisasi dan pilihan proyek melalui pengaturan koneksi Mufise.</p>@endif
+                    <a href="{{ route('customer.mufise.index') }}" target="_blank" rel="noopener" class="text-primary-600 underline">Connect Mufise Account / Gunakan proyek lain / Buat proyek baru</a>
+                    <p class="text-sm">Setelah memasangkan akun, muat ulang checkout untuk memperbarui pilihan proyek.</p>
+                    <select name="mufise_project_id" x-model="mufiseProject" :required="usageType === 'outside_class'" :disabled="usageType !== 'outside_class'" class="w-full border rounded-lg p-2">
+                        <option value="">Pilih proyek Mufise</option>
+                        @foreach($mufiseProjects as $project)<option value="{{ $project['id'] }}">{{ $project['title'] }}</option>@endforeach
+                    </select>
+                    @error('mufise_project_id')<p class="text-red-600">{{ $message }}</p>@enderror
+                    <a x-show="mufiseProject" :href="@js(url('/customer/connections/mufise/projects')) + '/' + encodeURIComponent(mufiseProject)" target="_blank" rel="noopener" class="text-primary-600 underline">Lihat / lengkapi kru, lokasi, dan call sheet</a>
+                </div>
+                @else
                 <fieldset :disabled="usageType !== 'outside_class'" x-show="usageType === 'outside_class'" x-cloak class="bg-white rounded-lg shadow p-6 mb-6">
                     <h2 class="text-lg font-semibold mb-2">Shooting Itinerary</h2>
                     <p class="text-sm text-gray-500 mb-6">Isi rencana shooting dan crew inti untuk booking ini.</p>
@@ -180,6 +196,7 @@
                         </datalist>
                     </div>
                 </fieldset>
+                @endif
 
                 <div class="flex justify-end mb-6">
                     <button type="button" @click="nextStep()" class="bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700">Lanjutkan ke Ringkasan →</button>
@@ -195,6 +212,13 @@
                         <h3 class="font-semibold">Akademik dalam kelas</h3>
                         <p class="text-sm text-gray-500 mt-1">Booking untuk kegiatan pembelajaran di kelas.</p>
                     </div>
+                    @if($mufiseEnabled)
+                    <div x-show="usageType === 'outside_class'" class="bg-white rounded-lg shadow p-6 mb-6">
+                        <h3 class="font-semibold">Proyek Mufise</h3>
+                        <p x-text="mufiseProjectTitles[mufiseProject] || 'Pilih proyek pada langkah sebelumnya'"></p>
+                        <p x-text="outsidePurposeLabels[outsidePurpose] || ''" class="text-sm text-gray-600"></p>
+                    </div>
+                    @else
                     <div x-show="usageType === 'outside_class'" class="bg-white rounded-lg shadow p-6 mb-6">
                         <h3 class="font-semibold mb-2" x-text="document.getElementById('production_name')?.value || 'Shooting Itinerary'"></h3>
                         <p class="text-sm text-gray-600 mb-1" x-text="outsidePurposeLabels[outsidePurpose] || ''"></p>
@@ -214,6 +238,8 @@
                             </div>
                         </div>
                     </div>
+
+                    @endif
 
                 <!-- Order Items -->
                 <div class="bg-white rounded-lg shadow p-6 mb-6">
@@ -457,6 +483,9 @@
         return {
             step: {{ $itineraryHasErrors ? 1 : (($errors->any() || old('usage_type')) ? 2 : 1) }},
             usageType: @json(old('usage_type', '')),
+            mufiseEnabled: @json($mufiseEnabled),
+            mufiseProjectTitles: @json(collect($mufiseProjects)->pluck('title', 'id')),
+            mufiseProject: @json(old('mufise_project_id', '')),
             outsidePurpose: @json(old('outside_purpose', '')),
             outsidePurposeLabels: @json(\App\Models\Rental::outsidePurposeOptions()),
             errors: @json($errors->toArray()),
@@ -492,7 +521,7 @@
                 }
 
                 this.clientErrors = {};
-                if (this.usageType === 'outside_class') {
+                if (this.usageType === 'outside_class' && !this.mufiseEnabled) {
                     for (const [index, location] of this.locations.entries()) {
                         if (location.end_at <= location.start_at) {
                             this.clientErrors[`shooting_locations.${index}.end_at`] = 'Jam selesai harus setelah jam mulai.';

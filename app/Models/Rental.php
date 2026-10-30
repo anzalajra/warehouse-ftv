@@ -21,6 +21,11 @@ class Rental extends Model
         'category_name',
         'quotation_id',
         'shooting_itinerary_id',
+        'mufise_account_id',
+        'mufise_required',
+        'mufise_project_id',
+        'mufise_project_title',
+        'mufise_submission_snapshot',
         'usage_type',
         'outside_purpose',
         'invoice_id',
@@ -67,7 +72,13 @@ class Rental extends Model
         'permit_template_clicked_at',
     ];
 
+    protected $hidden = ['mufise_submission_snapshot', 'mufise_pickup_snapshot', 'mufise_call_sheet_html'];
+
     protected $casts = [
+        'mufise_required' => 'boolean',
+        'mufise_submission_snapshot' => 'encrypted:array',
+        'mufise_pickup_snapshot' => 'encrypted:array',
+        'mufise_call_sheet_html' => 'encrypted',
         'start_date' => 'datetime',
         'end_date' => 'datetime',
         'returned_date' => 'datetime',
@@ -496,6 +507,7 @@ class Rental extends Model
         $new = $this->replicate([
             'rental_code', 'status', 'returned_date', 'activity_log',
             'revenue_recognized_at', 'quotation_id', 'invoice_id',
+            'mufise_pickup_snapshot', 'mufise_call_sheet_html',
             'down_payment_status', 'security_deposit_status',
         ]);
         $new->status = self::STATUS_QUOTATION;
@@ -1119,6 +1131,8 @@ class Rental extends Model
                 }
             }
         }
+
+        app(\App\Services\Mufise\MufiseRentalService::class)->verifyPickup($this);
 
         $this->update(['status' => self::STATUS_ACTIVE]);
 

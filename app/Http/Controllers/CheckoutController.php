@@ -105,11 +105,30 @@ class CheckoutController extends Controller
         // Admin-defined rental custom fields (rendered on the checkout form).
         $rentalCustomFields = \App\Support\CustomFields::definitions('rental_custom_fields');
 
+        $mufiseEnabled = \App\Services\Mufise\MufiseSettings::enabled();
+        $mufiseProjects = [];
+        $mufiseStatus = null;
+        $mufiseError = null;
+        if ($mufiseEnabled) {
+            try {
+                $connections = app(\App\Services\Mufise\MufiseConnectionService::class);
+                $account = $connections->account($customer->id);
+                $token = $connections->token($account);
+                $mufiseStatus = app(\App\Services\MufiseClient::class)->request('GET', 'me', $token);
+                if (($mufiseStatus['next_action'] ?? '') === 'ready') {
+                    $mufiseProjects = app(\App\Services\MufiseClient::class)->request('GET', 'projects', $token)['projects'] ?? [];
+                }
+            } catch (\App\Services\Mufise\MufiseException $e) {
+                $mufiseError = $e->getMessage();
+            }
+        }
+
         return view('frontend.checkout.index', compact(
             'customer', 'cartItems', 'subtotal', 'deposit', 'discountAmount',
             'categoryDiscountAmount', 'categoryName', 'grossTotal', 'grandTotal',
             'dailyDiscountAmount', 'dailyDiscountName', 'datePromotionAmount', 'datePromotionName',
-            'totalDiscount', 'activePromotions', 'rentalCustomFields'
+            'totalDiscount', 'activePromotions', 'rentalCustomFields',
+            'mufiseEnabled', 'mufiseProjects', 'mufiseStatus', 'mufiseError'
         ));
     }
 
@@ -224,7 +243,17 @@ class CheckoutController extends Controller
             'delivery_contact' => 'nullable|string|max:255',
         ];
 
+        $usesMufise = $request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS
+            && \App\Services\Mufise\MufiseSettings::enabled();
+        $mufiseBundle = null;
+        $mufiseAccount = null;
         if ($request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS) {
+            $rules['outside_purpose'] = 'required|in:'.implode(',', array_keys(Rental::outsidePurposeOptions()));
+        }
+        if ($usesMufise) {
+            $rules['mufise_project_id'] = 'required|uuid';
+        }
+        if ($request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS && ! $usesMufise) {
             $rules += [
                 'outside_purpose' => 'required|in:'.implode(',', array_keys(Rental::outsidePurposeOptions())),
                 'production_name' => 'required|string|max:255',
@@ -257,7 +286,17 @@ class CheckoutController extends Controller
 
         $request->validate($rules, [], $customFieldAttributes);
 
-        $shootingLocations = $request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS
+        if ($usesMufise) {
+            try {
+                $mufiseAccount = app(\App\Services\Mufise\MufiseConnectionService::class)->account($customer->id);
+                $mufiseBundle = app(\App\Services\Mufise\MufiseRentalService::class)->project($mufiseAccount, $request->input('mufise_project_id'));
+                app(\App\Services\Mufise\MufiseRentalService::class)->assertReady($mufiseBundle);
+            } catch (\App\Services\Mufise\MufiseException $e) {
+                throw ValidationException::withMessages(['mufise_project_id' => $e->getMessage()]);
+            }
+        }
+
+        $shootingLocations = ! $usesMufise && $request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS
             ? $request->input('shooting_locations')
             : [];
         foreach ($shootingLocations as $index => $location) {
@@ -395,7 +434,7 @@ class CheckoutController extends Controller
 
         try {
             $itinerary = null;
-            if ($request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS) {
+            if ($request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS && ! $usesMufise) {
                 $itinerary = ShootingItinerary::create([
                     'user_id' => $customer->id,
                     'production_name' => $request->input('production_name'),
@@ -465,6 +504,11 @@ class CheckoutController extends Controller
                     'status' => Rental::STATUS_QUOTATION,
                     'quotation_id' => $quotation->id,
                     'shooting_itinerary_id' => $itinerary?->id,
+                    'mufise_required' => $usesMufise,
+                    'mufise_account_id' => $mufiseAccount?->id,
+                    'mufise_project_id' => $mufiseBundle['project']['id'] ?? null,
+                    'mufise_project_title' => $mufiseBundle['project']['title'] ?? null,
+                    'mufise_submission_snapshot' => $mufiseBundle,
                     'usage_type' => $request->input('usage_type'),
                     'outside_purpose' => $request->input('usage_type') === Rental::USAGE_OUTSIDE_CLASS ? $request->input('outside_purpose') : null,
                     'subtotal' => $subtotal,

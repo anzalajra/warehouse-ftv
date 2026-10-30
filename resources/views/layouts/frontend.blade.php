@@ -320,6 +320,7 @@
                                 <a href="{{ route('customer.dashboard') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">Dashboard</a>
                                 <a href="{{ route('customer.rentals') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">My Rentals</a>
                                 <a href="{{ route('customer.computer-bookings.index') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">My Computer Bookings</a>
+                                <a href="{{ route('customer.mufise.index') }}" class="block px-4 py-2 text-sm text-gray-700">Koneksi Mufise</a>
                                 <a href="{{ route('customer.profile') }}" class="block px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600 transition-colors">Profile</a>
                                 
                                 <div class="border-t border-gray-100 my-1"></div>
@@ -374,7 +375,8 @@
                         <a href="{{ route('customer.dashboard') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">Dashboard</a>
                         <a href="{{ route('customer.rentals') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">My Rentals</a>
                         <a href="{{ route('customer.computer-bookings.index') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">My Computer Bookings</a>
-                        <a href="{{ route('customer.profile') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">Profile</a>
+                        <a href="{{ route('customer.mufise.index') }}" class="block px-4 py-2 text-sm text-gray-700">Koneksi Mufise</a>
+                                <a href="{{ route('customer.profile') }}" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">Profile</a>
                         <form method="POST" action="{{ route('customer.logout') }}">
                             @csrf
                             <button type="submit" class="block w-full text-left px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">Logout</button>
@@ -471,7 +473,8 @@
                         <p class="text-xs text-gray-500 mt-3">Silakan lengkapi di halaman profile Anda untuk dapat melanjutkan transaksi.</p>
                     </div>
                     <div class="px-6 py-4 bg-gray-50 flex justify-end">
-                        <a href="{{ route('customer.profile') }}" class="px-5 py-2 bg-yellow-500 text-white rounded font-medium hover:bg-yellow-600">
+                        <a href="{{ route('customer.mufise.index') }}" class="block px-4 py-2 text-sm text-gray-700">Koneksi Mufise</a>
+                                <a href="{{ route('customer.profile') }}" class="px-5 py-2 bg-yellow-500 text-white rounded font-medium hover:bg-yellow-600">
                             Lengkapi Sekarang
                         </a>
                     </div>

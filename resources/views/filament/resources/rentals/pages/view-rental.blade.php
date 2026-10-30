@@ -739,6 +739,13 @@
                     @endif
                 </div>
 
+                @if($rental->mufise_required)
+                    <div class="info-cell">
+                        <span class="il">Proyek Mufise</span>
+                        <span class="iv">{{ $rental->mufise_project_title }}</span>
+                        <a class="btn btn-secondary" href="{{ route('admin.mufise', $rental->id) }}">Kru, lokasi & call sheet</a>
+                    </div>
+                @endif
                 @if($itinerary)
                     <div class="info-cell">
                         <span class="il">Itinerary</span>

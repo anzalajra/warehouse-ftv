@@ -1643,6 +1643,14 @@ class RentalEditor extends Component
      */
     protected function buildPayload(): array
     {
+        if ($this->record?->mufise_required && (int) $this->customer_id !== (int) $this->record->user_id) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['customer_id' => 'Peminjam rental yang terhubung ke proyek Mufise tidak dapat diganti. Buat peminjaman baru untuk akun lain.']);
+        }
+        if ($this->record?->mufise_required
+            && in_array($this->record->status, [Rental::STATUS_QUOTATION, Rental::STATUS_CONFIRMED, Rental::STATUS_LATE_PICKUP], true)
+            && in_array($this->status, [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN, Rental::STATUS_COMPLETED], true)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['status' => 'Gunakan proses pengambilan untuk memeriksa proyek dan call sheet Mufise sebelum mengaktifkan rental.']);
+        }
         $totals = $this->totals;
 
         return [
@@ -2175,7 +2183,7 @@ class RentalEditor extends Component
 
         $original = $this->record->load('items');
 
-        $new = $original->replicate(['rental_code', 'quotation_id', 'invoice_id']);
+        $new = $original->replicate(['rental_code', 'quotation_id', 'invoice_id', 'mufise_pickup_snapshot', 'mufise_call_sheet_html']);
         $new->status = Rental::STATUS_QUOTATION;
         $new->rental_code = null;
         $new->quotation_id = null;

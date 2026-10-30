@@ -10,6 +10,12 @@
         <span class="text-gray-900">{{ $rental->rental_code }}</span>
     </nav>
 
+    @if($rental->mufise_required)
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="font-semibold">Proyek Mufise: {{ $rental->mufise_project_title }}</h2>
+            <a href="{{ route('customer.mufise.rental', $rental->id) }}" class="text-primary-600 underline">Kru, lokasi & call sheet</a>
+        </div>
+    @endif
     <div class="bg-white rounded-lg shadow p-6 mb-6">
         <div class="flex justify-between items-start mb-6">
             <div>

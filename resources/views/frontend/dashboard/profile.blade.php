@@ -3,6 +3,9 @@
 @section('title', 'Profile')
 
 @section('content')
+<div class="max-w-4xl mx-auto px-4 pt-6">
+    <a href="{{ route('customer.mufise.index') }}" class="block bg-white rounded shadow p-4 text-primary-600 font-semibold">Koneksi akun Mufise →</a>
+</div>
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-data="{ activeTab: 'profile' }">
     <h1 class="text-2xl font-bold mb-8">Profile & Verification</h1>
 
