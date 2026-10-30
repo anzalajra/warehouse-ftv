@@ -61,6 +61,8 @@ Jangan menyalin ke path tersebut pada image lain tanpa memeriksa `php --ini`. Di
 
 ### Nixpacks
 
+Konfigurasi repo sekarang mematok snapshot `ac21430f558e5714364c7e4757b8b680815bb538` pada `nixpacks.toml`, yang menyediakan PHP 8.4.27 dan Node 24.21.0. Ini menggantikan snapshot bawaan yang pada log deployment menghasilkan PHP 8.4.2. Ikuti [panduan deployment](dokploy-deployment.md) untuk penerapan dan pengecekan override; versi container produksi tetap perlu diverifikasi setelah deploy.
+
 [Dokumentasi Nixpacks](https://nixpacks.com/docs/providers/php) saat pemeriksaan mencantumkan dukungan sampai PHP 8.4. Versi dibaca dari `composer.json`; mengubah environment variable yang tidak didokumentasikan tidak menjamin upgrade PHP.
 
 Gunakan builder/snapshot paket yang menyediakan PHP minimal 8.4.27 dan periksa versi pada build log. Nonaktifkan cache sementara dengan `NIXPACKS_NO_CACHE=1` melalui Environment Variables di Dokploy, lalu lakukan build baru. Menghapus cache saja tidak memperbarui snapshot paket Nix yang dipatok. Jika builder tetap menghasilkan versi lama atau Composer menolak versi PHP, hentikan deployment tersebut dan perbarui builder/snapshot atau siapkan Dockerfile yang sesuai. Jangan menambahkan `--ignore-platform-reqs`.

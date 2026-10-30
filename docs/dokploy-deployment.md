@@ -21,15 +21,19 @@ Script tidak membangun cache rute karena `routes/web.php` memilih rute berdasark
 
 Build Type deployment ini adalah **Nixpacks**. Repo menyediakan `nixpacks.toml` yang otomatis dibaca dari akar proyek. Konfigurasi ini mempertahankan build aset dari provider, memeriksa persyaratan PHP Composer, serta menjalankan prestart Nixpacks → persiapan Laravel → PHP-FPM/Nginx dengan template bawaan Nixpacks. Referensi implementasi: [provider PHP Nixpacks](https://github.com/railwayapp/nixpacks/blob/main/src/providers/php/mod.rs).
 
+Log deployment yang diperiksa pada 30 Oktober 2026 menunjukkan snapshot bawaan Nixpacks menghasilkan PHP **8.4.2** dan Node **18.20.5**. Build berhenti pada pemeriksaan PHP; Node 18 juga tidak memenuhi kebutuhan Vite 7 dan `@zxing/library`. Konfigurasi sekarang mematok snapshot `ac21430f558e5714364c7e4757b8b680815bb538`, yang berisi [PHP 8.4.27](https://github.com/NixOS/nixpkgs/blob/ac21430f558e5714364c7e4757b8b680815bb538/pkgs/development/interpreters/php/default.nix) dan [Node 24.21.0](https://github.com/NixOS/nixpkgs/blob/ac21430f558e5714364c7e4757b8b680815bb538/pkgs/development/web/nodejs/v24.nix). Daftar paket setup diganti eksplisit agar Node 18/npm lama tidak ikut terpasang. `nodejs_24` menyediakan npm; overlay npm lama tidak diperlukan.
+
 1. Sediakan perubahan pada branch/commit sumber yang dibaca Dokploy.
 2. Pertahankan Build Type **Nixpacks** dan Build Path di akar proyek.
 3. Jika ada `NIXPACKS_START_CMD` atau override Start Command di Dokploy, hapus override lama agar `[start]` dari repo digunakan. Jika override lama menjalankan proses tambahan, gabungkan proses tersebut terlebih dahulu; jangan menghapusnya tanpa memeriksa isinya. Variabel environment dan CLI memiliki prioritas di atas file konfigurasi.
 4. Jika `NIXPACKS_CONFIG_FILE` menunjuk file lain, arahkan ke `nixpacks.toml`. Pertahankan environment database, `APP_KEY`, domain/port, dan volume yang sudah dipakai.
 5. Build dan deploy baru. Pastikan build log menampilkan startup dengan `scripts/start-container.sh`, dan log runtime menampilkan `[warehouse]` sampai server mulai.
 
+Pada build baru, bagian setup harus mencantumkan `php84`, `php84Packages.composer`, dan `nodejs_24`; snapshot pada log harus `ac21430...`, bukan `e24b4c09...`. Jika tetap tampil Node 18/snapshot lama, periksa commit sumber dan override `NIXPACKS_PKGS`, `NIXPACKS_INSTALL_CMD`, atau konfigurasi build lainnya. Bila perlu jalankan satu build dengan `NIXPACKS_NO_CACHE=1`, lalu hapus variabel itu setelah build berhasil. Menghapus cache tanpa memperbarui snapshot tidak memperbarui PHP.
+
 Tidak perlu menambahkan `NIXPACKS_START_CMD` bila tidak ada override. Konfigurasi repo memakai path aset standar `/assets`, prestart Node, PHP-FPM, dan Nginx yang disediakan provider PHP Nixpacks. Jika deployment memakai template Nginx custom dari luar repo, sesuaikan path/template tersebut pada `[start]` sebelum deploy. Repo ini saat ini tidak memiliki `nginx.conf` atau `nginx.template.conf` custom.
 
-`composer check-platform-reqs --no-dev` menghentikan build bila PHP/ekstensi builder tidak memenuhi lockfile. Ini diperlukan karena provider PHP Nixpacks dapat memasang Composer dengan `--ignore-platform-reqs`. Jika check gagal, perbarui builder/runtime sesuai [panduan keamanan runtime](php-security-update-dokploy.md), bukan menghapus pemeriksaannya.
+Install Composer sekarang memakai lockfile dengan `--no-dev` tanpa `--ignore-platform-reqs`. `composer check-platform-reqs --no-dev` tetap memeriksa hasil instalasi. Aset memakai `npm ci --include=dev` agar Vite tersedia walaupun environment build bernilai production. Jika pemeriksaan gagal, perbarui builder/runtime sesuai [panduan keamanan runtime](php-security-update-dokploy.md), bukan menghapus pemeriksaannya.
 
 ### Builder lain atau start command khusus
 
