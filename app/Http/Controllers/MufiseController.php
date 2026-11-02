@@ -19,7 +19,7 @@ class MufiseController extends Controller
 {
     public function __construct(private MufiseClient $client, private MufiseConnectionService $connections, private MufiseRentalService $rentals) {}
 
-    public function index()
+    public function index(Request $request)
     {
         $status = null;
         $projects = [];
@@ -35,7 +35,7 @@ class MufiseController extends Controller
                         'expires_at' => $pairing['expires_at'],
                     ];
                 }
-                if ($account->access_token && $account->expires_at?->isFuture()) {
+                if ($account->access_token) {
                     $token = $this->connections->token($account);
                     $status = $this->client->request('GET', 'me', $token);
                     if (($status['next_action'] ?? '') === 'ready') {
@@ -45,6 +45,10 @@ class MufiseController extends Controller
             } catch (MufiseException $e) {
                 $error = $e->getMessage();
             }
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(compact('status', 'projects', 'error'))->header('Cache-Control', 'private, no-store');
         }
 
         return response()->view('frontend.mufise.connections', compact('status', 'projects', 'error', 'pending'))->header('Cache-Control', 'private, no-store');

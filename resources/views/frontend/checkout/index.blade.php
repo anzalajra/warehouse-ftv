@@ -9,6 +9,10 @@
         || str_starts_with($key, 'shooting_crew'));
     $initialLocations = old('shooting_locations') ?: [['location_name' => '', 'start_at' => '', 'end_at' => '']];
     $initialCrew = old('shooting_crew') ?: [['name' => '', 'nim' => '', 'role' => '']];
+    $mufiseConfig = [
+        'status' => $mufiseStatus, 'projects' => $mufiseProjects, 'error' => $mufiseError,
+        'selected' => old('mufise_project_id', ''), 'statusUrl' => route('customer.mufise.index'),
+    ];
 @endphp
 <style>
     [x-cloak] { display: none !important; }
@@ -93,20 +97,44 @@
                 </div>
 
                 @if($mufiseEnabled)
-                <div x-show="usageType === 'outside_class'" x-cloak class="bg-white rounded-lg shadow p-6 mb-6 space-y-3">
-                    <h2 class="text-lg font-semibold">Proyek Mufise</h2>
-                    <p class="text-sm">Pilih proyek aktif yang memiliki produser atau sutradara dan lokasi lengkap. Call sheet Day 1 wajib terkunci sebelum pengambilan.</p>
-                    @if($mufiseError)<p class="text-red-600">{{ $mufiseError }}</p>@endif
-                    @if($mufiseStatus && ($mufiseStatus['next_action'] ?? '') !== 'ready')<p>Lengkapi organisasi dan pilihan proyek melalui pengaturan koneksi Mufise.</p>@endif
-                    <a href="{{ route('customer.mufise.index') }}" target="_blank" rel="noopener" class="text-primary-600 underline">Connect Mufise Account / Gunakan proyek lain / Buat proyek baru</a>
-                    <p class="text-sm">Setelah memasangkan akun, muat ulang checkout untuk memperbarui pilihan proyek.</p>
-                    <select name="mufise_project_id" x-model="mufiseProject" :required="usageType === 'outside_class'" :disabled="usageType !== 'outside_class'" class="w-full border rounded-lg p-2">
-                        <option value="">Pilih proyek Mufise</option>
-                        @foreach($mufiseProjects as $project)<option value="{{ $project['id'] }}">{{ $project['title'] }}</option>@endforeach
-                    </select>
-                    @error('mufise_project_id')<p class="text-red-600">{{ $message }}</p>@enderror
-                    <a x-show="mufiseProject" :href="@js(url('/customer/connections/mufise/projects')) + '/' + encodeURIComponent(mufiseProject)" target="_blank" rel="noopener" class="text-primary-600 underline">Lihat / lengkapi kru, lokasi, dan call sheet</a>
-                </div>
+                <section x-show="usageType === 'outside_class'" x-cloak class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6 mb-6 space-y-5" aria-labelledby="mufise_heading">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h2 id="mufise_heading" class="text-lg font-semibold text-gray-900">Proyek Mufise</h2>
+                            <p class="text-sm text-gray-500 mt-1">Gunakan data produksi Mufise untuk booking ini.</p>
+                        </div>
+                        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" :class="mufiseStatus ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'" x-text="mufiseStatus ? 'Akun terhubung' : 'Belum terhubung'"></span>
+                    </div>
+                    <div class="rounded-lg bg-primary-50 border border-primary-100 p-4 text-sm text-primary-800">
+                        <p class="font-medium" x-text="mufiseGuidance()"></p>
+                        <p x-show="mufiseStatus?.organization?.name" x-cloak class="mt-1">Organisasi: <span class="font-semibold" x-text="mufiseStatus?.organization?.name"></span></p>
+                    </div>
+                    <div class="flex flex-col sm:flex-row flex-wrap gap-3">
+                        <a href="{{ route('customer.mufise.index') }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center bg-primary-600 text-white rounded-lg px-5 py-3 text-sm font-semibold hover:bg-primary-700 transition">
+                            <span x-text="mufiseStatus ? 'Kelola Proyek Mufise ↗' : 'Hubungkan Akun Mufise ↗'"></span>
+                        </a>
+                        <button type="button" @click="refreshMufiseProjects()" :disabled="mufiseRefreshing" class="inline-flex items-center justify-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-5 py-3 text-sm font-semibold hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-wait">
+                            <svg x-show="mufiseRefreshing" x-cloak class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                            <span x-text="mufiseRefreshing ? 'Memperbarui…' : 'Perbarui Proyek'"></span>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500">Pengaturan koneksi dibuka di tab baru. Setelah selesai, klik Perbarui Proyek untuk memperbarui pilihan di bawah.</p>
+                    <div x-show="mufiseError" x-cloak role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700" x-text="mufiseError"></div>
+                    <div x-show="mufiseNotice" x-cloak role="status" aria-live="polite" class="rounded-lg border border-primary-100 bg-primary-50 p-4 text-sm text-primary-800" x-text="mufiseNotice"></div>
+                    <div>
+                        <label for="mufise_project_id" class="block text-sm font-medium text-gray-700 mb-2">Proyek untuk Booking <span class="text-red-500">*</span></label>
+                        <select id="mufise_project_id" name="mufise_project_id" x-model="mufiseProject" :required="usageType === 'outside_class'" :disabled="usageType !== 'outside_class' || mufiseRefreshing" aria-describedby="mufise_project_help" class="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm focus:border-primary-500 focus:ring-primary-500">
+                            <option value="">Pilih proyek Mufise</option>
+                            <template x-for="project in mufiseProjects" :key="project.id"><option :value="project.id" x-text="project.title"></option></template>
+                        </select>
+                        <p id="mufise_project_help" class="text-xs text-gray-500 mt-2">Proyek harus memiliki produser atau sutradara serta lokasi dengan alamat lengkap.</p>
+                        @error('mufise_project_id')<p role="alert" class="text-red-600 text-xs mt-2">{{ $message }}</p>@enderror
+                    </div>
+                    <div class="border-t border-gray-100 pt-4 space-y-3">
+                        <a x-show="mufiseProject" x-cloak :href="@js(url('/customer/connections/mufise/projects')) + '/' + encodeURIComponent(mufiseProject)" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center border border-primary-200 text-primary-700 rounded-lg px-4 py-2 text-sm font-semibold hover:bg-primary-50 transition">Lihat Kru, Lokasi & Call Sheet ↗</a>
+                        <p class="text-xs text-gray-500">Sebelum pengambilan alat, pastikan call sheet Day 1 sudah dikunci di Mufise.</p>
+                    </div>
+                </section>
                 @else
                 <fieldset :disabled="usageType !== 'outside_class'" x-show="usageType === 'outside_class'" x-cloak class="bg-white rounded-lg shadow p-6 mb-6">
                     <h2 class="text-lg font-semibold mb-2">Shooting Itinerary</h2>
@@ -215,7 +243,7 @@
                     @if($mufiseEnabled)
                     <div x-show="usageType === 'outside_class'" class="bg-white rounded-lg shadow p-6 mb-6">
                         <h3 class="font-semibold">Proyek Mufise</h3>
-                        <p x-text="mufiseProjectTitles[mufiseProject] || 'Pilih proyek pada langkah sebelumnya'"></p>
+                        <p x-text="mufiseProjectTitle() || 'Pilih proyek pada langkah sebelumnya'"></p>
                         <p x-text="outsidePurposeLabels[outsidePurpose] || ''" class="text-sm text-gray-600"></p>
                     </div>
                     @else
@@ -484,8 +512,7 @@
             step: {{ $itineraryHasErrors ? 1 : (($errors->any() || old('usage_type')) ? 2 : 1) }},
             usageType: @json(old('usage_type', '')),
             mufiseEnabled: @json($mufiseEnabled),
-            mufiseProjectTitles: @json(collect($mufiseProjects)->pluck('title', 'id')),
-            mufiseProject: @json(old('mufise_project_id', '')),
+            ...window.mufiseCheckout(@js($mufiseConfig)),
             outsidePurpose: @json(old('outside_purpose', '')),
             outsidePurposeLabels: @json(\App\Models\Rental::outsidePurposeOptions()),
             errors: @json($errors->toArray()),
@@ -513,6 +540,7 @@
                 if (this.crew.length > 1) this.crew.splice(index, 1);
             },
             nextStep() {
+                if (this.usageType === 'outside_class' && this.mufiseRefreshing) return;
                 const invalidInput = [...document.querySelectorAll('#shooting_step input, #shooting_step select')]
                     .find(input => !input.checkValidity());
                 if (invalidInput) {

@@ -1,97 +1,85 @@
 @extends('layouts.frontend')
 @section('title', 'Koneksi Mufise')
 @section('content')
-<div class="max-w-4xl mx-auto px-4 py-8 space-y-6" x-data="mufiseConnection()" x-init="resume()">
-    <h1 class="text-2xl font-bold">Koneksi Mufise</h1>
-    <p>Hubungkan akun Mufise untuk peminjaman peralatan di luar kelas. Pilih organisasi dan proyek melalui halaman persetujuan Mufise.</p>
+@php
+    $connectionConfig = [
+        'pending' => $pending,
+        'connectUrl' => route('customer.mufise.connect'),
+        'pollUrl' => route('customer.mufise.poll'),
+        'disconnectUrl' => route('customer.mufise.disconnect'),
+    ];
+@endphp
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6" x-data="mufiseConnection(@js($connectionConfig))" x-init="resume()">
+    <div>
+        <a href="{{ route('checkout.index') }}" class="inline-flex items-center text-sm font-medium text-primary-600 hover:text-primary-700 mb-4">← Kembali ke Checkout</a>
+        <h1 class="text-2xl font-bold text-gray-900">Koneksi Mufise</h1>
+        <p class="text-sm text-gray-500 mt-2">Hubungkan akun Mufise untuk melengkapi proyek peminjaman peralatan di luar kelas.</p>
+    </div>
     @if(!\App\Services\Mufise\MufiseSettings::enabled())
-        <p class="bg-yellow-50 p-4 rounded">Integrasi belum diaktifkan admin.</p>
+        <div role="status" class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg text-sm">Integrasi Mufise belum diaktifkan oleh admin.</div>
     @else
-        @if($error)<p class="bg-red-50 text-red-700 p-4 rounded">{{ $error }}</p>@endif
-        @if($status)
-            <div class="bg-white shadow rounded p-5 space-y-2">
-                <p class="font-semibold">Akun terhubung</p>
-                <p>Organisasi: {{ $status['organization']['name'] ?? '—' }} ({{ $status['organization']['join_code'] ?? '—' }})</p>
-                <p>Proyek aktif yang bisa diakses: {{ $status['active_project_count'] ?? 0 }} · Dibagikan ke Warehouse: {{ $status['shared_active_project_count'] ?? 0 }}</p>
-                <p>{{ match($status['next_action'] ?? '') {
-                    'join_organization' => 'Bergabung atau terima undangan organisasi di Mufise. Persetujuan admin organisasi mungkin diperlukan.',
-                    'create_project' => 'Buat proyek aktif di Mufise untuk produksi Anda.',
-                    'select_project' => 'Pilih proyek yang akan dibagikan ke Warehouse.',
-                    'ready' => 'Akun siap. Kelengkapan proyek akan diperiksa saat pengajuan dan pengambilan.',
-                    default => 'Hubungkan ulang untuk memperbarui akses.'
-                } }}</p>
+        @if($error)<div role="alert" class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-sm">{{ $error }}</div>@endif
+        <section class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div class="p-5 sm:p-6 space-y-5">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <h2 class="text-lg font-semibold text-gray-900">Akun Mufise</h2>
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold {{ $status ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600' }}">{{ $status ? 'Akun terhubung' : 'Belum terhubung' }}</span>
+                </div>
+                @if($status)
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <p class="text-gray-500 mb-1">Organisasi tujuan</p>
+                            <p class="font-semibold text-gray-900">{{ $status['organization']['name'] ?? '—' }}</p>
+                            @if(!empty($status['organization']['join_code']))<p class="text-gray-500 mt-1">Kode: {{ $status['organization']['join_code'] }}</p>@endif
+                        </div>
+                        <div>
+                            <p class="text-gray-500 mb-1">Proyek aktif</p>
+                            <p class="font-semibold text-gray-900">{{ $status['active_project_count'] ?? 0 }} proyek · {{ $status['shared_active_project_count'] ?? 0 }} dibagikan ke Warehouse</p>
+                        </div>
+                    </div>
+                    <div role="status" class="bg-primary-50 border border-primary-100 rounded-lg p-4 text-sm text-primary-800">{{ match($status['next_action'] ?? '') {
+                        'join_organization' => 'Bergabung atau terima undangan organisasi di Mufise untuk melanjutkan. Persetujuan admin organisasi mungkin diperlukan.',
+                        'create_project' => 'Buat proyek aktif di Mufise untuk produksi Anda, lalu bagikan ke Warehouse.',
+                        'select_project' => 'Pilih proyek yang akan dibagikan ke Warehouse melalui tombol di bawah.',
+                        'ready' => 'Akun siap digunakan. Pilih proyek di checkout untuk melanjutkan booking.',
+                        default => 'Hubungkan ulang akun Mufise untuk memperbarui akses.'
+                    } }}</div>
+                @else
+                    <p class="text-sm text-gray-600 leading-relaxed">Klik tombol di bawah untuk membuka Mufise di tab baru. Masuk atau daftar akun Mufise, lalu pilih proyek yang akan digunakan.</p>
+                @endif
+                <div class="flex flex-col sm:flex-row flex-wrap gap-3">
+                    <button type="button" @click="connect()" :disabled="busy || polling" class="inline-flex items-center justify-center gap-2 bg-primary-600 text-white rounded-lg px-5 py-3 text-sm font-semibold hover:bg-primary-700 transition disabled:opacity-50 disabled:cursor-wait">
+                        <svg x-show="busy || polling" x-cloak class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                        <span>{{ $status ? 'Gunakan proyek lain / Buat proyek baru' : 'Connect Mufise Account' }}</span>
+                    </button>
+                    @if($status)
+                        <button type="button" @click="disconnect()" :disabled="busy || polling" class="inline-flex items-center justify-center border border-gray-300 text-gray-700 rounded-lg px-5 py-3 text-sm font-semibold hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-wait">Putus Koneksi</button>
+                    @endif
+                </div>
+                <p class="text-xs text-gray-500 leading-relaxed">Pendaftaran dan koneksi mengikuti organisasi yang ditentukan admin Warehouse. Lengkapi verifikasi di Mufise bila diminta.</p>
+                <div x-show="message" x-cloak role="status" aria-live="polite" class="rounded-lg border p-4 text-sm" :class="failed ? 'bg-red-50 border-red-200 text-red-700' : 'bg-primary-50 border-primary-100 text-primary-800'">
+                    <p class="font-medium" x-text="message"></p>
+                    <div x-show="verificationUrl" class="mt-2 space-y-2">
+                        <p>Selesaikan persetujuan di tab Mufise. Halaman ini akan diperbarui otomatis setelah akun terhubung. Tautan berlaku hingga 10 menit.</p>
+                        <a :href="verificationUrl" target="_blank" rel="noopener noreferrer" class="inline-block font-semibold underline underline-offset-2">Halaman Mufise tidak muncul, klik di sini</a>
+                    </div>
+                </div>
             </div>
-        @endif
-        <div class="flex flex-wrap gap-3">
-            <button type="button" @click="connect" :disabled="busy || polling" class="bg-primary-600 text-white rounded px-4 py-2 disabled:opacity-50">{{ $status ? 'Gunakan proyek lain / Buat proyek baru' : 'Connect Mufise Account' }}</button>
-            <button type="button" @click="disconnect" :disabled="busy || polling" class="border rounded px-4 py-2">Putus koneksi</button>
-            <a href="{{ route('customer.mufise.index') }}" class="border rounded px-4 py-2">Muat ulang</a>
-        </div>
-        <p x-text="message" role="status" class="text-sm"></p>
-        <div x-show="verificationUrl" x-cloak class="bg-blue-50 p-4 rounded space-y-2">
-            <a :href="verificationUrl" target="_blank" rel="noopener" class="font-semibold underline">Buka Mufise untuk menyetujui koneksi</a>
-            <p>Pemasangan berlaku 10 menit. Setelah disetujui, halaman ini akan dimuat ulang.</p>
-        </div>
+        </section>
         @if(count($projects))
-            <div class="bg-white rounded shadow p-5 space-y-3">
-                <h2 class="font-semibold">Proyek yang dibagikan</h2>
-                @foreach($projects as $project)
-                    <a class="block text-primary-600 underline" href="{{ route('customer.mufise.project', $project['id']) }}">{{ $project['title'] }}</a>
-                @endforeach
-            </div>
+            <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6">
+                <h2 class="text-lg font-semibold text-gray-900">Proyek yang Dibagikan</h2>
+                <p class="text-sm text-gray-500 mt-1 mb-4">Tinjau kru, lokasi, dan call sheet sebelum mengajukan booking.</p>
+                <div class="space-y-3">
+                    @foreach($projects as $project)
+                        <a class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-4 py-3 hover:border-primary-300 hover:bg-primary-50 transition" href="{{ route('customer.mufise.project', $project['id']) }}">
+                            <span class="font-medium text-gray-900 break-words min-w-0">{{ $project['title'] }}</span>
+                            <span class="text-sm font-semibold text-primary-600 shrink-0">Lihat Proyek →</span>
+                        </a>
+                    @endforeach
+                </div>
+            </section>
         @endif
     @endif
-    <a href="{{ route('checkout.index') }}" class="inline-block text-primary-600 underline">Kembali ke peminjaman</a>
 </div>
-<script>
-function mufiseConnection() {
-    return {
-        busy: false, polling: false, message: '', verificationUrl: '', deadline: 0,
-        resume() {
-            const pending = @json($pending);
-            if (!pending) return;
-            this.verificationUrl = pending.verification_url;
-            this.deadline = Date.parse(pending.expires_at);
-            this.message = 'Pemasangan masih menunggu persetujuan di Mufise.';
-            this.polling = true;
-            setTimeout(() => this.poll(), 5000);
-        },
-        async send(url) {
-            const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }});
-            const data = await response.json();
-            if (!response.ok) { const error = new Error(data.message || 'Permintaan gagal.'); error.retry = response.status === 429 || response.status >= 500; error.wait = Math.max(5, Number(response.headers.get('Retry-After')) || 5); throw error; }
-            return data;
-        },
-        async connect() {
-            this.busy = true;
-            try {
-                const data = await this.send(@json(route('customer.mufise.connect')));
-                this.verificationUrl = data.verification_url; this.deadline = Date.parse(data.expires_at);
-                this.message = 'Buka tautan Mufise untuk melanjutkan.'; this.polling = true;
-                setTimeout(() => this.poll(), 5000);
-            } catch (e) { this.message = e.message; }
-            finally { this.busy = false; }
-        },
-        async poll() {
-            if (Date.now() >= this.deadline) { this.polling = false; this.message = 'Pemasangan kedaluwarsa. Mulai kembali.'; return; }
-            let wait = 5;
-            try {
-                const data = await this.send(@json(route('customer.mufise.poll')));
-                if (data.connected) { location.reload(); return; }
-            } catch (e) {
-                this.message = e.message;
-                if (!e.retry) { this.polling = false; return; }
-                wait = e.wait || 5;
-            }
-            setTimeout(() => this.poll(), wait * 1000);
-        },
-        async disconnect() {
-            this.busy = true;
-            try { await this.send(@json(route('customer.mufise.disconnect'))); location.reload(); }
-            catch(e) { this.message = e.message; }
-            finally { this.busy = false; }
-        }
-    };
-}
-</script>
 @endsection

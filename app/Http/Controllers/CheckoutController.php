@@ -113,10 +113,12 @@ class CheckoutController extends Controller
             try {
                 $connections = app(\App\Services\Mufise\MufiseConnectionService::class);
                 $account = $connections->account($customer->id);
-                $token = $connections->token($account);
-                $mufiseStatus = app(\App\Services\MufiseClient::class)->request('GET', 'me', $token);
-                if (($mufiseStatus['next_action'] ?? '') === 'ready') {
-                    $mufiseProjects = app(\App\Services\MufiseClient::class)->request('GET', 'projects', $token)['projects'] ?? [];
+                if ($account->access_token) {
+                    $token = $connections->token($account);
+                    $mufiseStatus = app(\App\Services\MufiseClient::class)->request('GET', 'me', $token);
+                    if (($mufiseStatus['next_action'] ?? '') === 'ready') {
+                        $mufiseProjects = app(\App\Services\MufiseClient::class)->request('GET', 'projects', $token)['projects'] ?? [];
+                    }
                 }
             } catch (\App\Services\Mufise\MufiseException $e) {
                 $mufiseError = $e->getMessage();

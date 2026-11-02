@@ -90,9 +90,10 @@ class MufiseIntegrationTest extends TestCase
     {
         $user = User::factory()->create();
         Http::fake(['*/link-requests' => Http::response(['request_id' => 'request-1', 'request_secret' => 'pair-secret', 'verification_path' => '/connect/warehouse?request=request-1', 'expires_in' => 600])]);
-        $this->actingAs($user, 'customer')->postJson(route('customer.mufise.connect'), ['external_user_id' => 'another-user'])
+        $this->actingAs($user, 'customer')->postJson(route('customer.mufise.connect'), ['external_user_id' => 'another-user', 'organization_id' => 'another-organization'])
             ->assertOk()->assertJsonPath('verification_url', 'https://mufise.test/connect/warehouse?request=request-1')->assertDontSee('pair-secret');
-        Http::assertSent(fn ($request) => $request['external_user_id'] === (string) $user->id && $request->hasHeader('X-API-Key', 'server-secret') && ! $request->hasHeader('Origin'));
+        Http::assertSent(fn ($request) => $request->data() === ['external_user_id' => (string) $user->id, 'account_label' => $user->name]
+            && $request->hasHeader('X-Mufise-Connection', 'connection-1') && $request->hasHeader('X-API-Key', 'server-secret') && ! $request->hasHeader('Origin'));
         $account = MufiseAccount::first();
         $this->assertStringNotContainsString('pair-secret', $account->getRawOriginal('pairing'));
         $this->assertArrayNotHasKey('pairing', $account->toArray());
@@ -162,7 +163,7 @@ class MufiseIntegrationTest extends TestCase
         $account = app(MufiseConnectionService::class)->account($user->id);
         $account->update(['pairing' => ['request_id' => 'pending-request', 'request_secret' => 'hidden-secret', 'expires_at' => now()->addMinutes(9)->toIso8601String()]]);
         $this->actingAs($user, 'customer')->get(route('customer.mufise.index'))
-            ->assertOk()->assertSee('pending-request')->assertDontSee('hidden-secret');
+            ->assertOk()->assertSee('pending-request')->assertSee('Halaman Mufise tidak muncul, klik di sini')->assertDontSee('hidden-secret');
         Http::assertNothingSent();
     }
 
@@ -173,6 +174,52 @@ class MufiseIntegrationTest extends TestCase
         Http::fake(['*/me' => Http::response(['organization' => ['name' => 'FTV', 'join_code' => 'CODE'], 'next_action' => 'join_organization'])]);
         $this->actingAs($user, 'customer')->get(route('customer.mufise.index'))->assertOk()->assertSee('Bergabung atau terima undangan')->assertSee('Gunakan proyek lain')->assertDontSee('borrower-secret')->assertDontSee('server-secret');
         Http::assertSentCount(1);
+    }
+
+    public function test_checkout_can_refresh_projects_privately_without_reloading_the_form(): void
+    {
+        $user = User::factory()->create();
+        $account = $this->account($user);
+        $account->update(['pairing' => ['request_id' => 'pending', 'request_secret' => 'pair-secret', 'expires_at' => now()->addMinutes(10)->toIso8601String()]]);
+        Http::fake([
+            '*/me' => Http::response(['next_action' => 'ready', 'organization' => ['id' => 'target-org', 'name' => 'FTV']]),
+            '*/projects' => Http::response(['projects' => [['id' => $this->projectId, 'title' => 'Film Senja']]]),
+        ]);
+        $this->actingAs($user, 'customer')->getJson(route('customer.mufise.index'))->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('status.organization.id', 'target-org')->assertJsonPath('projects.0.title', 'Film Senja')
+            ->assertJsonMissingPath('pending')->assertDontSee('pair-secret')->assertDontSee('borrower-secret')->assertDontSee('server-secret');
+        Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer borrower-secret'));
+    }
+
+    public function test_project_refresh_explains_membership_without_loading_unauthorized_projects(): void
+    {
+        $user = User::factory()->create();
+        $this->account($user);
+        Http::fake(['*/me' => Http::response(['next_action' => 'join_organization'])]);
+        $this->actingAs($user, 'customer')->getJson(route('customer.mufise.index'))->assertOk()
+            ->assertJsonPath('status.next_action', 'join_organization')->assertJsonPath('projects', []);
+        Http::assertSentCount(1);
+    }
+
+    public function test_project_refresh_reports_service_errors_and_requires_customer_authentication(): void
+    {
+        $this->getJson(route('customer.mufise.index'))->assertRedirect(route('customer.login'));
+        $user = User::factory()->create();
+        $this->account($user);
+        Http::fake(['*/me' => Http::response(['error' => ['code' => 'invalid_credentials']], 401)]);
+        $this->actingAs($user, 'customer')->getJson(route('customer.mufise.index'))->assertOk()
+            ->assertJsonPath('projects', [])->assertJsonPath('error', 'Kredensial Mufise tidak berlaku. Periksa konfigurasi atau hubungkan ulang akun.');
+    }
+
+    public function test_checkout_without_mufise_connection_offers_onboarding_without_an_error(): void
+    {
+        $user = User::factory()->create(['is_verified' => true]);
+        $this->cart($user);
+        $this->actingAs($user, 'customer')->get(route('checkout.index'))->assertOk()
+            ->assertSee('Perbarui Proyek')->assertViewHas('mufiseError', null)->assertViewHas('mufiseStatus', null);
+        $this->getJson(route('customer.mufise.index'))->assertOk()->assertExactJson(['status' => null, 'projects' => [], 'error' => null]);
+        Http::assertNothingSent();
     }
 
     public function test_project_forms_and_document_proxy_render_without_credentials(): void

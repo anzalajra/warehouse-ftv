@@ -21,6 +21,10 @@
 @source "../../storage/framework/views/*.php";
 @source "../../resources/views/**/*.blade.php";
 
+[x-cloak] {
+    display: none !important;
+}
+
 /* PWA Mobile Optimizations */
 @media (max-width: 640px) {
     /* Calendar mobile styles */

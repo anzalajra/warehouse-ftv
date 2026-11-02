@@ -8,9 +8,11 @@ Mengikuti kontrak API v1 Mufise tanggal 30 Oktober 2026, termasuk onboarding org
 2. Di Mufise, admin organisasi membuat koneksi eksternal Warehouse FTV dan mengatur izin tulis kru/lokasi sesuai kebutuhan.
 3. Masuk sebagai super admin Warehouse, buka **Settings → Integrasi Mufise**. Isi URL dasar Mufise, Connection ID, API key dan aktifkan integrasi. URL wajib HTTPS kecuali localhost. Key disimpan terenkripsi; input kosong mempertahankan key lama. Admin yang didelegasikan memerlukan izin `Manage:Mufise` pada guard web.
 4. Jika diperlukan, URL/Connection ID/API key dapat memakai fallback `MUFISE_URL`, `MUFISE_CONNECTION_ID`, `MUFISE_API_KEY` dari `config/services.php`. Setting panel mengambil prioritas. Setelah mengganti env, perbarui config cache sesuai deployment.
-5. Pelanggan membuka **Profile → Koneksi akun Mufise** atau **Koneksi Mufise** pada menu akun. Klik **Connect Mufise Account**, buka tautan persetujuan, login dan selesaikan keanggotaan organisasi serta pembuatan/pemilihan proyek di Mufise. Halaman Warehouse memeriksa persetujuan setiap minimal 5 detik, maksimal 10 menit. Tautan tidak memuat request secret.
+5. Pelanggan membuka **Profile → Koneksi akun Mufise** atau **Koneksi Mufise** pada menu akun. Klik **Connect Mufise Account** untuk langsung membuka tab persetujuan Mufise. Jika tab terblokir, gunakan **Halaman Mufise tidak muncul, klik di sini**. Masuk atau daftar akun, lalu selesaikan keanggotaan organisasi serta pembuatan/pemilihan proyek di Mufise. Halaman Warehouse menampilkan **waiting for syncronization** dan memeriksa persetujuan setiap minimal 5 detik, maksimal 10 menit. Tautan tidak memuat request secret.
 6. Setelah terhubung, pelanggan dapat melihat proyek dan memilih **Gunakan proyek lain / Buat proyek baru**. Grant sebelumnya tetap dipakai sampai pemasangan baru berhasil. Token berlaku maksimal 90 hari tanpa refresh token. Proyek yang sebelumnya ditautkan ke rental harus tetap dipilih pada grant pengganti agar rental dapat diverifikasi.
-7. Muat ulang checkout setelah selesai memasangkan akun agar pilihan proyek diperbarui.
+7. Di checkout, gunakan **Hubungkan Akun Mufise** atau **Kelola Proyek Mufise**, lalu klik **Perbarui Proyek** setelah koneksi selesai. Pilihan diperbarui tanpa memuat ulang halaman atau menghapus isian checkout. Pilihan proyek tetap tersimpan selama proyek tersebut masih dibagikan.
+
+Organisasi tujuan mengikuti Connection ID dan API key yang dipasang admin, bukan input organisasi dari browser pelanggan. Permintaan koneksi mengirim ID pengguna dari sesi Warehouse dan nama akun ke `POST /link-requests`; ID permintaan yang dihasilkan Mufise mengikat alur persetujuan/pendaftaran ke organisasi koneksi tersebut. Halaman Mufise mempertahankan konteks ini saat pengguna masuk atau mendaftar. Bergabung otomatis mengikuti aturan Mufise; verifikasi identitas/CSV dan persetujuan admin organisasi tetap berlaku. Warehouse tidak membuat akun atau keanggotaan langsung tanpa autentikasi Mufise.
 
 ## Perilaku peminjaman
 
@@ -34,6 +36,7 @@ Tes lokal memakai `Http::fake()` dan SQLite in-memory, tanpa mengubah data Mufis
 
 ```sh
 php artisan test tests/Feature/MufiseIntegrationTest.php
+node --test tests/js/mufise-ui.test.mjs
 composer test:smoke
 composer test
 npm run build
