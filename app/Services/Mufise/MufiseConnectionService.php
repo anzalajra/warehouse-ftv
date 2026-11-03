@@ -5,7 +5,10 @@ namespace App\Services\Mufise;
 use App\Models\MufiseAccount;
 use App\Models\User;
 use App\Services\MufiseClient;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class MufiseConnectionService
 {
@@ -22,11 +25,44 @@ class MufiseConnectionService
 
     public function token(MufiseAccount $account): string
     {
-        if ($account->connection_id !== MufiseSettings::connectionId() || $account->server_url !== MufiseSettings::url() || ! $account->access_token || ! $account->expires_at?->isFuture()) {
-            throw new MufiseException('reconnect_required', 'Hubungkan ulang akun Mufise milik peminjam.');
+        if ($account->connection_id !== MufiseSettings::connectionId() || $account->server_url !== MufiseSettings::url()) {
+            throw $this->localProblem('connection_changed', 'Tujuan koneksi Mufise berubah. Periksa konfigurasi admin sebelum memasangkan akun ke tujuan baru.', 'check_configuration');
+        }
+        $token = $this->storedToken($account);
+        if (! $token) {
+            throw $this->localProblem('local_token_missing', 'Token koneksi belum tersedia. Hubungkan akun jika belum pernah terhubung; jika sudah, hubungi admin Warehouse.', 'check_token_storage');
+        }
+        if ($account->expires_at !== null && ! $account->expires_at->isFuture()) {
+            throw $this->localProblem('local_token_expired', 'Masa berlaku koneksi yang disimpan Warehouse sudah berakhir. Admin perlu memeriksa status token Mufise atau peminjam memulai pemasangan baru.', 'check_token_storage');
         }
 
-        return $account->access_token;
+        return $token;
+    }
+
+    public function storedToken(MufiseAccount $account): ?string
+    {
+        try {
+            return $account->access_token;
+        } catch (DecryptException) {
+            throw $this->localProblem('token_decryption_failed', 'Token koneksi tidak dapat dibaca. Hubungi admin Warehouse.', 'check_token_storage');
+        }
+    }
+
+    private function localProblem(string $reason, string $message, string $action): MufiseException
+    {
+        $reference = (string) Str::uuid();
+        Log::warning('mufise.local_problem', ['warehouse_request_id' => $reference, 'reason' => $reason, 'action' => $action]);
+
+        return new MufiseException($reason, $message, 409, reason: $reason, action: $action, warehouseRequestId: $reference);
+    }
+
+    public function pairing(MufiseAccount $account): ?array
+    {
+        try {
+            return $account->pairing;
+        } catch (DecryptException) {
+            throw $this->localProblem('pairing_decryption_failed', 'Sesi pemasangan tidak dapat dibaca. Hubungi admin Warehouse.', 'check_token_storage');
+        }
     }
 
     public function start(User $user): array
@@ -51,13 +87,13 @@ class MufiseConnectionService
 
         return Cache::lock('mufise-account-'.$account->id, 60)->block(1, function () use ($account, $userId) {
             $account->refresh();
-            $pairing = $account->pairing;
+            $pairing = $this->pairing($account);
             if (! $pairing) {
-                return ['connected' => (bool) ($account->access_token && $account->expires_at?->isFuture())];
+                return ['connected' => (bool) ($this->storedToken($account) && ($account->expires_at === null || $account->expires_at->isFuture()))];
             }
             if (now()->gte($pairing['expires_at'])) {
                 $account->update(['pairing' => null]);
-                throw new MufiseException('link_expired', 'Pemasangan kedaluwarsa. Mulai kembali.', 410);
+                throw new MufiseException('link_expired', 'Pemasangan kedaluwarsa. Mulai kembali.', 410, action: 'restart_pairing');
             }
             if ($account->next_poll_at?->isFuture()) {
                 return ['connected' => false, 'pending' => true];
@@ -77,11 +113,16 @@ class MufiseConnectionService
                 }
                 throw $e;
             }
-            if (($result['external_user_id'] ?? null) !== (string) $userId || empty($result['access_token']) || empty($result['user_id'])) {
+            if (($result['external_user_id'] ?? null) !== (string) $userId || ! is_string($result['access_token'] ?? null) || $result['access_token'] === '' || ! is_string($result['user_id'] ?? null) || $result['user_id'] === '') {
                 $account->update(['pairing' => null]);
-                throw new MufiseException('invalid_response', 'Identitas pemasangan tidak sesuai. Mulai pemasangan kembali.', 503);
+                throw new MufiseException('invalid_response', 'Identitas pemasangan tidak sesuai. Mulai pemasangan kembali.', 502, action: 'restart_pairing');
             }
-            $account->update(['access_token' => $result['access_token'], 'mufise_user_id' => $result['user_id'], 'expires_at' => now()->addSeconds(min(90 * 86400, (int) ($result['expires_in'] ?? 0))), 'pairing' => null, 'next_poll_at' => null]);
+            if (! array_key_exists('expires_in', $result) || ($result['expires_in'] !== null && (! is_int($result['expires_in']) || $result['expires_in'] <= 0))) {
+                $account->update(['pairing' => null, 'next_poll_at' => null]);
+                throw new MufiseException('invalid_response', 'Masa berlaku token Mufise tidak valid. Mulai pemasangan baru.', 502, action: 'restart_pairing');
+            }
+            $expiresAt = $result['expires_in'] === null ? null : now()->addSeconds(min(90 * 86400, $result['expires_in']));
+            $account->update(['access_token' => $result['access_token'], 'mufise_user_id' => $result['user_id'], 'expires_at' => $expiresAt, 'pairing' => null, 'next_poll_at' => null]);
 
             return ['connected' => true];
         });
@@ -92,8 +133,8 @@ class MufiseConnectionService
         $account = $this->account($userId);
         Cache::lock('mufise-account-'.$account->id, 60)->block(1, function () use ($account) {
             $account->refresh();
-            if ($account->access_token) {
-                $this->client->request('POST', 'disconnect', $account->access_token);
+            if ($token = $this->storedToken($account)) {
+                $this->client->request('POST', 'disconnect', $token);
             }
             $account->update(['access_token' => null, 'expires_at' => null, 'pairing' => null]);
         });

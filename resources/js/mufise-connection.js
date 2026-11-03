@@ -1,5 +1,9 @@
+import { mufiseProblemText, canPairMufise } from './mufise-problem.js';
+
 export function mufiseConnection(config) {
     return {
+        problem: config.problem || null,
+        canConnect() { return canPairMufise(this.problem); },
         busy: false, polling: false, message: '', failed: false, verificationUrl: '', deadline: 0, timer: null,
         resume() {
             if (config.pending) this.waitForApproval(config.pending);
@@ -24,15 +28,16 @@ export function mufiseConnection(config) {
             if (response.redirected) throw new Error('Sesi Anda berakhir. Silakan masuk kembali ke Warehouse.');
             const data = await response.json().catch(() => { throw new Error('Koneksi Mufise belum dapat diproses. Silakan coba lagi.'); });
             if (!response.ok) {
-                const error = new Error(data.message || 'Permintaan gagal. Silakan coba lagi.');
-                error.retry = response.status === 429 || response.status >= 500;
+                const error = new Error(mufiseProblemText(data) || 'Permintaan gagal. Silakan coba lagi.');
+                error.problem = data;
+                error.retry = data.retryable ?? (response.status === 429 || response.status >= 500);
                 error.wait = Math.max(5, Number(response.headers.get('Retry-After')) || 5);
                 throw error;
             }
             return data;
         },
         async connect() {
-            if (this.busy || this.polling) return;
+            if (this.busy || this.polling || !this.canConnect()) return;
             this.busy = true;
             this.failed = false;
             this.message = 'Menyiapkan koneksi Mufise…';
@@ -53,6 +58,7 @@ export function mufiseConnection(config) {
             } catch (error) {
                 if (mufiseTab && !mufiseTab.closed) mufiseTab.close();
                 this.failed = true;
+                this.problem = error.problem || null;
                 this.message = error.message;
             } finally {
                 this.busy = false;
@@ -62,6 +68,7 @@ export function mufiseConnection(config) {
             if (!this.polling) return;
             if (Date.now() >= this.deadline) {
                 this.polling = false;
+                this.problem = { action: 'restart_pairing' };
                 this.verificationUrl = '';
                 this.failed = true;
                 this.message = 'Koneksi kedaluwarsa. Silakan hubungkan kembali akun Mufise.';
@@ -79,6 +86,7 @@ export function mufiseConnection(config) {
                 this.message = 'waiting for syncronization';
             } catch (error) {
                 this.failed = true;
+                this.problem = error.problem || null;
                 this.message = error.message;
                 if (!error.retry) {
                     this.polling = false;
@@ -98,6 +106,7 @@ export function mufiseConnection(config) {
                 window.location.reload();
             } catch (error) {
                 this.failed = true;
+                this.problem = error.problem || null;
                 this.message = error.message;
             } finally {
                 this.busy = false;

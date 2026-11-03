@@ -109,11 +109,12 @@ class CheckoutController extends Controller
         $mufiseProjects = [];
         $mufiseStatus = null;
         $mufiseError = null;
+        $mufiseProblem = null;
         if ($mufiseEnabled) {
             try {
                 $connections = app(\App\Services\Mufise\MufiseConnectionService::class);
                 $account = $connections->account($customer->id);
-                if ($account->access_token) {
+                if ($connections->storedToken($account)) {
                     $token = $connections->token($account);
                     $mufiseStatus = app(\App\Services\MufiseClient::class)->request('GET', 'me', $token);
                     if (($mufiseStatus['next_action'] ?? '') === 'ready') {
@@ -122,6 +123,7 @@ class CheckoutController extends Controller
                 }
             } catch (\App\Services\Mufise\MufiseException $e) {
                 $mufiseError = $e->getMessage();
+                $mufiseProblem = $e->problem();
             }
         }
 
@@ -130,7 +132,7 @@ class CheckoutController extends Controller
             'categoryDiscountAmount', 'categoryName', 'grossTotal', 'grandTotal',
             'dailyDiscountAmount', 'dailyDiscountName', 'datePromotionAmount', 'datePromotionName',
             'totalDiscount', 'activePromotions', 'rentalCustomFields',
-            'mufiseEnabled', 'mufiseProjects', 'mufiseStatus', 'mufiseError'
+            'mufiseEnabled', 'mufiseProjects', 'mufiseStatus', 'mufiseError', 'mufiseProblem'
         ));
     }
 

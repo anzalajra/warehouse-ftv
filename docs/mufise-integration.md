@@ -1,6 +1,6 @@
 # Integrasi Mufise untuk Warehouse FTV
 
-Mengikuti kontrak API v1 Mufise tanggal 30 Oktober 2026, termasuk onboarding organisasi dan `GET /me` (`next_action`). Seluruh komunikasi dilakukan server Laravel. Tidak perlu akses database Mufise atau konfigurasi CORS.
+Mengikuti kontrak API v1 Mufise tanggal 3 November 2026, termasuk token tanpa batas waktu, diagnostik aman, onboarding organisasi dan `GET /me` (`next_action`). Seluruh komunikasi dilakukan server Laravel. Tidak perlu akses database Mufise atau konfigurasi CORS.
 
 ## Mengaktifkan
 
@@ -43,3 +43,20 @@ npm run build
 ```
 
 Penerimaan langsung dengan server Mufise yang telah memiliki API terbaru dan kredensial nyata masih diperlukan sebelum deployment: uji editor/viewer, organisasi yang memerlukan persetujuan, proyek tanpa kru/lokasi, lock Day 2 saja, lock Day 1, pencabutan grant/izin, konflik versi dan koneksi putus. Jangan memasukkan key/token ke laporan pengujian atau log.
+
+
+## Pembaruan token dan pemulihan koneksi (3 November 2026)
+
+Token baru dengan `expires_in: null` disimpan sebagai `expires_at: null` dan tetap dapat dipakai setelah refresh/restart. Expiry positif dari server lama tetap dihormati; field expiry yang hilang, nol, negatif atau bukan integer ditolak. Masa pemasangan tetap maksimal 10 menit dan polling minimal 5 detik. Skema `mufise_accounts.expires_at` sejak awal sudah nullable sehingga tidak memerlukan migrasi Warehouse baru.
+
+Sesudah kode dan aset terbaru diterapkan, pengguna yang terkena bug expiry lama dapat memulai pemasangan baru satu kali, menerima koneksi di Mufise, lalu menekan **Perbarui Proyek** pada checkout. Token yang benar-benar dicabut/kedaluwarsa juga memerlukan pemasangan baru. Tidak ada penghapusan token otomatis karena gangguan jaringan, konfigurasi salah, email belum diverifikasi atau akun ditangguhkan.
+
+Untuk memulihkan token lama tanpa meminta semua pengguna pairing ulang:
+
+1. Pastikan server Mufise tujuan sudah memakai kontrak token tanpa batas waktu/migrasi 051. Panduan atau kode lokal Mufise bukan bukti versi hosting; periksa build yang diterapkan lewat proses deployment Mufise. Jangan memindahkan token antarlingkungan.
+2. Jalankan `php artisan mufise:repair-token-expiry` untuk pemeriksaan tanpa mengubah data. Command hanya memilih record URL/Connection ID saat ini dengan token dan expiry tersimpan, lalu memanggil `/me` langsung tanpa pemeriksaan expiry lokal. Pairing yang sedang berlangsung dilewati.
+3. Setelah kontrak server dikonfirmasi, jalankan `php artisan mufise:repair-token-expiry --apply --confirmed-no-expiry`. Expiry hanya dikosongkan untuk token dengan respons `/me` valid. Token dicabut, timeout, konfigurasi salah dan respons tidak valid dipertahankan. Command mengembalikan status gagal bila ada token gagal diverifikasi, walaupun token lain berhasil dipulihkan. Keluaran hanya memuat jumlah, kategori gagal dan referensi.
+
+Error mempertahankan pesan lama pada JSON controller dan menambahkan metadata aman `reason`, `action`, `request_id`, `warehouse_request_id`, `retryable`, `retry_after`. UI menampilkan tindakan serta referensi, membedakan masalah key server, token, email, penangguhan, izin dan gangguan sementara. Disconnect tetap memerlukan admin organisasi Mufise; penolakan tidak menghapus token lokal.
+
+Log `mufise.request`, `mufise.transport_failed`, `mufise.configuration_failed` dan `mufise.local_problem` hanya memakai field yang diizinkan. Referensi Mufise dibaca dari header `X-Request-ID` dengan fallback JSON dan harus berupa UUID. Endpoint log memakai template tanpa ID proyek/personel. Body, token, API key, request secret dan exception transport asli tidak dicatat. Reporter/proxy hosting di luar client tetap perlu memakai penyamaran rahasia yang sama. APP_KEY harus dipertahankan; kegagalan dekripsi ditampilkan sebagai masalah penyimpanan/konfigurasi tanpa menghapus ciphertext.

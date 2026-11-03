@@ -46,7 +46,7 @@ class MufiseIntegrationTest extends TestCase
     private function account(User $user): MufiseAccount
     {
         $account = app(MufiseConnectionService::class)->account($user->id);
-        $account->update(['access_token' => 'borrower-secret', 'expires_at' => now()->addDays(90), 'mufise_user_id' => 'mufise-user']);
+        $account->update(['access_token' => 'borrower-secret', 'expires_at' => null, 'mufise_user_id' => 'mufise-user']);
 
         return $account;
     }
@@ -112,6 +112,7 @@ class MufiseIntegrationTest extends TestCase
         $this->postJson(route('customer.mufise.poll'))->assertOk();
         Http::assertSentCount(1);
         $this->assertNull($account->fresh()->pairing);
+        $this->assertTrue($account->fresh()->expires_at->isFuture());
         $this->assertStringNotContainsString('new-token', $account->fresh()->getRawOriginal('access_token'));
     }
 
@@ -209,7 +210,7 @@ class MufiseIntegrationTest extends TestCase
         $this->account($user);
         Http::fake(['*/me' => Http::response(['error' => ['code' => 'invalid_credentials']], 401)]);
         $this->actingAs($user, 'customer')->getJson(route('customer.mufise.index'))->assertOk()
-            ->assertJsonPath('projects', [])->assertJsonPath('error', 'Kredensial Mufise tidak berlaku. Periksa konfigurasi atau hubungkan ulang akun.');
+            ->assertJsonPath('projects', [])->assertJsonPath('error', 'Kredensial Mufise bermasalah. Admin perlu memeriksa konfigurasi dan token akun.');
     }
 
     public function test_checkout_without_mufise_connection_offers_onboarding_without_an_error(): void
@@ -218,7 +219,7 @@ class MufiseIntegrationTest extends TestCase
         $this->cart($user);
         $this->actingAs($user, 'customer')->get(route('checkout.index'))->assertOk()
             ->assertSee('Perbarui Proyek')->assertViewHas('mufiseError', null)->assertViewHas('mufiseStatus', null);
-        $this->getJson(route('customer.mufise.index'))->assertOk()->assertExactJson(['status' => null, 'projects' => [], 'error' => null]);
+        $this->getJson(route('customer.mufise.index'))->assertOk()->assertExactJson(['status' => null, 'projects' => [], 'error' => null, 'problem' => null]);
         Http::assertNothingSent();
     }
 
@@ -418,7 +419,7 @@ class MufiseIntegrationTest extends TestCase
             app(MufiseConnectionService::class)->token($account);
             $this->fail('Expired token must not be sent');
         } catch (MufiseException $e) {
-            $this->assertSame('reconnect_required', $e->errorCode);
+            $this->assertSame('local_token_expired', $e->errorCode);
         }
         Http::assertNothingSent();
     }
@@ -455,5 +456,205 @@ class MufiseIntegrationTest extends TestCase
         $this->assertNotNull($account->fresh()->access_token);
         $this->postJson(route('customer.mufise.disconnect'))->assertOk();
         $this->assertNull($account->fresh()->access_token);
+    }
+
+    public function test_no_expiry_exchange_survives_refresh_and_opens_checkout(): void
+    {
+        $user = User::factory()->create(['is_verified' => true]);
+        $this->cart($user);
+        $service = app(MufiseConnectionService::class);
+        $account = $service->account($user->id);
+        $account->update(['pairing' => ['request_id' => 'r', 'request_secret' => 'secret', 'expires_at' => now()->addMinutes(10)->toIso8601String()]]);
+        Http::fake([
+            '*/token' => Http::response(['access_token' => 'no-expiry-token', 'user_id' => 'mufise-user', 'external_user_id' => (string) $user->id, 'expires_in' => null]),
+            '*/me' => Http::response(['next_action' => 'ready', 'organization' => ['name' => 'FTV']]),
+            '*/projects' => Http::response(['projects' => [['id' => $this->projectId, 'title' => 'Film Senja']]]),
+        ]);
+        $this->actingAs($user, 'customer')->postJson(route('customer.mufise.poll'))->assertOk()->assertExactJson(['connected' => true]);
+        $this->assertNull($account->fresh()->expires_at);
+        $this->assertNull($account->fresh()->pairing);
+        $this->assertSame('no-expiry-token', $service->token($account->fresh()));
+        $this->travel(100)->days();
+        $this->postJson(route('customer.mufise.poll'))->assertOk()->assertJsonPath('connected', true);
+        $this->getJson(route('customer.mufise.index'))->assertOk()->assertJsonPath('status.next_action', 'ready')->assertJsonPath('problem', null)->assertDontSee('no-expiry-token');
+        $this->get(route('checkout.index'))->assertOk()->assertViewHas('mufiseError', null)->assertViewHas('mufiseStatus', fn ($status) => $status['next_action'] === 'ready');
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/me') && $request->hasHeader('Authorization', 'Bearer no-expiry-token'));
+    }
+
+    public function test_missing_or_malformed_expiry_does_not_replace_previous_token(): void
+    {
+        $currentResponse = null;
+        Http::fake(function () use (&$currentResponse) {
+            return $currentResponse;
+        });
+        foreach ([[], ['expires_in' => 0], ['expires_in' => -1], ['expires_in' => '777'], ['expires_in' => false]] as $expiry) {
+            $user = User::factory()->create();
+            $account = $this->account($user);
+            $account->update(['pairing' => ['request_id' => 'r', 'request_secret' => 'secret', 'expires_at' => now()->addMinutes(10)->toIso8601String()]]);
+            $currentResponse = Http::response($expiry + ['access_token' => 'bad-response-token', 'user_id' => 'mufise-user', 'external_user_id' => (string) $user->id]);
+            $this->actingAs($user, 'customer')->postJson(route('customer.mufise.poll'))->assertStatus(502)->assertJsonPath('code', 'invalid_response')->assertJsonPath('action', 'restart_pairing');
+            $this->assertSame('borrower-secret', $account->fresh()->access_token);
+            $this->assertNull($account->fresh()->pairing);
+        }
+    }
+
+    public function test_authentication_reasons_have_distinct_safe_actions_and_references(): void
+    {
+        $user = User::factory()->create();
+        $account = $this->account($user);
+        $this->actingAs($user, 'customer');
+        $reference = (string) Str::uuid();
+        $currentResponse = null;
+        Http::fake(function () use (&$currentResponse) {
+            return $currentResponse;
+        });
+        foreach ([
+            'connection_credentials_invalid' => 'check_configuration',
+            'user_token_missing' => 'check_token_storage',
+            'user_token_invalid' => 'reconnect_account',
+            'user_token_revoked' => 'reconnect_account',
+            'user_token_expired' => 'reconnect_account',
+            'email_verification_required' => 'verify_email',
+            'account_suspended' => 'contact_admin',
+        ] as $reason => $action) {
+            $currentResponse = Http::response(['error' => ['code' => 'invalid_credentials', 'reason' => $reason, 'message' => 'upstream-secret', 'action' => 'untrusted-action', 'request_id' => (string) Str::uuid()]], 401, ['X-Request-ID' => $reference]);
+            $response = $this->getJson(route('customer.mufise.index'))->assertOk()
+                ->assertJsonPath('problem.reason', $reason)->assertJsonPath('problem.action', $action)
+                ->assertJsonPath('problem.request_id', $reference)->assertJsonPath('problem.retryable', false)
+                ->assertDontSee('upstream-secret')->assertDontSee('untrusted-action')->assertDontSee('borrower-secret')->assertDontSee('server-secret');
+            $this->assertTrue(Str::isUuid($response->json('problem.warehouse_request_id')));
+            $this->assertSame('borrower-secret', $account->fresh()->access_token);
+        }
+    }
+
+    public function test_transport_and_invalid_responses_are_safe_and_keep_token(): void
+    {
+        $user = User::factory()->create();
+        $account = $this->account($user);
+        $this->actingAs($user, 'customer');
+        \Illuminate\Support\Facades\Log::spy();
+        $currentResponse = null;
+        Http::fake(function () use (&$currentResponse) {
+            if ($currentResponse === null) {
+                throw new \Illuminate\Http\Client\ConnectionException('sensitive-transport-details');
+            }
+
+            return $currentResponse;
+        });
+        $this->getJson(route('customer.mufise.index'))->assertOk()->assertJsonPath('problem.reason', 'transport_error')->assertJsonPath('problem.action', 'retry_later')->assertJsonPath('problem.retry_after', 30)->assertDontSee('sensitive-transport-details');
+        foreach ([Http::response('<html>proxy-secret</html>', 200), Http::response('', 302, ['Location' => 'https://login.test/secret']), Http::response(['error' => ['code' => ['malformed-secret']]], 500)] as $response) {
+            $currentResponse = $response;
+            $this->getJson(route('customer.mufise.index'))->assertOk()->assertJsonPath('problem.code', 'invalid_response')->assertDontSee('proxy-secret')->assertDontSee('malformed-secret');
+        }
+        $this->assertSame('borrower-secret', $account->fresh()->access_token);
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->withArgs(fn ($event, $context) => $event === 'mufise.transport_failed' && ! str_contains(json_encode($context), 'secret'));
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('log')->withArgs(fn ($level, $event, $context) => $event === 'mufise.request' && $context['endpoint'] === 'me' && ! str_contains(json_encode($context), 'secret'))->times(3);
+    }
+
+    public function test_retry_after_and_json_reference_fallback_are_preserved(): void
+    {
+        $user = User::factory()->create();
+        $account = $this->account($user);
+        $reference = (string) Str::uuid();
+        Http::fake(['*/disconnect' => Http::response(['error' => ['code' => 'rate_limited', 'request_id' => $reference]], 429, ['Retry-After' => '120', 'X-Request-ID' => 'invalid'])]);
+        $this->actingAs($user, 'customer')->postJson(route('customer.mufise.disconnect'))->assertStatus(429)
+            ->assertJsonPath('reason', 'rate_limited')->assertJsonPath('action', 'retry_later')->assertJsonPath('retryable', true)->assertJsonPath('retry_after', 120)->assertJsonPath('request_id', $reference)->assertHeader('Retry-After', '120');
+        $this->assertSame('borrower-secret', $account->fresh()->access_token);
+    }
+
+    public function test_unreadable_token_pairing_and_key_produce_safe_local_problems(): void
+    {
+        $user = User::factory()->create();
+        $account = $this->account($user);
+        $original = $account->getRawOriginal('access_token');
+        DB::table('mufise_accounts')->where('id', $account->id)->update(['access_token' => 'broken-cipher']);
+        $this->actingAs($user, 'customer')->getJson(route('customer.mufise.index'))->assertOk()->assertJsonPath('problem.reason', 'token_decryption_failed')->assertDontSee('broken-cipher');
+        $this->assertSame('broken-cipher', $account->fresh()->getRawOriginal('access_token'));
+        DB::table('mufise_accounts')->where('id', $account->id)->update(['access_token' => $original, 'pairing' => 'broken-pairing']);
+        $this->getJson(route('customer.mufise.index'))->assertOk()->assertJsonPath('problem.reason', 'pairing_decryption_failed')->assertDontSee('broken-pairing');
+        DB::table('mufise_accounts')->where('id', $account->id)->update(['pairing' => null]);
+        Setting::set('mufise_api_key_encrypted', 'broken-key');
+        $this->getJson(route('customer.mufise.index'))->assertOk()->assertJsonPath('problem.action', 'check_configuration')->assertJsonPath('problem.reason', 'key_decryption_failed')->assertDontSee('broken-key');
+        Http::assertNothingSent();
+    }
+
+    public function test_configuration_error_ui_does_not_offer_pairing_and_keeps_checkout_draft(): void
+    {
+        $user = User::factory()->create(['is_verified' => true]);
+        $this->cart($user);
+        $this->account($user);
+        Http::fake(['*/me' => Http::response(['error' => ['code' => 'invalid_credentials', 'reason' => 'connection_credentials_invalid']], 401)]);
+        $this->actingAs($user, 'customer')->get(route('checkout.index'))->assertOk()
+            ->assertViewHas('mufiseProblem', fn ($problem) => $problem['action'] === 'check_configuration')
+            ->assertDontSee('borrower-secret')->assertDontSee('server-secret');
+        $this->get(route('customer.mufise.index'))->assertOk()->assertSee('Hubungi admin Warehouse')->assertSee('Referensi Warehouse:');
+        $this->assertSame(1, $user->carts()->count());
+    }
+
+    public function test_repair_requires_confirmation_and_only_updates_verified_current_connection(): void
+    {
+        $user = User::factory()->create();
+        $valid = $this->account($user);
+        $valid->update(['expires_at' => now()->subDay()]);
+        $revoked = $this->account(User::factory()->create());
+        $revoked->update(['access_token' => 'revoked-token', 'expires_at' => now()->subDay()]);
+        $other = $this->account(User::factory()->create());
+        $other->update(['server_url' => 'https://other.test', 'expires_at' => now()->subDay()]);
+        $pending = $this->account(User::factory()->create());
+        $pending->update(['expires_at' => now()->subDay(), 'pairing' => ['request_id' => 'r', 'request_secret' => 'secret', 'expires_at' => now()->addMinute()->toIso8601String()]]);
+        $this->artisan('mufise:repair-token-expiry', ['--apply' => true])->assertFailed();
+        Http::assertNothingSent();
+        Http::fake(fn ($request) => $request->hasHeader('Authorization', 'Bearer revoked-token')
+            ? Http::response(['error' => ['code' => 'invalid_credentials', 'reason' => 'user_token_revoked']], 401)
+            : Http::response(['next_action' => 'ready']));
+        $this->artisan('mufise:repair-token-expiry')->assertFailed();
+        $this->assertNotNull($valid->fresh()->expires_at);
+        $this->artisan('mufise:repair-token-expiry', ['--apply' => true, '--confirmed-no-expiry' => true])->assertFailed();
+        $this->assertNull($valid->fresh()->expires_at);
+        $this->assertNotNull($revoked->fresh()->expires_at);
+        $this->assertNotNull($other->fresh()->expires_at);
+        $this->assertNotNull($pending->fresh()->expires_at);
+        $this->assertSame('revoked-token', $revoked->fresh()->access_token);
+        Http::assertSentCount(4);
+    }
+
+    public function test_diagnostic_logs_redact_resource_ids_and_untrusted_error_fields(): void
+    {
+        \Illuminate\Support\Facades\Log::spy();
+        Http::fake(['*' => Http::response(['error' => ['code' => 'untrusted-secret', 'reason' => 'secret-reason', 'message' => 'secret-body', 'request_id' => '<script>secret</script>']], 400, ['X-Request-ID' => 'secret-header'])]);
+        try {
+            app(\App\Services\MufiseClient::class)->request('PATCH', 'projects/private-project/crew/private-contact', 'private-token', ['full_name' => 'private-name'], 'private-operation');
+            $this->fail('Invalid response must be rejected');
+        } catch (MufiseException $e) {
+            $this->assertSame('invalid_response', $e->errorCode);
+            $this->assertNull($e->requestId);
+            $this->assertStringNotContainsString('secret', json_encode($e->problem()));
+        }
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('log')->withArgs(function ($level, $event, $context) {
+            $this->assertSame(['warehouse_request_id', 'method', 'endpoint', 'status', 'request_id', 'code', 'reason', 'action', 'duration_ms'], array_keys($context));
+            $this->assertSame('projects/:project/crew/:resource', $context['endpoint']);
+            $this->assertStringNotContainsString('private-', json_encode($context));
+            $this->assertStringNotContainsString('secret', json_encode($context));
+
+            return $event === 'mufise.request';
+        })->once();
+    }
+
+    public function test_repair_keeps_tokens_and_expiry_on_configuration_outage_or_invalid_response(): void
+    {
+        $account = $this->account(User::factory()->create());
+        $account->update(['expires_at' => now()->subDay()]);
+        Http::fake(['*/me' => Http::sequence()
+            ->push(['error' => ['code' => 'invalid_credentials', 'reason' => 'connection_credentials_invalid']], 401)
+            ->push(['error' => ['code' => 'maintenance']], 503)
+            ->push('<html>proxy-secret</html>', 200)
+            ->push(['next_action' => 'ready'])]);
+        foreach (range(1, 3) as $attempt) {
+            $this->artisan('mufise:repair-token-expiry', ['--apply' => true, '--confirmed-no-expiry' => true])->assertFailed();
+            $this->assertNotNull($account->fresh()->expires_at);
+            $this->assertSame('borrower-secret', $account->fresh()->access_token);
+        }
+        $this->artisan('mufise:repair-token-expiry', ['--apply' => true, '--confirmed-no-expiry' => true])->assertSuccessful();
+        $this->assertNull($account->fresh()->expires_at);
     }
 }

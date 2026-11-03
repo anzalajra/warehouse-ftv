@@ -3,7 +3,7 @@
 @section('content')
 @php
     $connectionConfig = [
-        'pending' => $pending,
+        'pending' => $pending, 'problem' => $problem,
         'connectUrl' => route('customer.mufise.connect'),
         'pollUrl' => route('customer.mufise.poll'),
         'disconnectUrl' => route('customer.mufise.disconnect'),
@@ -18,12 +18,12 @@
     @if(!\App\Services\Mufise\MufiseSettings::enabled())
         <div role="status" class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg text-sm">Integrasi Mufise belum diaktifkan oleh admin.</div>
     @else
-        @if($error)<div role="alert" class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-sm">{{ $error }}</div>@endif
+        @if($error)<div x-show="!message" role="alert" class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-sm">{{ $error }} @include('frontend.mufise.problem')</div>@endif
         <section class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div class="p-5 sm:p-6 space-y-5">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <h2 class="text-lg font-semibold text-gray-900">Akun Mufise</h2>
-                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold {{ $status ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600' }}">{{ $status ? 'Akun terhubung' : 'Belum terhubung' }}</span>
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold {{ $status ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600' }}">{{ $problem ? 'Status perlu diperiksa' : ($status ? 'Akun terhubung' : 'Belum terhubung') }}</span>
                 </div>
                 @if($status)
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
@@ -44,18 +44,21 @@
                         'ready' => 'Akun siap digunakan. Pilih proyek di checkout untuk melanjutkan booking.',
                         default => 'Hubungkan ulang akun Mufise untuk memperbarui akses.'
                     } }}</div>
-                @else
+                @elseif(!$problem)
                     <p class="text-sm text-gray-600 leading-relaxed">Klik tombol di bawah untuk membuka Mufise di tab baru. Masuk atau daftar akun Mufise, lalu pilih proyek yang akan digunakan.</p>
                 @endif
                 <div class="flex flex-col sm:flex-row flex-wrap gap-3">
-                    <button type="button" @click="connect()" :disabled="busy || polling" class="inline-flex items-center justify-center gap-2 bg-primary-600 text-white rounded-lg px-5 py-3 text-sm font-semibold hover:bg-primary-700 transition disabled:opacity-50 disabled:cursor-wait">
+                    <button x-cloak x-show="canConnect()" type="button" @click="connect()" :disabled="busy || polling" class="inline-flex items-center justify-center gap-2 bg-primary-600 text-white rounded-lg px-5 py-3 text-sm font-semibold hover:bg-primary-700 transition disabled:opacity-50 disabled:cursor-wait">
                         <svg x-show="busy || polling" x-cloak class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
-                        <span>{{ $status ? 'Gunakan proyek lain / Buat proyek baru' : 'Connect Mufise Account' }}</span>
+                        <span>{{ $status ? 'Gunakan proyek lain / Buat proyek baru' : ($problem ? 'Hubungkan ulang akun Mufise' : 'Connect Mufise Account') }}</span>
                     </button>
                     @if($status)
                         <button type="button" @click="disconnect()" :disabled="busy || polling" class="inline-flex items-center justify-center border border-gray-300 text-gray-700 rounded-lg px-5 py-3 text-sm font-semibold hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-wait">Putus Koneksi</button>
+                        <p class="text-xs text-gray-500 self-center">Pemutusan koneksi memerlukan admin organisasi Mufise.</p>
                     @endif
                 </div>
+                <a x-show="message && problem?.action === 'verify_email'" x-cloak href="{{ \App\Services\Mufise\MufiseSettings::url() }}" target="_blank" rel="noopener noreferrer" class="inline-block text-sm font-semibold underline">Buka Mufise</a>
+                <a x-show="problem" x-cloak href="{{ route('customer.mufise.index') }}" class="inline-block text-sm font-semibold underline">Periksa kembali</a>
                 <p class="text-xs text-gray-500 leading-relaxed">Pendaftaran dan koneksi mengikuti organisasi yang ditentukan admin Warehouse. Lengkapi verifikasi di Mufise bila diminta.</p>
                 <div x-show="message" x-cloak role="status" aria-live="polite" class="rounded-lg border p-4 text-sm" :class="failed ? 'bg-red-50 border-red-200 text-red-700' : 'bg-primary-50 border-primary-100 text-primary-800'">
                     <p class="font-medium" x-text="message"></p>

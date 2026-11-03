@@ -129,3 +129,61 @@ test('refresh failure preserves selection and displays an error', async t => {
     assert.equal(state.mufiseRefreshing, false);
     assert.equal(state.mufiseNotice, '');
 });
+
+test('configuration and account problems choose recovery without a pairing loop', async t => {
+    setup(t, () => assert.fail('configuration errors must not start pairing'));
+    for (const action of ['check_configuration', 'check_credentials', 'verify_email', 'contact_admin', 'check_token_storage']) {
+        const problem = { reason: 'test', action, message: 'Perlu tindakan', request_id: 'mufise-ref', warehouse_request_id: 'warehouse-ref', retryable: false };
+        const connection = mufiseConnection({ ...config, problem });
+        assert.equal(connection.canConnect(), false);
+        await connection.connect();
+        const state = mufiseCheckout({ status: null, projects: [], problem });
+        assert.match(state.mufiseConnectionLabel(), /Periksa Pengaturan/);
+        assert.match(state.mufiseError, /Referensi Mufise: mufise-ref/);
+        assert.match(state.mufiseError, /Referensi Warehouse: warehouse-ref/);
+    }
+    for (const action of ['reconnect_account', 'restart_pairing', 'join_organization']) {
+        assert.equal(mufiseConnection({ ...config, problem: { action } }).canConnect(), true);
+    }
+    assert.equal(mufiseConnection({ ...config, problem: { reason: 'local_token_expired', action: 'check_token_storage' } }).canConnect(), true);
+});
+
+test('refresh error preserves draft and uses server recovery then clears it after success', async t => {
+    const state = checkout();
+    state.mufiseProject = 'film-1';
+    let data = { error: 'Verifikasi email', problem: { message: 'Verifikasi email', action: 'verify_email', request_id: 'ref' } };
+    t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => data }));
+    await state.refreshMufiseProjects();
+    assert.match(state.mufiseError, /Buka Mufise/);
+    assert.match(state.mufiseError, /Referensi Mufise: ref/);
+    assert.equal(state.mufiseProject, 'film-1');
+    assert.equal(state.notes, 'Tetap tersimpan');
+    assert.equal(state.outsidePurpose, 'uts');
+    assert.match(state.mufiseConnectionLabel(), /Periksa Pengaturan/);
+    data = { status: { next_action: 'ready' }, projects: [{ id: 'film-1', title: 'Film Senja' }], error: null, problem: null };
+    await state.refreshMufiseProjects();
+    assert.equal(state.mufiseProblem, null);
+    assert.equal(state.mufiseError, '');
+    assert.match(state.mufiseConnectionLabel(), /Kelola Proyek/);
+});
+
+test('polling follows explicit retryable metadata and shows references', async t => {
+    const timers = setup(t);
+    const previousDocument = globalThis.document;
+    globalThis.document = { querySelector: () => ({ content: 'csrf' }) };
+    t.after(() => { globalThis.document = previousDocument; });
+    let problem = { message: 'Konfigurasi bermasalah', action: 'check_configuration', retryable: false, warehouse_request_id: 'local-ref' };
+    t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 503, headers: { get: () => '30' }, json: async () => problem }));
+    const state = mufiseConnection(config);
+    state.waitForApproval(approval);
+    await state.poll();
+    assert.equal(state.polling, false);
+    assert.equal(state.canConnect(), false);
+    assert.match(state.message, /local-ref/);
+    assert.equal(timers.length, 1);
+    problem = { message: 'Gangguan sementara', action: 'retry_later', retryable: true, retry_after: 30 };
+    state.waitForApproval(approval);
+    await state.poll();
+    assert.equal(state.polling, true);
+    assert.equal(timers.at(-1).delay, 30000);
+});

@@ -10,7 +10,7 @@
     $initialLocations = old('shooting_locations') ?: [['location_name' => '', 'start_at' => '', 'end_at' => '']];
     $initialCrew = old('shooting_crew') ?: [['name' => '', 'nim' => '', 'role' => '']];
     $mufiseConfig = [
-        'status' => $mufiseStatus, 'projects' => $mufiseProjects, 'error' => $mufiseError,
+        'status' => $mufiseStatus, 'projects' => $mufiseProjects, 'error' => $mufiseError, 'problem' => $mufiseProblem,
         'selected' => old('mufise_project_id', ''), 'statusUrl' => route('customer.mufise.index'),
     ];
 @endphp
@@ -103,7 +103,7 @@
                             <h2 id="mufise_heading" class="text-lg font-semibold text-gray-900">Proyek Mufise</h2>
                             <p class="text-sm text-gray-500 mt-1">Gunakan data produksi Mufise untuk booking ini.</p>
                         </div>
-                        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" :class="mufiseStatus ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'" x-text="mufiseStatus ? 'Akun terhubung' : 'Belum terhubung'"></span>
+                        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" :class="mufiseStatus ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'" x-text="mufiseProblem ? 'Status perlu diperiksa' : (mufiseStatus ? 'Akun terhubung' : 'Belum terhubung')"></span>
                     </div>
                     <div class="rounded-lg bg-primary-50 border border-primary-100 p-4 text-sm text-primary-800">
                         <p class="font-medium" x-text="mufiseGuidance()"></p>
@@ -111,13 +111,14 @@
                     </div>
                     <div class="flex flex-col sm:flex-row flex-wrap gap-3">
                         <a href="{{ route('customer.mufise.index') }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center bg-primary-600 text-white rounded-lg px-5 py-3 text-sm font-semibold hover:bg-primary-700 transition">
-                            <span x-text="mufiseStatus ? 'Kelola Proyek Mufise ↗' : 'Hubungkan Akun Mufise ↗'"></span>
+                            <span x-text="mufiseConnectionLabel()"></span>
                         </a>
                         <button type="button" @click="refreshMufiseProjects()" :disabled="mufiseRefreshing" class="inline-flex items-center justify-center gap-2 border border-gray-300 text-gray-700 rounded-lg px-5 py-3 text-sm font-semibold hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-wait">
                             <svg x-show="mufiseRefreshing" x-cloak class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
                             <span x-text="mufiseRefreshing ? 'Memperbarui…' : 'Perbarui Proyek'"></span>
                         </button>
                     </div>
+                    <a x-show="mufiseProblem?.action === 'verify_email'" x-cloak href="{{ \App\Services\Mufise\MufiseSettings::url() }}" target="_blank" rel="noopener noreferrer" class="inline-block text-sm font-semibold underline">Buka Mufise untuk verifikasi email ↗</a>
                     <p class="text-xs text-gray-500">Pengaturan koneksi dibuka di tab baru. Setelah selesai, klik Perbarui Proyek untuk memperbarui pilihan di bawah.</p>
                     <div x-show="mufiseError" x-cloak role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700" x-text="mufiseError"></div>
                     <div x-show="mufiseNotice" x-cloak role="status" aria-live="polite" class="rounded-lg border border-primary-100 bg-primary-50 p-4 text-sm text-primary-800" x-text="mufiseNotice"></div>

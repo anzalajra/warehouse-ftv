@@ -24,18 +24,19 @@ class MufiseController extends Controller
         $status = null;
         $projects = [];
         $error = null;
+        $problem = null;
         $pending = null;
         if (MufiseSettings::enabled()) {
             try {
                 $account = $this->connections->account(Auth::guard('customer')->id());
-                $pairing = $account->pairing;
+                $pairing = $this->connections->pairing($account);
                 if ($pairing && now()->lt($pairing['expires_at'])) {
                     $pending = [
                         'verification_url' => MufiseSettings::url().'/connect/warehouse?request='.rawurlencode($pairing['request_id']),
                         'expires_at' => $pairing['expires_at'],
                     ];
                 }
-                if ($account->access_token) {
+                if ($this->connections->storedToken($account)) {
                     $token = $this->connections->token($account);
                     $status = $this->client->request('GET', 'me', $token);
                     if (($status['next_action'] ?? '') === 'ready') {
@@ -44,14 +45,15 @@ class MufiseController extends Controller
                 }
             } catch (MufiseException $e) {
                 $error = $e->getMessage();
+                $problem = $e->problem();
             }
         }
 
         if ($request->expectsJson()) {
-            return response()->json(compact('status', 'projects', 'error'))->header('Cache-Control', 'private, no-store');
+            return response()->json(compact('status', 'projects', 'error', 'problem'))->header('Cache-Control', 'private, no-store');
         }
 
-        return response()->view('frontend.mufise.connections', compact('status', 'projects', 'error', 'pending'))->header('Cache-Control', 'private, no-store');
+        return response()->view('frontend.mufise.connections', compact('status', 'projects', 'error', 'pending', 'problem'))->header('Cache-Control', 'private, no-store');
     }
 
     public function start()
@@ -78,7 +80,12 @@ class MufiseController extends Controller
         try {
             return response()->json($action())->header('Cache-Control', 'private, no-store');
         } catch (MufiseException $e) {
-            return response()->json(['message' => $e->getMessage(), 'code' => $e->errorCode], $e->status)->withHeaders(['Cache-Control' => 'private, no-store', 'Retry-After' => $e->retryAfter]);
+            $response = response()->json($e->problem(), $e->status)->header('Cache-Control', 'private, no-store');
+            if ($e->retryable) {
+                $response->header('Retry-After', $e->retryAfter);
+            }
+
+            return $response;
         } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
             return response()->json(['message' => 'Permintaan lain sedang diproses. Coba kembali.', 'code' => 'busy'], 429)->header('Cache-Control', 'private, no-store');
         }
@@ -116,7 +123,7 @@ class MufiseController extends Controller
 
             return response()->view('frontend.mufise.project', compact('bundle', 'positions', 'rental', 'base', 'params'))->header('Cache-Control', 'private, no-store');
         } catch (MufiseException $e) {
-            return response()->view('frontend.mufise.error', ['message' => $e->getMessage()], $e->status)->header('Cache-Control', 'private, no-store');
+            return response()->view('frontend.mufise.error', ['message' => $e->getMessage(), 'problem' => $e->problem()], $e->status)->header('Cache-Control', 'private, no-store');
         }
     }
 
@@ -134,7 +141,7 @@ class MufiseController extends Controller
                 'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox",
             ]);
         } catch (MufiseException $e) {
-            return response()->view('frontend.mufise.error', ['message' => $e->getMessage()], $e->status)->header('Cache-Control', 'private, no-store');
+            return response()->view('frontend.mufise.error', ['message' => $e->getMessage(), 'problem' => $e->problem()], $e->status)->header('Cache-Control', 'private, no-store');
         }
     }
 
