@@ -30,7 +30,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $this->app->scoped(\App\Services\InventoryReportService::class);
     }
 
     public function boot(): void

@@ -44,7 +44,7 @@ class RentalSettings extends Page implements HasForms
 
     public function mount(): void
     {
-        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings = Setting::pluck('value', 'key')->all();
 
         // Load holidays
         if (isset($settings['holidays'])) {

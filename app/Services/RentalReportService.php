@@ -18,8 +18,8 @@ use Illuminate\Support\Collection;
  * when omitted it defaults to the current month — the same convention used by
  * {@see \App\Filament\Clusters\Finance\Pages\FinancialReports::mount()}.
  *
- * All grouping is done in PHP (not DATE()/strftime SQL) so the service behaves
- * identically on SQLite (local/tests) and MySQL (production). Monetary values are
+ * Summary counts/sums are grouped in SQL; date keys use SUBSTR on Laravel's stored
+ * timestamps, supported by both SQLite and MySQL. Monetary values are
  * read straight from stored columns — totals are NEVER recalculated here (that is
  * the job of RentalObserver::recalculateTotals()).
  */
@@ -54,40 +54,58 @@ class RentalReportService
     {
         [$s, $e] = self::window($start, $end);
 
-        $rentals = Rental::query()
+        $groups = Rental::query()
             ->whereBetween('created_at', [$s, $e])
-            ->get(['id', 'status', 'subtotal', 'total', 'created_at']);
+            ->selectRaw('status, SUBSTR(created_at, 1, 10) as day, COUNT(*) as rental_count, SUM(subtotal) as gross, SUM(total) as net')
+            ->groupBy('status', 'day')
+            ->toBase()->get();
+
+        $statuses = [];
+        $days = [];
+        $count = $realized = 0;
+        $gross = $net = 0.0;
+        foreach ($groups as $group) {
+            $n = (int) $group->rental_count;
+            $count += $n;
+            $gross += (float) $group->gross;
+            $net += (float) $group->net;
+            $realized += in_array($group->status, self::REALIZED_STATUSES, true) ? $n : 0;
+            $days[$group->day] = ($days[$group->day] ?? 0) + $n;
+            $statuses[$group->status] ??= ['count' => 0, 'subtotal' => 0.0, 'total' => 0.0];
+            $statuses[$group->status]['count'] += $n;
+            $statuses[$group->status]['subtotal'] += (float) $group->gross;
+            $statuses[$group->status]['total'] += (float) $group->net;
+        }
 
         $byStatus = [];
         foreach (Rental::getStatusOptions() as $status => $label) {
-            $rows = $rentals->where('status', $status);
+            $row = $statuses[$status] ?? ['count' => 0, 'subtotal' => 0.0, 'total' => 0.0];
             $byStatus[] = [
                 'status' => $status,
                 'label' => $label,
-                'count' => $rows->count(),
-                'subtotal' => round((float) $rows->sum('subtotal'), 2),
-                'total' => round((float) $rows->sum('total'), 2),
+                'count' => $row['count'],
+                'subtotal' => round($row['subtotal'], 2),
+                'total' => round($row['total'], 2),
             ];
         }
 
         // Daily trend (created count per day across the window).
         $trend = [];
         $cursor = $s->copy()->startOfDay();
-        $grouped = $rentals->groupBy(fn ($r) => $r->created_at->toDateString());
         while ($cursor->lte($e)) {
             $key = $cursor->toDateString();
             $trend[] = [
                 'date' => $key,
-                'count' => isset($grouped[$key]) ? $grouped[$key]->count() : 0,
+                'count' => $days[$key] ?? 0,
             ];
             $cursor->addDay();
         }
 
         return [
-            'total_count' => $rentals->count(),
-            'gross' => round((float) $rentals->sum('subtotal'), 2),
-            'net' => round((float) $rentals->sum('total'), 2),
-            'realized_count' => $rentals->whereIn('status', self::REALIZED_STATUSES)->count(),
+            'total_count' => $count,
+            'gross' => round($gross, 2),
+            'net' => round($net, 2),
+            'realized_count' => $realized,
             'by_status' => $byStatus,
             'trend' => $trend,
         ];
@@ -118,7 +136,7 @@ class RentalReportService
             ->when($limit, fn ($q) => $q->limit($limit))
             ->get();
 
-        $users = User::whereIn('id', $rows->pluck('user_id')->filter())->get()->keyBy('id');
+        $users = User::whereIn('id', $rows->pluck('user_id')->filter())->get(['id', 'name', 'email'])->keyBy('id');
 
         return $rows->map(fn ($r) => [
             'user_id' => $r->user_id,
@@ -174,40 +192,44 @@ class RentalReportService
     {
         [$s, $e] = self::window($start, $end);
 
-        $rentals = Rental::query()
+        $query = Rental::query()
             ->whereBetween('created_at', [$s, $e])
             ->where(function ($q) {
                 $q->where('late_fee', '>', 0)
                     ->orWhereIn('status', [Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN]);
-            })
-            ->with('user:id,name')
-            ->get();
+            });
 
-        $withFee = $rentals->where('late_fee', '>', 0);
-        $totalFee = round((float) $rentals->sum('late_fee'), 2);
+        $stats = (clone $query)->toBase()->selectRaw(
+            'SUM(late_fee) as total_fee, SUM(CASE WHEN late_fee > 0 THEN 1 ELSE 0 END) as charged, SUM(CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END) as late_count',
+            [Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN],
+        )->first();
+        $totalFee = round((float) $stats->total_fee, 2);
+        $charged = (int) $stats->charged;
 
-        $rows = $rentals->sortByDesc('late_fee')->take(50)->map(function (Rental $r) {
-            $daysLate = 0;
-            if ($r->end_date) {
-                $ref = $r->returned_date ?: now();
-                $daysLate = max(0, $r->end_date->diffInDays($ref, false));
-            }
+        $rows = $query->with('user:id,name')->orderByDesc('late_fee')->orderBy('id')->limit(50)
+            ->get(['id', 'user_id', 'rental_code', 'status', 'end_date', 'returned_date', 'late_fee'])
+            ->map(function (Rental $r) {
+                $daysLate = 0;
+                if ($r->end_date) {
+                    $ref = $r->returned_date ?: now();
+                    $daysLate = max(0, $r->end_date->diffInDays($ref, false));
+                }
 
-            return [
-                'rental_code' => $r->rental_code,
-                'customer' => $r->user->name ?? '—',
-                'status' => Rental::getStatusLabel($r->status),
-                'end_date' => $r->end_date?->toDateString(),
-                'days_late' => $daysLate,
-                'late_fee' => round((float) $r->late_fee, 2),
-            ];
-        })->values();
+                return [
+                    'rental_code' => $r->rental_code,
+                    'customer' => $r->user->name ?? '—',
+                    'status' => Rental::getStatusLabel($r->status),
+                    'end_date' => $r->end_date?->toDateString(),
+                    'days_late' => $daysLate,
+                    'late_fee' => round((float) $r->late_fee, 2),
+                ];
+            })->values();
 
         return [
             'total_fee' => $totalFee,
-            'count_charged' => $withFee->count(),
-            'count_late_status' => $rentals->whereIn('status', [Rental::STATUS_LATE_PICKUP, Rental::STATUS_LATE_RETURN])->count(),
-            'avg_fee' => $withFee->count() > 0 ? round($totalFee / $withFee->count(), 2) : 0.0,
+            'count_charged' => $charged,
+            'count_late_status' => (int) $stats->late_count,
+            'avg_fee' => $charged > 0 ? round($totalFee / $charged, 2) : 0.0,
             'rows' => $rows,
         ];
     }
@@ -223,8 +245,8 @@ class RentalReportService
         $rentals = Rental::query()
             ->whereBetween('created_at', [$s, $e])
             ->whereIn('status', self::REALIZED_STATUSES)
-            ->with(['dailyDiscount', 'datePromotion', 'discountRelation'])
-            ->get();
+            ->with(['dailyDiscount:id,name', 'datePromotion:id,name', 'discountRelation:id,name'])
+            ->get(['id', 'subtotal', 'discount', 'discount_type', 'discount_code', 'category_discount_amount', 'category_name', 'daily_discount_id', 'daily_discount_amount', 'date_promotion_id', 'date_promotion_amount', 'discount_id']);
 
         $layers = [
             'category' => ['label' => 'Diskon Kategori', 'amount' => 0.0],
@@ -283,7 +305,7 @@ class RentalReportService
 
         // Invoiced outstanding: pull the invoices linked to these rentals.
         $invoiceIds = $rentals->pluck('invoice_id')->filter()->unique();
-        $invoices = Invoice::whereIn('id', $invoiceIds)->get();
+        $invoices = Invoice::whereIn('id', $invoiceIds)->get(['id', 'total', 'paid_amount', 'pph23_amount']);
         $outstanding = round($invoices->sum(fn (Invoice $i) => max(0, $i->balance)), 2);
         $paid = round((float) $invoices->sum('paid_amount'), 2);
 
@@ -361,7 +383,8 @@ class RentalReportService
 
         $deliveries = Delivery::query()
             ->whereBetween('date', [$s->toDateString(), $e->toDateString()])
-            ->get(['id', 'type', 'status']);
+            ->selectRaw('type, COUNT(*) as delivery_count')->groupBy('type')
+            ->toBase()->pluck('delivery_count', 'type');
 
         $conditionRows = DeliveryItem::query()
             ->whereHas('delivery', function ($q) use ($s, $e) {
@@ -369,11 +392,8 @@ class RentalReportService
                     ->whereBetween('date', [$s->toDateString(), $e->toDateString()]);
             })
             ->whereNotNull('condition')
-            ->get(['condition']);
-
-        $conditionDist = $conditionRows
-            ->groupBy('condition')
-            ->map(fn ($grp) => $grp->count());
+            ->selectRaw('`condition`, COUNT(*) as item_count')->groupBy('condition')
+            ->toBase()->pluck('item_count', 'condition')->map(fn ($count) => (int) $count);
 
         // Items still out: rental items belonging to rentals not yet completed/cancelled.
         $stillOut = RentalItem::query()
@@ -388,10 +408,10 @@ class RentalReportService
             ->count();
 
         return [
-            'out_count' => $deliveries->where('type', Delivery::TYPE_OUT)->count(),
-            'in_count' => $deliveries->where('type', Delivery::TYPE_IN)->count(),
-            'condition_distribution' => $conditionDist,
-            'issues' => $conditionRows->whereIn('condition', ['fair', 'poor', 'broken', 'lost'])->count(),
+            'out_count' => (int) ($deliveries[Delivery::TYPE_OUT] ?? 0),
+            'in_count' => (int) ($deliveries[Delivery::TYPE_IN] ?? 0),
+            'condition_distribution' => $conditionRows,
+            'issues' => $conditionRows->only(['fair', 'poor', 'broken', 'lost'])->sum(),
             'still_out' => $stillOut,
         ];
     }

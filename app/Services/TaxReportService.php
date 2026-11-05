@@ -10,10 +10,6 @@ class TaxReportService
     /**
      * Generate Tax Report for a given period.
      * Calculates PPN Output (Pajak Keluaran) from Invoices.
-     * 
-     * @param Carbon $startDate
-     * @param Carbon $endDate
-     * @return array
      */
     public static function generate(Carbon $startDate, Carbon $endDate): array
     {
@@ -23,19 +19,16 @@ class TaxReportService
             ->whereBetween('date', [$startDate, $endDate])
             ->where('is_taxable', true)
             ->whereNotIn('status', ['draft', 'cancelled']) // Exclude Drafts and Cancelled
-            ->get();
-
-        $totalPpn = $invoices->sum('ppn_amount');
-        $totalTaxBase = $invoices->sum('subtotal'); // Assuming subtotal is DPP (Dasar Pengenaan Pajak)
-        $totalTotal = $invoices->sum('total');
+            ->toBase()->selectRaw('COUNT(*) as transaction_count, SUM(ppn_amount) as ppn, SUM(subtotal) as tax_base, SUM(total) as sales')
+            ->first();
 
         return [
             'period_start' => $startDate->toDateString(),
             'period_end' => $endDate->toDateString(),
-            'total_tax_base' => $totalTaxBase,
-            'total_ppn_payable' => $totalPpn, // This matches the test expectation
-            'total_sales' => $totalTotal,
-            'transaction_count' => $invoices->count(),
+            'total_tax_base' => (float) $invoices->tax_base,
+            'total_ppn_payable' => (float) $invoices->ppn,
+            'total_sales' => (float) $invoices->sales,
+            'transaction_count' => (int) $invoices->transaction_count,
         ];
     }
 
@@ -65,13 +58,13 @@ class TaxReportService
             $ppn = (float) $inv->ppn_amount;
 
             $lines[] = [
-                'date'               => optional($inv->date)->toDateString(),
-                'invoice_number'     => $inv->number,
+                'date' => optional($inv->date)->toDateString(),
+                'invoice_number' => $inv->number,
                 'tax_invoice_number' => $inv->tax_invoice_number,
-                'customer'           => $inv->user?->name ?? '—',
-                'npwp'               => $inv->user?->npwp,
-                'dpp'                => round($dpp, 2),
-                'ppn'                => round($ppn, 2),
+                'customer' => $inv->user?->name ?? '—',
+                'npwp' => $inv->user?->npwp,
+                'dpp' => round($dpp, 2),
+                'ppn' => round($ppn, 2),
             ];
 
             $totalDpp += $dpp;
@@ -79,7 +72,7 @@ class TaxReportService
         }
 
         return [
-            'lines'     => $lines,
+            'lines' => $lines,
             'total_dpp' => round($totalDpp, 2),
             'total_ppn' => round($totalPpn, 2),
         ];
@@ -109,13 +102,13 @@ class TaxReportService
             $pph = (float) $inv->pph23_amount;
 
             $lines[] = [
-                'date'            => optional($inv->date)->toDateString(),
-                'invoice_number'  => $inv->number,
-                'bukti_potong'    => $inv->pph23_bukti_potong_number,
-                'customer'        => $inv->user?->name ?? '—',
-                'npwp'            => $inv->user?->npwp,
-                'dpp'             => round($dpp, 2),
-                'pph23'           => round($pph, 2),
+                'date' => optional($inv->date)->toDateString(),
+                'invoice_number' => $inv->number,
+                'bukti_potong' => $inv->pph23_bukti_potong_number,
+                'customer' => $inv->user?->name ?? '—',
+                'npwp' => $inv->user?->npwp,
+                'dpp' => round($dpp, 2),
+                'pph23' => round($pph, 2),
             ];
 
             $totalDpp += $dpp;
@@ -123,9 +116,9 @@ class TaxReportService
         }
 
         return [
-            'lines'        => $lines,
-            'total_dpp'    => round($totalDpp, 2),
-            'total_pph23'  => round($totalPph, 2),
+            'lines' => $lines,
+            'total_dpp' => round($totalDpp, 2),
+            'total_pph23' => round($totalPph, 2),
         ];
     }
 }

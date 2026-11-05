@@ -18,8 +18,8 @@ use Illuminate\Support\Collection;
  */
 class InventoryReportService
 {
-    /** Per-request memo for unitMetrics(), keyed by the date window. */
-    protected static array $unitCache = [];
+    /** Scoped to one request/job by the service container. */
+    protected array $unitCache = [];
 
     /**
      * @return array{0: Carbon, 1: Carbon}
@@ -39,11 +39,15 @@ class InventoryReportService
     {
         $units = ProductUnit::query()
             ->with(['product:id,name', 'warehouse:id,name'])
-            ->get(['id', 'product_id', 'warehouse_id', 'status', 'condition']);
+            ->select(['product_id', 'warehouse_id', 'status'])
+            ->selectRaw('COUNT(*) as unit_count, MIN(id) as first_id')
+            ->groupBy('product_id', 'warehouse_id', 'status')
+            ->orderBy('first_id')
+            ->get();
 
         $totals = [];
         foreach (array_keys(ProductUnit::getStatusOptions()) as $status) {
-            $totals[$status] = $units->where('status', $status)->count();
+            $totals[$status] = (int) $units->where('status', $status)->sum('unit_count');
         }
 
         $byProduct = $units->groupBy('product_id')->map(function ($grp) {
@@ -51,12 +55,12 @@ class InventoryReportService
 
             return [
                 'product' => $first->product->name ?? '—',
-                'total' => $grp->count(),
-                'available' => $grp->where('status', ProductUnit::STATUS_AVAILABLE)->count(),
-                'rented' => $grp->where('status', ProductUnit::STATUS_RENTED)->count(),
-                'scheduled' => $grp->where('status', ProductUnit::STATUS_SCHEDULED)->count(),
-                'maintenance' => $grp->where('status', ProductUnit::STATUS_MAINTENANCE)->count(),
-                'retired' => $grp->where('status', ProductUnit::STATUS_RETIRED)->count(),
+                'total' => (int) $grp->sum('unit_count'),
+                'available' => (int) $grp->where('status', ProductUnit::STATUS_AVAILABLE)->sum('unit_count'),
+                'rented' => (int) $grp->where('status', ProductUnit::STATUS_RENTED)->sum('unit_count'),
+                'scheduled' => (int) $grp->where('status', ProductUnit::STATUS_SCHEDULED)->sum('unit_count'),
+                'maintenance' => (int) $grp->where('status', ProductUnit::STATUS_MAINTENANCE)->sum('unit_count'),
+                'retired' => (int) $grp->where('status', ProductUnit::STATUS_RETIRED)->sum('unit_count'),
             ];
         })->sortByDesc('total')->values();
 
@@ -65,15 +69,15 @@ class InventoryReportService
 
             return [
                 'warehouse' => $first->warehouse->name ?? '—',
-                'total' => $grp->count(),
-                'available' => $grp->where('status', ProductUnit::STATUS_AVAILABLE)->count(),
-                'rented' => $grp->where('status', ProductUnit::STATUS_RENTED)->count(),
-                'maintenance' => $grp->where('status', ProductUnit::STATUS_MAINTENANCE)->count(),
+                'total' => (int) $grp->sum('unit_count'),
+                'available' => (int) $grp->where('status', ProductUnit::STATUS_AVAILABLE)->sum('unit_count'),
+                'rented' => (int) $grp->where('status', ProductUnit::STATUS_RENTED)->sum('unit_count'),
+                'maintenance' => (int) $grp->where('status', ProductUnit::STATUS_MAINTENANCE)->sum('unit_count'),
             ];
         })->sortByDesc('total')->values();
 
         return [
-            'total_units' => $units->count(),
+            'total_units' => (int) $units->sum('unit_count'),
             'totals' => $totals,
             'by_product' => $byProduct,
             'by_warehouse' => $byWarehouse,
@@ -90,8 +94,9 @@ class InventoryReportService
     {
         [$s, $e] = self::window($start, $end);
         $cacheKey = $s->toDateString().'|'.$e->toDateString();
-        if (isset(self::$unitCache[$cacheKey])) {
-            return self::$unitCache[$cacheKey];
+        $service = app(self::class);
+        if (isset($service->unitCache[$cacheKey])) {
+            return $service->unitCache[$cacheKey];
         }
 
         $daysInPeriod = max(1, $s->diffInDays($e) + 1);
@@ -109,6 +114,7 @@ class InventoryReportService
         $periodMaint = fn ($q) => $q->whereBetween('date', [$sDate, $eDate]);
 
         $units = ProductUnit::query()
+            ->select(['id', 'product_id', 'serial_number', 'status', 'condition', 'purchase_price', 'residual_value', 'accumulated_depreciation', 'useful_life', 'purchase_date'])
             ->with('product:id,name')
             ->withSum(['rentalItems as period_days' => $periodItem], 'days')
             ->withSum(['rentalItems as period_revenue' => $periodItem], 'subtotal')
@@ -156,7 +162,7 @@ class InventoryReportService
             ];
         })->values();
 
-        return self::$unitCache[$cacheKey] = $result;
+        return $service->unitCache[$cacheKey] = $result;
     }
 
     /**
@@ -260,7 +266,7 @@ class InventoryReportService
     {
         $units = ProductUnit::query()
             ->where('status', '!=', ProductUnit::STATUS_RETIRED)
-            ->get();
+            ->get(['purchase_price', 'residual_value', 'accumulated_depreciation', 'useful_life', 'purchase_date']);
 
         $cost = 0.0;
         $book = 0.0;

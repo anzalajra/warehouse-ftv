@@ -41,7 +41,7 @@ class RegistrationSettings extends Page implements HasForms
 
     public function mount(): void
     {
-        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings = Setting::pluck('value', 'key')->all();
         
         // Decode JSON settings
         if (isset($settings['registration_custom_fields'])) {

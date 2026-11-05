@@ -142,8 +142,12 @@ class RentalOccupancyService
             ->whereNotNull('product_unit_id')
             ->when($excludeRentalId, fn ($q) => $q->where('rental_id', '!=', $excludeRentalId))
             ->whereHas('rental', fn ($q) => $q->whereIn('status', self::BLOCKING_STATUSES)->where('start_date', '<', $end))
-            ->with(['rental', 'deliveryItems.delivery'])
-            ->get()
+            ->with([
+                'rental:id,status,start_date,end_date',
+                'deliveryItems:id,rental_item_id,rental_item_kit_id,delivery_id,is_checked,checked_at',
+                'deliveryItems.delivery:id,type,status',
+            ])
+            ->get(['id', 'rental_id', 'product_unit_id', 'effective_due_at'])
             ->filter(fn (RentalItem $item) => self::overlaps($item, $start, $end))
             ->pluck('product_unit_id')->unique()->values()->all();
 

@@ -34,7 +34,7 @@ class GeneralSettings extends Page implements HasForms
 
     public function mount(): void
     {
-        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings = Setting::pluck('value', 'key')->all();
         $settings['app_timezone'] = $settings['app_timezone'] ?? 'Asia/Jakarta';
 
         $this->form->fill($settings);

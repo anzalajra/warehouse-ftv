@@ -51,9 +51,8 @@ class Setting extends Model
     {
         return self::where('group', $group)
             ->orderBy('sort_order')
-            ->get()
             ->pluck('value', 'key')
-            ->toArray();
+            ->all();
     }
 
     public static function isStorefrontRentalDisabled(): bool

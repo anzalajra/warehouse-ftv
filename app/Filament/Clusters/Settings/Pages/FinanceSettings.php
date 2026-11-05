@@ -45,10 +45,10 @@ class FinanceSettings extends Page implements HasForms
     public function mount(): void
     {
         // Load general finance settings
-        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings = Setting::pluck('value', 'key')->all();
         
         // Load tax settings
-        $taxSettings = Setting::where('group', 'tax')->get()->pluck('value', 'key')->toArray();
+        $taxSettings = Setting::where('group', 'tax')->pluck('value', 'key')->all();
         
         // Merge all settings
         $allSettings = array_merge($settings, $taxSettings);

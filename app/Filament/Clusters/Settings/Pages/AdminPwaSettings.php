@@ -61,7 +61,7 @@ class AdminPwaSettings extends Page implements HasForms
 
     public function mount(): void
     {
-        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings = Setting::pluck('value', 'key')->all();
 
         // Block-list is stored per class as boolean setting. The form uses
         // *positive* toggles ("push this notification?"), so invert here.

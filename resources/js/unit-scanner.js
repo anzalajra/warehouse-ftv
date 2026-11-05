@@ -105,6 +105,10 @@ function unitScanner(config = {}) {
         lastCode: null,
         lastAt: 0,
         _detectTimer: null,
+        _flashTimer: null,
+        _focusTimer: null,
+        _cameraRequest: 0,
+        _decodeGeneration: 0,
         _profile: TIER_PROFILES.mid,   // resolved in init() from deviceTier()
         _pinchStart: 0,
         _pinchBase: 0,
@@ -128,6 +132,11 @@ function unitScanner(config = {}) {
             this._profile = TIER_PROFILES[deviceTier()] || TIER_PROFILES.mid;
             this.detectEngine();   // async, no stream needed — cache the result early
             this.$watch('open', (v) => { if (!v) this.stopAll(); });
+        },
+
+        destroy() {
+            this.stopAll();
+            this._detector = null;
         },
 
         // Pick the best decode engine once: the OS-native BarcodeDetector when it
@@ -192,6 +201,8 @@ function unitScanner(config = {}) {
 
         // ---- camera ----
         async requestCamera() {
+            this.stopAll();
+            const request = this._cameraRequest;
             this.phase = 'requesting';
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 this.phase = 'nocamera';
@@ -203,7 +214,7 @@ function unitScanner(config = {}) {
                 // isn't drawing huge frames). `focusMode`/`advanced` are
                 // ignored by browsers that don't support them (no throw), and we
                 // re-apply focus after the stream starts (see applyCamera()).
-                this.stream = await navigator.mediaDevices.getUserMedia({
+                const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: { ideal: 'environment' },
                         width: { ideal: this._profile.width },
@@ -213,14 +224,21 @@ function unitScanner(config = {}) {
                     },
                     audio: false,
                 });
+                if (request !== this._cameraRequest) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
+                this.stream = stream;
                 // Multi-camera phones (e.g. Samsung A14) often hand back the
                 // ULTRA-WIDE lens for `facingMode:environment`, which can't focus
                 // on a 12 mm label. Now that we hold a stream the device labels are
                 // readable, so switch to the MAIN back lens if a better one exists.
-                await this.preferMainBackCamera();
+                await this.preferMainBackCamera(request);
+                if (request !== this._cameraRequest) return;
                 this.phase = 'live';
-                this.$nextTick(() => this.startDecode());
+                this.$nextTick(() => { if (request === this._cameraRequest) this.startDecode(); });
             } catch (e) {
+                if (request !== this._cameraRequest) return;
                 const n = (e && e.name) || '';
                 if (['NotFoundError', 'DevicesNotFoundError', 'OverconstrainedError'].includes(n)) {
                     this.phase = 'nocamera';
@@ -245,15 +263,16 @@ function unitScanner(config = {}) {
         // If the OS picked a non-main back lens (ultra-wide/tele/depth), re-acquire
         // the stream on the MAIN back camera. Best-effort — never throws; on any
         // failure we keep the stream we already have.
-        async preferMainBackCamera() {
+        async preferMainBackCamera(request = this._cameraRequest) {
             try {
                 const id = await this.pickMainBackCameraId();
+                if (request !== this._cameraRequest) return;
                 const cur = this._track();
                 const curId = (cur && cur.getSettings) ? (cur.getSettings().deviceId || '') : '';
                 if (!id || id === curId) return;
                 // Stop the current stream before re-acquiring on the chosen lens.
                 try { this.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ }
-                this.stream = await navigator.mediaDevices.getUserMedia({
+                const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         deviceId: { exact: id },
                         width: { ideal: this._profile.width },
@@ -263,14 +282,25 @@ function unitScanner(config = {}) {
                     },
                     audio: false,
                 });
+                if (request !== this._cameraRequest) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
+                this.stream = stream;
             } catch (e) {
+                if (request !== this._cameraRequest) return;
                 // Re-acquire failed (deviceId rejected / stream gone) — make sure we
                 // still have a live stream; fall back to a plain environment request.
                 if (!this.stream || !this._track()) {
                     try {
-                        this.stream = await navigator.mediaDevices.getUserMedia({
+                        const stream = await navigator.mediaDevices.getUserMedia({
                             video: { facingMode: { ideal: 'environment' } }, audio: false,
                         });
+                        if (request !== this._cameraRequest) {
+                            stream.getTracks().forEach((track) => track.stop());
+                            return;
+                        }
+                        this.stream = stream;
                     } catch (e2) { /* leave as-is; caller's catch handles a dead stream */ }
                 }
             }
@@ -313,6 +343,7 @@ function unitScanner(config = {}) {
         startDecode() {
             const video = this.$refs.video;
             if (!video || !this.stream) return;
+            this.stopDecode();
 
             // Capability probe: torch + hardware zoom + focus.
             const track = this._track();
@@ -388,14 +419,15 @@ function unitScanner(config = {}) {
         // recursion (not setInterval) so an async native detect never overlaps.
         async runLoop() {
             if (!this._scanning) return;
+            const generation = this._decodeGeneration;
             const video = this.$refs.video;
             if (video && video.readyState >= 2 && video.videoWidth) {
                 try {
                     const text = await this.grabAndDecode(video);
-                    if (text) this.onDecode(text);
+                    if (text && this._scanning && generation === this._decodeGeneration) this.onDecode(text);
                 } catch (e) { /* no code in this frame */ }
             }
-            if (this._scanning) {
+            if (this._scanning && generation === this._decodeGeneration) {
                 this._loop = setTimeout(() => this.runLoop(), this._profile.delayBetweenScanAttempts);
             }
         },
@@ -404,6 +436,7 @@ function unitScanner(config = {}) {
         // canvas, upscaling tight crops so the QR has more module resolution,
         // then decode it with the active engine. Returns the text or null.
         async grabAndDecode(video) {
+            const generation = this._decodeGeneration;
             const vW = video.videoWidth, vH = video.videoHeight;
             if (!vW || !vH) return null;
 
@@ -423,6 +456,7 @@ function unitScanner(config = {}) {
 
             // Primary decode on the upscaled ROI.
             let text = await this._decodeCanvas(this._canvas);
+            if (generation !== this._decodeGeneration) return null;
             if (text) return text;
 
             // Second pass ONLY on a miss: binarize (global threshold) and retry.
@@ -486,6 +520,7 @@ function unitScanner(config = {}) {
         // so zoom/torch are preserved. Best-effort — many devices ignore
         // pointsOfInterest / single-shot (must never throw).
         async focusAt(e) {
+            const request = this._cameraRequest;
             const el = this.$refs.video;
             if (!this._track() || !el) return;
             const r = el.getBoundingClientRect();
@@ -493,17 +528,23 @@ function unitScanner(config = {}) {
             const x = Math.min(1, Math.max(0, ((t.clientX ?? (r.left + r.width / 2)) - r.left) / r.width));
             const y = Math.min(1, Math.max(0, ((t.clientY ?? (r.top + r.height / 2)) - r.top) / r.height));
             await this.applyCamera({ focusMode: 'single-shot', pointsOfInterest: [{ x, y }] });
-            setTimeout(() => { this.applyCamera(); }, 1600);
+            if (request !== this._cameraRequest) return;
+            clearTimeout(this._focusTimer);
+            this._focusTimer = setTimeout(() => { this.applyCamera(); }, 1600);
         },
 
         stopDecode() {
             this._scanning = false;
+            this._decodeGeneration++;
             clearTimeout(this._loop);
             this._loop = null;
         },
 
         stopAll() {
+            this._cameraRequest++;
             clearTimeout(this._detectTimer);
+            clearTimeout(this._flashTimer);
+            clearTimeout(this._focusTimer);
             this.stopDecode();
             if (this.stream) {
                 try { this.stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* noop */ }
@@ -511,6 +552,13 @@ function unitScanner(config = {}) {
             }
             const v = this.$refs.video;
             if (v) { try { v.srcObject = null; } catch (e) { /* noop */ } }
+            // Release the backing pixel buffers while the scanner is closed.
+            for (const canvas of [this._canvas, this._binCanvas]) {
+                if (canvas) { canvas.width = 0; canvas.height = 0; }
+            }
+            this._canvas = this._ctx = this._binCanvas = this._binCtx = null;
+            this.reader = null;
+            this.flash = false;
             this.torch = false;
         },
 
@@ -642,7 +690,8 @@ function unitScanner(config = {}) {
             this.detectedName = name;
             this.detectedTone = tone || 'ok';
             this.flash = true;
-            setTimeout(() => { this.flash = false; }, 420);
+            clearTimeout(this._flashTimer);
+            this._flashTimer = setTimeout(() => { this.flash = false; }, 420);
             this._detectTimer = setTimeout(() => { this.detectedName = null; }, 1300);
         },
 

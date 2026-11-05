@@ -21,21 +21,23 @@ class ProcessComputerBookingsCommand extends Command
         $time = $now->format('H:i');
 
         $noShowCutoff = $now->copy()->subMinutes($grace);
+        $noShowCount = $activatedCount = $completedCount = 0;
         $noShow = ComputerBooking::where('status', ComputerBooking::STATUS_CONFIRMED)
             ->whereNull('checked_in_at')
-            ->where(function ($q) use ($noShowCutoff, $today, $time) {
+            ->where(function ($q) use ($noShowCutoff, $today) {
                 $q->where('booking_date', '<', $noShowCutoff->toDateString())
                     ->orWhere(function ($q2) use ($noShowCutoff, $today) {
                         $q2->where('booking_date', $today)
                             ->where('start_time', '<=', $noShowCutoff->format('H:i'));
                     });
             })
-            ->get();
+            ->lazyById(200);
 
         foreach ($noShow as $booking) {
             $booking->status = ComputerBooking::STATUS_NO_SHOW;
             $booking->cancelled_reason = 'Auto-cancelled: tidak hadir dalam '.$grace.' menit.';
             $booking->save();
+            $noShowCount++;
         }
 
         $toActivate = ComputerBooking::where('status', ComputerBooking::STATUS_CONFIRMED)
@@ -46,11 +48,12 @@ class ProcessComputerBookingsCommand extends Command
                         $q2->where('booking_date', $today)->where('start_time', '<=', $time);
                     });
             })
-            ->get();
+            ->lazyById(200);
 
         foreach ($toActivate as $booking) {
             $booking->status = ComputerBooking::STATUS_ACTIVE;
             $booking->save();
+            $activatedCount++;
         }
 
         $toComplete = ComputerBooking::where('status', ComputerBooking::STATUS_ACTIVE)
@@ -60,14 +63,15 @@ class ProcessComputerBookingsCommand extends Command
                         $q2->where('booking_date', $today)->where('end_time', '<=', $time);
                     });
             })
-            ->get();
+            ->lazyById(200);
 
         foreach ($toComplete as $booking) {
             $booking->status = ComputerBooking::STATUS_COMPLETED;
             $booking->save();
+            $completedCount++;
         }
 
-        $this->info("Processed: no_show={$noShow->count()}, activated={$toActivate->count()}, completed={$toComplete->count()}");
+        $this->info("Processed: no_show={$noShowCount}, activated={$activatedCount}, completed={$completedCount}");
 
         return self::SUCCESS;
     }

@@ -31,7 +31,7 @@ class MaintenanceSettings extends Page implements HasForms
 
     public function mount(): void
     {
-        $settings = Setting::all()->pluck('value', 'key')->toArray();
+        $settings = Setting::pluck('value', 'key')->all();
 
         $this->form->fill([
             'maintenance_qc_interval_days' => $settings['maintenance_qc_interval_days'] ?? 90,
