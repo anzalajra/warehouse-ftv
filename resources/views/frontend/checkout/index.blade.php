@@ -33,7 +33,7 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <!-- Checkout Form -->
-        <form action="{{ route('checkout.process') }}" method="POST" class="contents" x-data="shootingCheckout()"
+        <form action="{{ route('checkout.process') }}" method="POST" class="contents" x-data="shootingCheckout()" @mufise-saving="mufiseSaving = $event.detail.busy"
             @submit="if (step !== 2) { $event.preventDefault(); nextStep(); }">
             @csrf
             <div :class="step === 1 ? 'lg:col-span-3' : 'lg:col-span-2'">
@@ -124,17 +124,26 @@
                     <div x-show="mufiseNotice" x-cloak role="status" aria-live="polite" class="rounded-lg border border-primary-100 bg-primary-50 p-4 text-sm text-primary-800" x-text="mufiseNotice"></div>
                     <div>
                         <label for="mufise_project_id" class="block text-sm font-medium text-gray-700 mb-2">Proyek untuk Booking <span class="text-red-500">*</span></label>
-                        <select id="mufise_project_id" name="mufise_project_id" x-model="mufiseProject" :required="usageType === 'outside_class'" :disabled="usageType !== 'outside_class' || mufiseRefreshing" aria-describedby="mufise_project_help" class="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm focus:border-primary-500 focus:ring-primary-500">
+                        <select id="mufise_project_id" name="mufise_project_id" x-model="mufiseProject" :required="usageType === 'outside_class'" :disabled="usageType !== 'outside_class' || mufiseRefreshing || mufiseSaving" aria-describedby="mufise_project_help" class="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm focus:border-primary-500 focus:ring-primary-500">
                             <option value="">Pilih proyek Mufise</option>
                             <template x-for="project in mufiseProjects" :key="project.id"><option :value="project.id" x-text="project.title"></option></template>
                         </select>
-                        <p id="mufise_project_help" class="text-xs text-gray-500 mt-2">Proyek harus memiliki produser atau sutradara serta lokasi dengan alamat lengkap.</p>
+                        <p id="mufise_project_help" class="text-xs text-gray-500 mt-2">Pilih proyek untuk melihat data dan syarat booking yang berlaku.</p>
                         @error('mufise_project_id')<p role="alert" class="text-red-600 text-xs mt-2">{{ $message }}</p>@enderror
                     </div>
-                    <div class="border-t border-gray-100 pt-4 space-y-3">
-                        <a x-show="mufiseProject" x-cloak :href="@js(url('/customer/connections/mufise/projects')) + '/' + encodeURIComponent(mufiseProject)" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center border border-primary-200 text-primary-700 rounded-lg px-4 py-2 text-sm font-semibold hover:bg-primary-50 transition">Lihat Kru, Lokasi & Call Sheet ↗</a>
-                        <p class="text-xs text-gray-500">Sebelum pengambilan alat, pastikan call sheet Day 1 sudah dikunci di Mufise.</p>
+                    @php
+                        $editorConfig = [
+                            'apiUrl' => url('/customer/connections/mufise/projects/__PROJECT__/editor-api'),
+                            'mediaUrl' => url('/customer/connections/mufise/projects/__PROJECT__/media'),
+                            'mufiseUrl' => \App\Services\Mufise\MufiseSettings::url().'/',
+                            'pollSeconds' => \App\Services\Mufise\MufiseSettings::pollSeconds(),
+                            'writable' => \App\Services\Mufise\MufiseSettings::inlineEditing(),
+                        ];
+                    @endphp
+                    <div x-show="mufiseProject" x-cloak>
+                        @include('frontend.mufise.editor', ['compact' => true])
                     </div>
+
                 </section>
                 @else
                 <fieldset :disabled="usageType !== 'outside_class'" x-show="usageType === 'outside_class'" x-cloak class="bg-white rounded-lg shadow p-6 mb-6">
@@ -229,6 +238,7 @@
 
                 <div class="flex justify-end mb-6">
                     <button type="button" @click="nextStep()" class="bg-primary-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-700">Lanjutkan ke Ringkasan →</button>
+
                 </div>
                 </div>
 
@@ -512,6 +522,7 @@
         return {
             step: {{ $itineraryHasErrors ? 1 : (($errors->any() || old('usage_type')) ? 2 : 1) }},
             usageType: @json(old('usage_type', '')),
+            mufiseSaving: false,
             mufiseEnabled: @json($mufiseEnabled),
             ...window.mufiseCheckout(@js($mufiseConfig)),
             outsidePurpose: @json(old('outside_purpose', '')),
@@ -541,7 +552,7 @@
                 if (this.crew.length > 1) this.crew.splice(index, 1);
             },
             nextStep() {
-                if (this.usageType === 'outside_class' && this.mufiseRefreshing) return;
+                if (this.usageType === 'outside_class' && (this.mufiseRefreshing || this.mufiseSaving)) return;
                 const invalidInput = [...document.querySelectorAll('#shooting_step input, #shooting_step select')]
                     .find(input => !input.checkValidity());
                 if (invalidInput) {

@@ -137,6 +137,10 @@ if (!$isInstalled) {
         Route::post('/disconnect', [\App\Http\Controllers\MufiseController::class, 'disconnect'])->name('disconnect');
         Route::get('/projects/{project}', [\App\Http\Controllers\MufiseController::class, 'project'])->whereUuid('project')->name('project');
         Route::post('/projects/{project}', [\App\Http\Controllers\MufiseController::class, 'mutate'])->whereUuid('project')->name('project.mutate');
+        Route::match(['get', 'post'], '/projects/{project}/editor-api', [\App\Http\Controllers\MufiseController::class, 'editorApi'])->whereUuid('project')->name('project.api');
+        Route::get('/projects/{project}/media', [\App\Http\Controllers\MufiseController::class, 'media'])->whereUuid('project')->name('project.media');
+        Route::match(['get', 'post'], '/rentals/{rental}/editor-api', [\App\Http\Controllers\MufiseController::class, 'editorApi'])->name('rental.api');
+        Route::get('/rentals/{rental}/media', [\App\Http\Controllers\MufiseController::class, 'media'])->name('rental.media');
         Route::get('/projects/{project}/call-sheets/{day}', [\App\Http\Controllers\MufiseController::class, 'callSheet'])->whereUuid(['project', 'day'])->name('project.sheet');
         Route::get('/rentals/{rental}', [\App\Http\Controllers\MufiseController::class, 'project'])->name('rental');
         Route::post('/rentals/{rental}', [\App\Http\Controllers\MufiseController::class, 'mutate'])->name('rental.mutate');
@@ -145,6 +149,8 @@ if (!$isInstalled) {
     Route::middleware('auth')->prefix('admin/mufise/rentals/{rental}')->name('admin.mufise')->group(function () {
         Route::get('/', [\App\Http\Controllers\MufiseController::class, 'project']);
         Route::post('/', [\App\Http\Controllers\MufiseController::class, 'mutate'])->name('.mutate');
+        Route::match(['get', 'post'], '/editor-api', [\App\Http\Controllers\MufiseController::class, 'editorApi'])->name('.api');
+        Route::get('/media', [\App\Http\Controllers\MufiseController::class, 'media'])->name('.media');
         Route::get('/call-sheets/{day}', [\App\Http\Controllers\MufiseController::class, 'callSheet'])->whereUuid('day')->name('.sheet');
     });
 

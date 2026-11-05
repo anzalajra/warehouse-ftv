@@ -116,12 +116,129 @@ class MufiseController extends Controller
         try {
             [$account, $projectId, $rental] = $this->context($request);
             $bundle = $this->rentals->project($account, $projectId);
-            $positions = ($bundle['permissions']['can_edit'] ?? false)
-                ? $this->client->request('GET', 'crew-positions', $this->connections->token($account))['positions'] ?? [] : [];
             $base = $rental ? ($request->routeIs('admin.*') ? 'admin.mufise' : 'customer.mufise.rental') : 'customer.mufise.project';
             $params = $rental ? ['rental' => $rental->id] : ['project' => $projectId];
 
-            return response()->view('frontend.mufise.project', compact('bundle', 'positions', 'rental', 'base', 'params'))->header('Cache-Control', 'private, no-store');
+            $editorConfig = $this->editorConfig($base, $params, $projectId, $rental);
+
+            return response()->view('frontend.mufise.project', compact('bundle', 'rental', 'base', 'params', 'editorConfig'))->header('Cache-Control', 'private, no-store');
+        } catch (MufiseException $e) {
+            return response()->view('frontend.mufise.error', ['message' => $e->getMessage(), 'problem' => $e->problem()], $e->status)->header('Cache-Control', 'private, no-store');
+        }
+    }
+
+    private function editorConfig(string $base, array $params, string $projectId, ?Rental $rental): array
+    {
+        return [
+            'projectId' => $projectId, 'apiUrl' => route($base.'.api', $params), 'mediaUrl' => route($base.'.media', $params),
+            'mufiseUrl' => MufiseSettings::url().'/',
+            'connectionUrl' => route('customer.mufise.index'), 'pollSeconds' => MufiseSettings::pollSeconds(),
+            'writable' => ! $rental || in_array($rental->status, ['quotation', 'confirmed', 'late_pickup'], true),
+        ];
+    }
+
+    public function editorApi(Request $request)
+    {
+        return $this->jsonAction(function () use ($request) {
+            if ($request->isJson()) {
+                // Preserve intentional empty strings/arrays in Mufise patches. Laravel's
+                // ConvertEmptyStringsToNull must not change the remote mutation body.
+                $original = json_decode($request->getContent(), true);
+                if (is_array($original) && isset($original['data']) && is_array($original['data'])) {
+                    $request->merge(['data' => $original['data']]);
+                }
+            }
+            if ($request->has('payload_json')) {
+                $request->validate(['payload_json' => 'required|string|max:65536']);
+                $payload = json_decode($request->input('payload_json'), true);
+                abort_unless(is_array($payload), 422);
+                $request->merge(['data' => $payload]);
+            }
+            $input = $request->validate([
+                'endpoint' => 'required|string|max:200', 'method' => 'sometimes|in:GET,POST,PATCH,DELETE',
+                'data' => 'sometimes|array', 'operation_id' => 'nullable|uuid',
+                'photo' => 'nullable|file|mimes:png,jpg,jpeg,webp|max:4882',
+            ]);
+            $method = $request->isMethod('GET') ? 'GET' : ($input['method'] ?? 'POST');
+            $endpoint = $input['endpoint'];
+            $uuid = '[a-fA-F0-9-]{36}';
+            $read = '~^(editor|sync|crew-positions|organization-crew(?:/'.$uuid.')?|crew/'.$uuid.'(?:/availability)?|locations/'.$uuid.'|call-sheet-editor|call-sheets/'.$uuid.'|geocode)$~';
+            $write = '~^(crew(?:/preview|/'.$uuid.'(?:/availability)?)?|locations(?:/'.$uuid.'(?:/points/(?:shoot|parking|hospital)|/readiness/(?:check|recce|lock)|/availability)?)?|call-sheets(?:/'.$uuid.'(?:/lock)?)?)$~';
+            abort_unless(preg_match($method === 'GET' ? $read : $write, $endpoint), 422);
+            abort_if($method !== 'GET' && $request->isMethod('GET'), 405);
+            [$account, $projectId] = $this->context($request, $method !== 'GET');
+            $token = $this->connections->token($account);
+            $path = $endpoint === 'crew-positions' ? $endpoint : 'projects/'.rawurlencode($projectId).'/'.$endpoint;
+            $data = $input['data'] ?? [];
+            // GET query fields are deliberately limited; no arbitrary URL/header forwarding.
+            if ($method === 'GET') {
+                $data = $request->validate(['q' => 'nullable|string|max:120', 'page' => 'nullable|integer|min:1|max:10000', 'limit' => 'nullable|integer|min:1|max:50', 'since' => 'nullable|string|size:64']);
+                $result = $this->client->request('GET', $path, $token, $data);
+                if ($endpoint === 'editor') {
+                    $result['draft_scope'] = hash_hmac('sha256', $account->id.'|'.$projectId.'|'.MufiseSettings::url().'|'.MufiseSettings::connectionId().'|'.$token, config('app.key'));
+                }
+                if ($endpoint === 'sync') {
+                    $result['warehouse_requirements'] = MufiseSettings::bookingRequirements();
+                    if ($result['changed'] ?? false) {
+                        $result['warehouse_missing'] = $this->rentals->localMissing($result);
+                    }
+                }
+
+                return $result;
+            }
+            abort_if(strlen(json_encode($data)) > 65536, 413);
+            $photo = null;
+            if ($file = $request->file('photo')) {
+                abort_unless(preg_match('~^crew(?:/'.$uuid.')?$~', $endpoint) && in_array($method, ['POST', 'PATCH'], true), 422);
+                abort_unless(in_array($file->getMimeType(), ['image/png', 'image/jpeg', 'image/webp'], true) && $file->getSize() <= 5000000, 422);
+                $photo = ['contents' => base64_encode($file->get()), 'name' => 'crew.'.match ($file->getMimeType()) {
+                    'image/png' => 'png', 'image/webp' => 'webp', default => 'jpg'
+                }, 'mime' => $file->getMimeType()];
+            }
+            if ($endpoint === 'crew/preview') {
+                abort_unless($method === 'POST' && ! $photo, 422);
+
+                return $this->client->request('POST', $path, $token, $data);
+            }
+            $id = $input['operation_id'] ?? null;
+            abort_unless($id, 422);
+
+            // The remote API rechecks live resource permissions, membership and consent,
+            // including idempotent retries. Local receipts retain the identical payload.
+            return Cache::lock('mufise-operation-'.$id, 60)->block(1, function () use ($id, $account, $projectId, $path, $method, $data, $photo, $token) {
+                $stored = ['data' => $data, 'photo' => $photo];
+                $operation = MufiseOperation::find($id);
+                if ($operation) {
+                    abort_unless((int) $operation->mufise_account_id === (int) $account->id && $operation->project_id === $projectId && $operation->path === $path && $operation->method === $method && $operation->payload === $stored, 409);
+                } else {
+                    $operation = MufiseOperation::create(['id' => $id, 'mufise_account_id' => $account->id, 'project_id' => $projectId, 'path' => $path, 'method' => $method, 'payload' => $stored]);
+                }
+                $result = $this->client->request($method, $path, $token, $data, $id, $photo);
+                $operation->update(['completed_at' => now()]);
+
+                return $result;
+            });
+        });
+    }
+
+    public function media(Request $request)
+    {
+        try {
+            [$account, $projectId] = $this->context($request);
+            $endpoint = $request->validate(['endpoint' => 'required|string|max:200', 'format' => 'nullable|in:html,pdf'])['endpoint'];
+            abort_unless(preg_match('~^(?:(crew|organization-crew)/([a-fA-F0-9-]{36})/photo|call-sheets/([a-fA-F0-9-]{36}))$~', $endpoint), 422);
+            $photo = str_ends_with($endpoint, '/photo');
+            $format = $photo ? 'photo' : $request->input('format', 'html');
+            $result = $this->client->request('GET', 'projects/'.rawurlencode($projectId).'/'.$endpoint, $this->connections->token($account), $photo ? [] : ['format' => $format]);
+            $headers = ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff'];
+            if ($photo) {
+                return response($result['bytes'])->withHeaders($headers + ['Content-Type' => $result['mime']]);
+            }
+            if ($format === 'pdf') {
+                return response($result)->withHeaders($headers + ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'attachment; filename="call-sheet.pdf"']);
+            }
+
+            return response($result)->withHeaders($headers + ['Content-Type' => 'text/html; charset=utf-8', 'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox"]);
         } catch (MufiseException $e) {
             return response()->view('frontend.mufise.error', ['message' => $e->getMessage(), 'problem' => $e->problem()], $e->status)->header('Cache-Control', 'private, no-store');
         }

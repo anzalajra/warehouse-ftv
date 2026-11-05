@@ -6,6 +6,7 @@ use App\Filament\Clusters\Settings\SettingsCluster;
 use App\Models\Setting;
 use App\Services\Mufise\MufiseSettings as Configuration;
 use BackedEnum;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -38,7 +39,7 @@ class MufiseSettings extends Page implements HasForms
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
-        $this->form->fill(['enabled' => Configuration::enabled(), 'url' => Configuration::url(), 'connection_id' => Configuration::connectionId(), 'api_key' => '']);
+        $this->form->fill(['enabled' => Configuration::enabled(), 'url' => Configuration::url(), 'connection_id' => Configuration::connectionId(), 'api_key' => '', 'booking_crew' => Configuration::bookingRequirements()['crew'], 'booking_location' => Configuration::bookingRequirements()['location'], 'booking_call_sheet' => Configuration::bookingRequirements()['call_sheet'], 'poll_seconds' => Configuration::pollSeconds(), 'inline_editing' => Configuration::inlineEditing()]);
     }
 
     public function form(Schema $schema): Schema
@@ -50,7 +51,31 @@ class MufiseSettings extends Page implements HasForms
                 TextInput::make('connection_id')->label('Connection ID')->maxLength(100)->required(),
                 TextInput::make('api_key')->label('API key baru')->password()->autocomplete('new-password')->maxLength(500)->helperText('Kosongkan untuk mempertahankan key tersimpan. Key tidak ditampilkan kembali.'),
             ]),
+            Section::make('Syarat tambahan sebelum booking')->description('Syarat dasar berasal dari koneksi organisasi Mufise dan tetap berlaku. Kontrol berikut menambah syarat Warehouse; pilih Ikuti Mufise untuk memakai kebijakan organisasi tanpa syarat tambahan.')->schema([
+                Select::make('booking_crew')->label('Kru')->options(['none' => 'Ikuti Mufise', 'any' => 'Minimal satu kru', 'producer_or_director' => 'Produser atau sutradara'])->required(),
+                Toggle::make('booking_location')->label('Wajib lokasi dan alamat sebelum booking'),
+                Select::make('booking_call_sheet')->label('Call sheet Day 1 sebelum booking')->options(['none' => 'Ikuti Mufise', 'exists' => 'Wajib memiliki kegiatan', 'locked' => 'Wajib terkunci'])->required(),
+            ]),
+            Section::make('Pengalaman editor')->schema([
+                Toggle::make('inline_editing')->label('Izinkan edit ringkas di checkout')->helperText('Tetap mengikuti izin efektif proyek dan persetujuan pengguna.'),
+                TextInput::make('poll_seconds')->label('Interval sinkronisasi (detik)')->numeric()->minValue(5)->maxValue(300)->required()->helperText('15 detik disarankan. Batas API dibagi seluruh pengguna koneksi.'),
+            ]),
         ]);
+    }
+
+    public ?array $connectionTest = null;
+
+    public function testConnection(): void
+    {
+        abort_unless(static::canAccess(), 403);
+        // Test saved credentials only. No pairing or user/project mutation.
+        try {
+            app(\App\Services\MufiseClient::class)->request('GET', 'me', diagnostic: true);
+            $this->connectionTest = ['ok' => true, 'message' => 'Kredensial koneksi diterima Mufise. Uji akun dan akses proyek melalui halaman koneksi pelanggan.'];
+        } catch (\App\Services\Mufise\MufiseException $e) {
+            $accepted = $e->reason === 'user_token_missing';
+            $this->connectionTest = ['ok' => $accepted, 'message' => $accepted ? 'Server Mufise dapat dijangkau dan kredensial koneksi diterima. Token peminjam diperlukan untuk menguji akses proyek.' : $e->getMessage(), 'reference' => $e->requestId ?? $e->warehouseRequestId];
+        }
     }
 
     public function save(): void
@@ -67,6 +92,9 @@ class MufiseSettings extends Page implements HasForms
             Setting::set('mufise_api_key_encrypted', Crypt::encryptString($data['api_key']));
         }
         Setting::set('mufise_enabled', $data['enabled'] ? '1' : '0');
+        foreach (['booking_crew', 'booking_location', 'booking_call_sheet', 'poll_seconds', 'inline_editing'] as $field) {
+            Setting::set('mufise_'.$field, is_bool($data[$field]) ? ($data[$field] ? '1' : '0') : $data[$field]);
+        }
         $this->data['api_key'] = '';
         Notification::make()->title('Pengaturan Mufise disimpan')->success()->send();
     }

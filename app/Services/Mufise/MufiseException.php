@@ -16,6 +16,7 @@ class MufiseException extends RuntimeException
         public readonly ?string $requestId = null,
         public readonly bool $retryable = false,
         public readonly ?string $warehouseRequestId = null,
+        public readonly array $fields = [],
     ) {
         parent::__construct($message);
     }
@@ -23,7 +24,7 @@ class MufiseException extends RuntimeException
     public function problem(): array
     {
         return [
-            'code' => $this->errorCode, 'message' => $this->getMessage(),
+            'fields' => $this->fields, 'code' => $this->errorCode, 'message' => $this->getMessage(),
             'reason' => $this->reason ?? $this->errorCode, 'action' => $this->action,
             'request_id' => $this->requestId, 'warehouse_request_id' => $this->warehouseRequestId,
             'retryable' => $this->retryable, 'retry_after' => $this->retryable ? $this->retryAfter : null,

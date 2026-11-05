@@ -187,3 +187,116 @@ test('polling follows explicit retryable metadata and shows references', async t
     assert.equal(state.polling, true);
     assert.equal(timers.at(-1).delay, 30000);
 });
+
+const { mufiseEditor, changedFields } = await import('../../resources/js/mufise-editor.js');
+const editorConfig = { apiUrl: '/projects/__PROJECT__/editor-api', mediaUrl: '/projects/__PROJECT__/media', mufiseUrl: 'https://mufise.test/', pollSeconds: 15 };
+function editor(t) {
+    const previous = { window: globalThis.window, document: globalThis.document, sessionStorage: globalThis.sessionStorage };
+    globalThis.window = { location: { origin: 'https://warehouse.test' }, confirm: () => true };
+    globalThis.document = { querySelector: () => ({ content: 'csrf' }) };
+    const saved = new Map();
+    globalThis.sessionStorage = { setItem: (k,v) => saved.set(k,v), getItem: k => saved.get(k) || null, removeItem: k => saved.delete(k) };
+    t.after(() => Object.assign(globalThis, previous));
+    const state = mufiseEditor(editorConfig);
+    state.projectId = 'film-1'; state.$nextTick = cb => cb();
+    state.$refs = { editorDialog: { showModal() {}, close() {}, querySelectorAll: () => [], querySelector: () => null } };
+    state.capabilities = { contract: 'mufise.external-editor.v1', permissions: { can_edit_crew: true, can_edit_call_sheet: true, can_edit_locations: true }, draft_scope: 'scope-1' };
+    return state;
+}
+
+test('editor patch preserves omitted fields and replaces only deliberately changed arrays', () => {
+    const old = { call_sheet: { title: 'Day 1', notes: 'Old', hod: { director: 'Ayu' }, crew_contact_ids: ['a'] }, items: [{ id: 'stable', title: 'Shot', duration: 20 }] };
+    const current = structuredClone(old); current.call_sheet.notes = 'New';
+    assert.deepEqual(changedFields(current, old), { call_sheet: { notes: 'New' } });
+    current.call_sheet.crew_contact_ids = [];
+    assert.deepEqual(changedFields(current, old), { call_sheet: { notes: 'New', crew_contact_ids: [] } });
+});
+
+test('unknown save outcome retries the same persisted key and payload after input changes', async t => {
+    const state = editor(t); state.mode = 'location-new'; state.form = { name: 'Studio' }; state.baseline = {};
+    const requests = [];
+    state.request = async (endpoint, method, data, key) => { requests.push({ endpoint, method, data: structuredClone(data), key }); if (requests.length === 1) throw Object.assign(new Error('Timeout'), { uncertain: true }); return {}; };
+    state.sync = async () => {};
+    const operation = { endpoint: 'locations', method: 'POST', data: { name: 'Studio' } };
+    assert.equal(await state.mutate(operation), false);
+    assert.ok(state.pending.id);
+    state.form.name = 'New studio';
+    assert.equal(await state.mutate({ ...operation, data: state.form }), true);
+    assert.deepEqual(requests[1], requests[0]);
+    assert.equal(state.pending, null);
+});
+
+test('polling a changed bundle preserves draft and marks it for review', async t => {
+    const state = editor(t); state.bundle = { sync_version: 'old', project: { title: 'Before' } };
+    state.form = { full_name: 'My draft' }; state.dirty = true;
+    state.request = async endpoint => endpoint === 'sync' ? { changed: true, sync_version: 'new', project: { title: 'Remote' } } : { permissions: { can_edit_crew: false } };
+    await state.sync();
+    assert.equal(state.form.full_name, 'My draft');
+    assert.equal(state.bundle.project.title, 'Before');
+    assert.equal(state.remoteChanged, true);
+    assert.equal(state.permission('can_edit_crew'), false);
+});
+
+test('old directory responses are ignored after query changes', async t => {
+    const state = editor(t); state.mode = 'crew-pick';
+    let firstResolve;
+    state.request = async () => new Promise(resolve => { firstResolve = resolve; });
+    const first = state.searchCrew();
+    state.request = async () => ({ people: [{ id: 'new' }], has_more: false });
+    await state.searchCrew(); firstResolve({ people: [{ id: 'old' }] }); await first;
+    assert.deepEqual(state.directory, [{ id: 'new' }]);
+});
+
+test('duplicate preview requires an explicit distinct-person decision', t => {
+    const state = editor(t); state.mode = 'crew-new';
+    state.form = { full_name: 'Nadia', position_ids: ['director'], position_id: 'director' }; state.positions = [{ id: 'director', name: 'Director' }];
+    state.preview = { action: 'confirm_distinct' };
+    assert.throws(() => state.payload(), /konfirmasikan/);
+    state.form.confirm_distinct = true;
+    assert.equal(state.payload().data.confirm_distinct, true);
+    state.preview = { action: 'select_existing' };
+    assert.throws(() => state.payload(), /sudah ada/);
+});
+
+test('per-resource permissions and locked days keep unavailable editors read only', t => {
+    const state = editor(t); state.mode = 'day-edit'; state.detail = { locked: true };
+    assert.equal(state.canSave(), false); state.detail.locked = false;
+    assert.equal(state.canSave(), true); state.capabilities.permissions.can_edit_call_sheet = false;
+    assert.equal(state.canSave(), false);
+    state.mode = 'crew-edit'; state.detail = { permissions: { can_edit: false } };
+    assert.equal(state.canSave(), false);
+});
+
+test('location actions use editor version while text patches use object version', t => {
+    const state = editor(t); state.mode = 'location-point'; state.target = 'location'; state.form = { latitude: -6.9, longitude: 107.6 }; state.detail = { location: { version: 'text' }, editor_version: 'detail' };
+    assert.equal(state.payload().data.expected_version, 'detail');
+    state.mode = 'location-edit'; state.form = { name: 'New' }; state.baseline = { name: 'Old' };
+    assert.equal(state.payload().data.expected_version, 'text');
+    assert.equal(state.payload().data.expected_editor_version, 'detail');
+    assert.equal(state.mapUrl({ latitude: '', longitude: '' }), '');
+    assert.equal(state.mapUrl({ latitude: NaN, longitude: 107 }), '');
+});
+
+test('draft scope isolates projects and grant changes, and access loss clears sensitive state', t => {
+    const state = editor(t); state.mode = 'crew-edit'; state.form = { full_name: 'Draft' }; state.dirty = true; state.storeDraft();
+    assert.equal(state.readDraft().form.full_name, 'Draft');
+    state.capabilities.draft_scope = 'different-grant'; assert.equal(state.readDraft(), null);
+    state.capabilities.draft_scope = 'scope-1'; state.bundle = { crew: ['private'] }; state.clearPrivateData();
+    assert.equal(state.bundle, null); assert.deepEqual(state.form, {}); assert.equal(sessionStorage.getItem('mufise-draft:scope-1'), null);
+});
+
+test('conflict review keeps changed draft fields and preserves unrelated remote corrections', async t => {
+    const state = editor(t); state.mode = 'location-edit'; state.target = 'location';
+    state.baseline = { name: 'Studio', address: 'Old road' }; state.form = { name: 'My title', address: 'Old road' };
+    state.latest = { location: { name: 'Remote title', address: 'New road', version: 'v2' }, editor_version: 'editor2' };
+    state.remoteChanged = true; state.acceptLatest();
+    assert.deepEqual(state.form, { name: 'My title', address: 'New road' });
+    assert.equal(state.detail.editor_version, 'editor2'); assert.equal(state.remoteChanged, false);
+});
+
+test('logout removes private drafts and leaves unrelated browser preferences', async () => {
+    const { clearMufiseDrafts } = await import('../../resources/js/mufise-editor.js');
+    const items = new Map([['mufise-draft:grant1', 'private'], ['mufise-draft:grant2', 'private'], ['theme', 'dark']]);
+    clearMufiseDrafts({ get length() { return items.size; }, key: index => [...items.keys()][index], removeItem: key => items.delete(key) });
+    assert.deepEqual([...items], [['theme','dark']]);
+});

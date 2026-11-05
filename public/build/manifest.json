@@ -1,6 +1,6 @@
 {
   "resources/css/app.css": {
-    "file": "assets/app-DKEbmt_t.css",
+    "file": "assets/app-BoQ_zP1C.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "name": "app",
@@ -9,7 +9,7 @@
     ]
   },
   "resources/css/filament/admin/theme.css": {
-    "file": "assets/theme-CDU8BCqY.css",
+    "file": "assets/theme-BcHBwWku.css",
     "src": "resources/css/filament/admin/theme.css",
     "isEntry": true,
     "name": "theme",
@@ -18,7 +18,7 @@
     ]
   },
   "resources/js/app.js": {
-    "file": "assets/app-BeXC8RzU.js",
+    "file": "assets/app-mFZumFvG.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true

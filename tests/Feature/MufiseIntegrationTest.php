@@ -228,7 +228,7 @@ class MufiseIntegrationTest extends TestCase
         $user = User::factory()->create();
         $this->account($user);
         $rental = $this->rental($user);
-        Http::fake(['*/projects/'.$this->projectId => Http::response($this->bundle()), '*/crew-positions' => Http::response(['positions' => [['id' => 'director', 'name' => 'Director']]]), '*/call-sheets/*' => Http::response('<h1>Day 1</h1>')]);
+        Http::fake(['*/projects/'.$this->projectId => Http::response($this->bundle()), '*/crew-positions' => Http::response(['positions' => [['id' => 'director', 'name' => 'Director']]]), '*/call-sheets/*' => Http::response('<h1>Day 1</h1>', 200, ['Content-Type' => 'text/html'])]);
         $this->actingAs($user, 'customer')->get(route('customer.mufise.rental', $rental->id))->assertOk()->assertSee('Film Senja')->assertSee('Tambah kru')->assertDontSee('borrower-secret');
         $this->get(route('customer.mufise.rental.sheet', ['rental' => $rental->id, 'day' => $this->dayId]))->assertOk()->assertSee('Day 1')->assertHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox");
     }
@@ -253,7 +253,7 @@ class MufiseIntegrationTest extends TestCase
         $rental = $this->rental(User::factory()->create());
         Http::fake(function ($request) {
             if (str_contains($request->url(), 'call-sheets')) {
-                return isset($request['format']) ? Http::response('<h1>Pickup evidence</h1>') : Http::response(['locked' => true, 'day_number' => 1, 'day_id' => $this->dayId, 'schedule_revision' => 7, 'data' => ['title' => 'Senja']]);
+                return isset($request['format']) ? Http::response('<h1>Pickup evidence</h1>', 200, ['Content-Type' => 'text/html']) : Http::response(['locked' => true, 'day_number' => 1, 'day_id' => $this->dayId, 'schedule_revision' => 7, 'data' => ['title' => 'Senja']]);
             }
 
             return Http::response($this->bundle());
@@ -656,5 +656,191 @@ class MufiseIntegrationTest extends TestCase
         }
         $this->artisan('mufise:repair-token-expiry', ['--apply' => true, '--confirmed-no-expiry' => true])->assertSuccessful();
         $this->assertNull($account->fresh()->expires_at);
+    }
+
+    private function crewOnlyBundle(): array
+    {
+        $bundle = $this->bundle();
+        $rule = ['crew' => 'any', 'crew_roles' => [], 'location' => false, 'call_sheet' => 'none'];
+
+        return array_replace($bundle, [
+            'requirements' => ['submit' => $rule, 'collect' => $rule], 'policy_revision' => 2, 'sync_version' => str_repeat('c', 64),
+            'locations' => [], 'call_sheets' => [], 'readiness' => ['can_submit' => true, 'can_collect' => true, 'missing_by_stage' => ['submit' => [], 'collect' => []]],
+        ]);
+    }
+
+    public function test_crew_only_policy_allows_checkout_and_pickup_without_call_sheet(): void
+    {
+        $user = User::factory()->create();
+        $rental = $this->rental($user);
+        $bundle = $this->crewOnlyBundle();
+        Http::fake(['*/projects/'.$this->projectId => Http::response($bundle)]);
+        app(\App\Services\Mufise\MufiseRentalService::class)->assertReady($bundle);
+        Rental::withoutEvents(fn () => $rental->validatePickup());
+        $rental->refresh();
+        $this->assertSame('active', $rental->status);
+        $this->assertNull($rental->mufise_pickup_snapshot['day_id']);
+        $this->assertNull($rental->mufise_pickup_snapshot['call_sheet']);
+        $this->assertNull($rental->mufise_call_sheet_html);
+        $this->assertSame(2, $rental->mufise_pickup_snapshot['policy_revision']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_exists_policy_accepts_unlocked_day_one_and_inherits_submission_requirement(): void
+    {
+        $rental = $this->rental(User::factory()->create());
+        $bundle = $this->crewOnlyBundle();
+        $bundle['requirements']['submit']['call_sheet'] = 'exists';
+        $bundle['call_sheets'] = [['day_id' => $this->dayId, 'day_number' => 1, 'exists' => true, 'locked' => false]];
+        Http::fake([
+            '*/projects/'.$this->projectId => Http::response($bundle),
+            '*/call-sheets/*' => fn ($request) => isset($request['format'])
+                ? Http::response('<h1>Day 1 draft</h1>', 200, ['Content-Type' => 'text/html'])
+                : Http::response(['day_id' => $this->dayId, 'day_number' => 1, 'exists' => true, 'locked' => false, 'schedule_revision' => 7]),
+        ]);
+        Rental::withoutEvents(fn () => $rental->validatePickup());
+        $this->assertSame('active', $rental->fresh()->status);
+        $this->assertStringContainsString('Day 1 draft', $rental->fresh()->mufise_call_sheet_html);
+    }
+
+    public function test_policy_or_project_sync_changes_during_pickup_require_verification_again(): void
+    {
+        $queue = [];
+        Http::fake(function () use (&$queue) {
+            return Http::response(array_shift($queue));
+        });
+        foreach (['policy_revision', 'sync_version'] as $field) {
+            $rental = $this->rental(User::factory()->create());
+            $before = $this->crewOnlyBundle();
+            $after = $before;
+            $after[$field] = $field === 'policy_revision' ? 3 : str_repeat('d', 64);
+            $queue = [$before, $after];
+            try {
+                Rental::withoutEvents(fn () => $rental->validatePickup());
+                $this->fail('Concurrent changes must block pickup');
+            } catch (MufiseException $e) {
+                $this->assertSame('revision_conflict', $e->errorCode);
+                $this->assertNull($rental->fresh()->mufise_pickup_snapshot);
+                $this->assertSame('confirmed', $rental->fresh()->status);
+            }
+        }
+    }
+
+    public function test_stage_specific_errors_and_additional_warehouse_booking_rules(): void
+    {
+        $service = app(\App\Services\Mufise\MufiseRentalService::class);
+        $bundle = $this->crewOnlyBundle();
+        $bundle['readiness'] = ['can_submit' => false, 'can_collect' => false, 'missing' => ['day_1_locked_call_sheet_required'], 'missing_by_stage' => ['submit' => ['crew_required'], 'collect' => ['day_1_locked_call_sheet_required']]];
+        try {
+            $service->assertReady($bundle);
+            $this->fail();
+        } catch (MufiseException $e) {
+            $this->assertStringContainsString('kru bernama', $e->getMessage());
+            $this->assertStringNotContainsString('terkunci', $e->getMessage());
+        }
+        Setting::set('mufise_booking_location', '1');
+        $this->expectException(MufiseException::class);
+        $this->expectExceptionMessage('Warehouse mewajibkan lokasi');
+        $service->assertReady($this->crewOnlyBundle());
+    }
+
+    public function test_editor_gateway_is_private_scoped_and_rejects_arbitrary_paths(): void
+    {
+        $user = User::factory()->create();
+        $this->account($user);
+        $rental = $this->rental($user);
+        Http::fake(['*' => Http::response(['contract' => 'mufise.external-editor.v1'])]);
+        $url = route('customer.mufise.project.api', $this->projectId);
+        $this->actingAs($user, 'customer')->getJson($url.'?endpoint=editor')->assertOk()->assertJsonPath('contract', 'mufise.external-editor.v1')->assertHeader('Cache-Control', 'no-store, private')->assertDontSee('borrower-secret')->assertJsonStructure(['draft_scope']);
+        Http::assertSent(fn ($request) => $request->hasHeader('Authorization', 'Bearer borrower-secret') && str_ends_with($request->url(), '/projects/'.$this->projectId.'/editor'));
+        $this->postJson($url, ['endpoint' => '../me', 'method' => 'POST'])->assertUnprocessable();
+        $this->getJson($url.'?endpoint=disconnect')->assertUnprocessable();
+        $this->actingAs(User::factory()->create(), 'customer')->getJson(route('customer.mufise.rental.api', $rental->id).'?endpoint=editor')->assertForbidden();
+        Http::assertSentCount(1);
+    }
+
+    public function test_editor_gateway_keeps_payload_and_key_for_retry_and_rechecks_remote_access(): void
+    {
+        $user = User::factory()->create();
+        $this->account($user);
+        Http::fake(['*' => Http::sequence()->pushStatus(503)->push(['day_id' => $this->dayId, 'schedule_revision' => 8])->push(['error' => ['code' => 'restricted_area']], 403)]);
+        $url = route('customer.mufise.project.api', $this->projectId);
+        $payload = ['operation_id' => (string) Str::uuid(), 'endpoint' => 'call-sheets/'.$this->dayId, 'method' => 'PATCH', 'data' => ['expected_revision' => 7, 'call_sheet' => ['notes' => 'Draf']]];
+        $this->actingAs($user, 'customer')->postJson($url, $payload)->assertStatus(503);
+        $this->postJson($url, $payload)->assertOk()->assertJsonPath('schedule_revision', 8);
+        $this->postJson($url, $payload)->assertForbidden()->assertJsonPath('code', 'restricted_area');
+        Http::assertSentCount(3);
+        Http::assertSent(fn ($request) => $request->hasHeader('Idempotency-Key', $payload['operation_id']) && $request->data() === $payload['data']);
+        $payload['data']['expected_revision'] = 8;
+        $this->postJson($url, $payload)->assertConflict();
+        $this->assertStringNotContainsString('Draf', MufiseOperation::first()->getRawOriginal('payload'));
+    }
+
+    public function test_editor_rejects_writes_after_pickup_and_forwards_structured_validation_safely(): void
+    {
+        $user = User::factory()->create();
+        $rental = $this->rental($user);
+        Rental::withoutEvents(fn () => $rental->update(['status' => 'active']));
+        $body = ['endpoint' => 'locations', 'method' => 'POST', 'operation_id' => (string) Str::uuid(), 'data' => ['name' => 'A']];
+        $this->actingAs($user, 'customer')->postJson(route('customer.mufise.rental.api', $rental->id), $body)->assertForbidden();
+        Http::assertNothingSent();
+        Http::fake(['*' => Http::response(['error' => ['code' => 'validation', 'fields' => [['path' => 'items.0.duration', 'message' => 'private upstream data'], ['path' => 'secret-name', 'message' => 'secret']]]], 422)]);
+        $this->postJson(route('customer.mufise.project.api', $this->projectId), $body)->assertUnprocessable()->assertSee('items.0.duration')->assertDontSee('private upstream')->assertDontSee('secret-name');
+    }
+
+    public function test_media_proxy_checks_pdf_photo_mime_and_rejects_login_html_and_redirect(): void
+    {
+        $user = User::factory()->create();
+        $this->account($user);
+        $url = route('customer.mufise.project.media', $this->projectId);
+        Http::fake(['*' => Http::sequence()->push('<h1>Login</h1>', 200, ['Content-Type' => 'text/html'])->push('%PDF-1.7', 200, ['Content-Type' => 'application/pdf'])->push('PNG bytes', 200, ['Content-Type' => 'image/png'])->push('', 302, ['Location' => 'https://elsewhere.test'])]);
+        $this->actingAs($user, 'customer')->get($url.'?endpoint=call-sheets/'.$this->dayId.'&format=pdf')->assertStatus(502);
+        $this->get($url.'?endpoint=call-sheets/'.$this->dayId.'&format=pdf')->assertOk()->assertHeader('Content-Type', 'application/pdf')->assertHeader('Content-Disposition', 'attachment; filename="call-sheet.pdf"');
+        $this->get($url.'?endpoint=crew/'.$this->dayId.'/photo')->assertOk()->assertHeader('Content-Type', 'image/png')->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->get($url.'?endpoint=crew/'.$this->dayId.'/photo')->assertStatus(502);
+        $this->get($url.'?endpoint=../../me')->assertUnprocessable();
+    }
+
+    public function test_connection_test_checks_saved_configuration_without_pairing_or_user_mutation(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('super_admin');
+        \Filament\Facades\Filament::setCurrentPanel(\Filament\Facades\Filament::getPanel('admin'));
+        Http::fake(['*/me' => Http::response(['error' => ['code' => 'invalid_credentials', 'reason' => 'user_token_missing']], 401)]);
+        Setting::set('mufise_enabled', '0');
+        Livewire::actingAs($admin)->test(SettingsPage::class)->call('testConnection')->assertSet('connectionTest.ok', true)->assertDontSee('server-secret');
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => $request->method() === 'GET' && ! $request->hasHeader('Authorization') && $request->hasHeader('X-API-Key', 'server-secret'));
+        $this->assertSame(0, MufiseAccount::count());
+    }
+
+    public function test_editor_preserves_empty_strings_arrays_and_explicit_null_values(): void
+    {
+        $user = User::factory()->create();
+        $this->account($user);
+        Http::fake(['*' => Http::response(['schedule_revision' => 8])]);
+        $data = ['expected_revision' => 7, 'call_sheet' => ['notes' => '', 'crew_contact_ids' => [], 'temperature_c' => null]];
+        $this->actingAs($user, 'customer')->postJson(route('customer.mufise.project.api', $this->projectId), ['endpoint' => 'call-sheets/'.$this->dayId, 'method' => 'PATCH', 'operation_id' => (string) Str::uuid(), 'data' => $data])->assertOk();
+        Http::assertSent(fn ($request) => $request->data() === $data);
+    }
+
+    public function test_crew_photo_upload_uses_multipart_and_repeated_skill_fields_with_safe_filename(): void
+    {
+        $user = User::factory()->create();
+        $this->account($user);
+        Http::fake(['*' => Http::response(['crew' => ['id' => $this->dayId]])]);
+        $photo = \Illuminate\Http\UploadedFile::fake()->image('untrusted-name.png', 10, 10);
+        $data = ['full_name' => 'Nadia', 'phone' => '08123456789', 'email' => '', 'position_ids' => ['director', 'dop'], 'project_role' => 'Director', 'confirm_distinct' => false];
+        $this->actingAs($user, 'customer')->post(route('customer.mufise.project.api', $this->projectId), ['endpoint' => 'crew', 'method' => 'POST', 'operation_id' => (string) Str::uuid(), 'payload_json' => json_encode($data), 'photo' => $photo], ['Accept' => 'application/json'])->assertOk();
+        Http::assertSent(function ($request) {
+            $body = $request->body();
+
+            return str_contains($request->header('Content-Type')[0], 'multipart/form-data')
+                && substr_count($body, 'name="position_ids[]"') === 2
+                && str_contains($body, 'filename="crew.png"')
+                && ! str_contains($body, 'untrusted-name')
+                && str_contains($body, 'false');
+        });
+        $this->assertStringNotContainsString('Nadia', MufiseOperation::first()->getRawOriginal('payload'));
     }
 }

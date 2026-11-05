@@ -30,6 +30,25 @@ class MufiseSettings
         return $cipher ? Crypt::decryptString($cipher) : (string) config('services.mufise.api_key');
     }
 
+    public static function bookingRequirements(): array
+    {
+        return [
+            'crew' => (string) Setting::get('mufise_booking_crew', 'none'),
+            'location' => filter_var(Setting::get('mufise_booking_location', false), FILTER_VALIDATE_BOOLEAN),
+            'call_sheet' => (string) Setting::get('mufise_booking_call_sheet', 'none'),
+        ];
+    }
+
+    public static function pollSeconds(): int
+    {
+        return max(5, min(300, (int) Setting::get('mufise_poll_seconds', 15)));
+    }
+
+    public static function inlineEditing(): bool
+    {
+        return filter_var(Setting::get('mufise_inline_editing', true), FILTER_VALIDATE_BOOLEAN);
+    }
+
     public static function validateUrl(string $url): void
     {
         $parts = parse_url($url);
