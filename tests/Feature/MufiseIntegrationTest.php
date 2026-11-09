@@ -3,9 +3,13 @@
 namespace Tests\Feature;
 
 use App\Filament\Clusters\Settings\Pages\MufiseSettings as SettingsPage;
+use App\Filament\Resources\Rentals\Pages\PickupOperation;
+use App\Filament\Resources\Rentals\Pages\ProcessReturn;
 use App\Models\Cart;
+use App\Models\Delivery;
 use App\Models\MufiseAccount;
 use App\Models\MufiseOperation;
+use App\Models\ProductUnit;
 use App\Models\Rental;
 use App\Models\Setting;
 use App\Models\User;
@@ -19,6 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class MufiseIntegrationTest extends TestCase
@@ -233,57 +238,106 @@ class MufiseIntegrationTest extends TestCase
         $this->get(route('customer.mufise.rental.sheet', ['rental' => $rental->id, 'day' => $this->dayId]))->assertOk()->assertSee('Day 1')->assertHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox");
     }
 
-    public function test_day_two_lock_does_not_satisfy_pickup_even_if_readiness_is_inconsistent(): void
+    public static function pickupConnectionProblems(): array
+    {
+        return [
+            'changed Connection ID' => ['connection_id'],
+            'changed URL' => ['url'],
+            'disabled integration' => ['disabled'],
+            'missing token' => ['missing_token'],
+            'expired token' => ['expired_token'],
+            'missing account' => ['missing_account'],
+            'unavailable Mufise' => ['outage'],
+            'revoked grant' => ['revoked'],
+            'incomplete project' => ['incomplete'],
+        ];
+    }
+
+    #[DataProvider('pickupConnectionProblems')]
+    public function test_linked_pickup_does_not_depend_on_mufise(string $problem): void
     {
         $rental = $this->rental(User::factory()->create());
-        $bundle = $this->bundle();
-        $bundle['call_sheets'][0]['locked'] = false;
-        $bundle['call_sheets'][] = ['day_number' => 2, 'exists' => true, 'locked' => true];
-        Http::fake(['*/projects/*' => Http::response($bundle)]);
+        $account = MufiseAccount::findOrFail($rental->mufise_account_id);
+        match ($problem) {
+            'connection_id' => Setting::set('mufise_connection_id', 'new-connection'),
+            'url' => Setting::set('mufise_url', 'https://new-mufise.test'),
+            'disabled' => Setting::set('mufise_enabled', '0'),
+            'missing_token' => $account->update(['access_token' => null]),
+            'expired_token' => $account->update(['expires_at' => now()->subDay()]),
+            'missing_account' => $rental->update(['mufise_account_id' => null]),
+            default => null,
+        };
+        Http::fake(['*' => Http::response($this->bundle(false), match ($problem) {
+            'outage' => 503,
+            'revoked' => 401,
+            default => 200,
+        })]);
+
+        $rental->validatePickup();
+
+        $this->assertSame(Rental::STATUS_ACTIVE, $rental->fresh()->status);
+        $this->assertTrue($rental->fresh()->mufise_required);
+        $this->assertNull($rental->fresh()->mufise_pickup_snapshot);
+        Http::assertNothingSent();
+    }
+
+    public function test_admin_pickup_and_return_work_after_mufise_destination_changes(): void
+    {
+        $borrower = User::factory()->create();
+        $rental = $this->rental($borrower);
+        $this->cart($borrower);
+        $unitId = Cart::where('user_id', $borrower->id)->value('product_unit_id');
+        DB::table('rental_items')->insert([
+            'rental_id' => $rental->id, 'product_unit_id' => $unitId,
+            'daily_rate' => 100000, 'days' => 1, 'subtotal' => 100000,
+        ]);
+        $admin = User::factory()->create();
+        $admin->assignRole('super_admin');
+        \Filament\Facades\Filament::setCurrentPanel(\Filament\Facades\Filament::getPanel('admin'));
+        Setting::set('mufise_connection_id', 'new-connection');
+
+        $pickup = Livewire::actingAs($admin)->test(PickupOperation::class, ['record' => $rental->id]);
+        $out = $rental->deliveries()->where('type', Delivery::TYPE_OUT)->firstOrFail();
+        $pickup->call('validatePickup')->assertNotified('Cannot Validate Pickup');
+        $this->assertSame(Rental::STATUS_CONFIRMED, $rental->fresh()->status);
+        $this->assertSame(Delivery::STATUS_DRAFT, $out->fresh()->status);
+
+        $pickup->call('quickCheck', $out->items()->sole()->id)
+            ->call('validatePickup')->assertNotified('Pickup validated successfully');
+        $this->assertSame(Rental::STATUS_ACTIVE, $rental->fresh()->status);
+        $this->assertSame(Delivery::STATUS_COMPLETED, $out->fresh()->status);
+        $this->assertSame(ProductUnit::STATUS_RENTED, ProductUnit::findOrFail($unitId)->status);
+
+        $return = Livewire::actingAs($admin)->test(ProcessReturn::class, ['record' => $rental->id]);
+        $in = $rental->deliveries()->where('type', Delivery::TYPE_IN)->firstOrFail();
+        $return->call('quickCheck', $in->items()->sole()->id)
+            ->call('validateReturn')->assertHasNoErrors()->assertNotified('Return validated successfully');
+        $this->assertSame(Rental::STATUS_COMPLETED, $rental->fresh()->status);
+        $this->assertSame(Delivery::STATUS_COMPLETED, $in->fresh()->status);
+        $this->assertSame(ProductUnit::STATUS_AVAILABLE, ProductUnit::findOrFail($unitId)->status);
+        Http::assertNothingSent();
+    }
+
+    public function test_linked_pickup_still_rejects_unassigned_units(): void
+    {
+        $user = User::factory()->create();
+        $rental = $this->rental($user);
+        $this->cart($user);
+        $unit = ProductUnit::findOrFail(Cart::where('user_id', $user->id)->value('product_unit_id'));
+        DB::table('rental_items')->insert([
+            'rental_id' => $rental->id, 'product_id' => $unit->product_id,
+            'product_unit_id' => null, 'daily_rate' => 100000, 'days' => 1, 'subtotal' => 100000,
+        ]);
+        Setting::set('mufise_connection_id', 'new-connection');
+
         try {
             $rental->validatePickup();
-            $this->fail('Pickup should be blocked');
-        } catch (MufiseException) {
-            $this->assertSame('confirmed', $rental->fresh()->status);
+            $this->fail('Unassigned units must block pickup.');
+        } catch (\Exception $e) {
+            $this->assertStringContainsString('placeholder slot', $e->getMessage());
         }
-    }
-
-    public function test_pickup_stores_revision_day_and_encrypted_document_snapshot(): void
-    {
-        $rental = $this->rental(User::factory()->create());
-        Http::fake(function ($request) {
-            if (str_contains($request->url(), 'call-sheets')) {
-                return isset($request['format']) ? Http::response('<h1>Pickup evidence</h1>', 200, ['Content-Type' => 'text/html']) : Http::response(['locked' => true, 'day_number' => 1, 'day_id' => $this->dayId, 'schedule_revision' => 7, 'data' => ['title' => 'Senja']]);
-            }
-
-            return Http::response($this->bundle());
-        });
-        Rental::withoutEvents(fn () => $rental->validatePickup());
-        $rental->refresh();
-        $this->assertSame('active', $rental->status);
-        $this->assertSame(7, $rental->mufise_pickup_snapshot['schedule_revision']);
-        $this->assertSame($this->dayId, $rental->mufise_pickup_snapshot['day_id']);
-        $this->assertSame('<h1>Pickup evidence</h1>', $rental->mufise_call_sheet_html);
-        $this->assertStringNotContainsString('Pickup evidence', $rental->getRawOriginal('mufise_call_sheet_html'));
-        $this->assertArrayNotHasKey('mufise_pickup_snapshot', $rental->toArray());
-    }
-
-    public function test_outage_revocation_and_disabled_connection_fail_closed_for_linked_pickup(): void
-    {
-        $rental = $this->rental(User::factory()->create());
-        foreach ([401, 403, 404, 503] as $status) {
-            Http::fake(['*' => Http::response(['error' => ['code' => 'unavailable']], $status)]);
-            try {
-                $rental->validatePickup();
-                $this->fail('Pickup should fail closed');
-            } catch (MufiseException) {
-                $this->assertSame('confirmed', $rental->fresh()->status);
-                $this->assertNull($rental->fresh()->mufise_pickup_snapshot);
-            }
-        }
-        Setting::set('mufise_enabled', '0');
-        $this->expectException(MufiseException::class);
-        $rental->validatePickup();
+        $this->assertSame(Rental::STATUS_CONFIRMED, $rental->fresh()->status);
+        Http::assertNothingSent();
     }
 
     public function test_in_class_and_historical_pickup_do_not_call_mufise(): void
@@ -422,20 +476,6 @@ class MufiseIntegrationTest extends TestCase
             $this->assertSame('local_token_expired', $e->errorCode);
         }
         Http::assertNothingSent();
-    }
-
-    public function test_schedule_revision_change_blocks_pickup_without_saving_snapshot(): void
-    {
-        $rental = $this->rental(User::factory()->create());
-        Http::fake(['*/projects/'.$this->projectId => Http::response($this->bundle()), '*/call-sheets/*' => Http::response(['locked' => true, 'day_number' => 1, 'day_id' => $this->dayId, 'schedule_revision' => 8])]);
-        try {
-            $rental->validatePickup();
-            $this->fail('Changed revision must block pickup');
-        } catch (MufiseException $e) {
-            $this->assertSame('revision_conflict', $e->errorCode);
-        }
-        $this->assertNull($rental->fresh()->mufise_pickup_snapshot);
-        $this->assertSame('confirmed', $rental->fresh()->status);
     }
 
     public function test_disconnect_rejects_ambiguous_unauthorized_response_and_preserves_token(): void
@@ -669,61 +709,10 @@ class MufiseIntegrationTest extends TestCase
         ]);
     }
 
-    public function test_crew_only_policy_allows_checkout_and_pickup_without_call_sheet(): void
+    public function test_crew_only_policy_allows_submission_without_call_sheet(): void
     {
-        $user = User::factory()->create();
-        $rental = $this->rental($user);
-        $bundle = $this->crewOnlyBundle();
-        Http::fake(['*/projects/'.$this->projectId => Http::response($bundle)]);
-        app(\App\Services\Mufise\MufiseRentalService::class)->assertReady($bundle);
-        Rental::withoutEvents(fn () => $rental->validatePickup());
-        $rental->refresh();
-        $this->assertSame('active', $rental->status);
-        $this->assertNull($rental->mufise_pickup_snapshot['day_id']);
-        $this->assertNull($rental->mufise_pickup_snapshot['call_sheet']);
-        $this->assertNull($rental->mufise_call_sheet_html);
-        $this->assertSame(2, $rental->mufise_pickup_snapshot['policy_revision']);
-        Http::assertSentCount(2);
-    }
-
-    public function test_exists_policy_accepts_unlocked_day_one_and_inherits_submission_requirement(): void
-    {
-        $rental = $this->rental(User::factory()->create());
-        $bundle = $this->crewOnlyBundle();
-        $bundle['requirements']['submit']['call_sheet'] = 'exists';
-        $bundle['call_sheets'] = [['day_id' => $this->dayId, 'day_number' => 1, 'exists' => true, 'locked' => false]];
-        Http::fake([
-            '*/projects/'.$this->projectId => Http::response($bundle),
-            '*/call-sheets/*' => fn ($request) => isset($request['format'])
-                ? Http::response('<h1>Day 1 draft</h1>', 200, ['Content-Type' => 'text/html'])
-                : Http::response(['day_id' => $this->dayId, 'day_number' => 1, 'exists' => true, 'locked' => false, 'schedule_revision' => 7]),
-        ]);
-        Rental::withoutEvents(fn () => $rental->validatePickup());
-        $this->assertSame('active', $rental->fresh()->status);
-        $this->assertStringContainsString('Day 1 draft', $rental->fresh()->mufise_call_sheet_html);
-    }
-
-    public function test_policy_or_project_sync_changes_during_pickup_require_verification_again(): void
-    {
-        $queue = [];
-        Http::fake(function () use (&$queue) {
-            return Http::response(array_shift($queue));
-        });
-        foreach (['policy_revision', 'sync_version'] as $field) {
-            $rental = $this->rental(User::factory()->create());
-            $before = $this->crewOnlyBundle();
-            $after = $before;
-            $after[$field] = $field === 'policy_revision' ? 3 : str_repeat('d', 64);
-            $queue = [$before, $after];
-            try {
-                Rental::withoutEvents(fn () => $rental->validatePickup());
-                $this->fail('Concurrent changes must block pickup');
-            } catch (MufiseException $e) {
-                $this->assertSame('revision_conflict', $e->errorCode);
-                $this->assertNull($rental->fresh()->mufise_pickup_snapshot);
-                $this->assertSame('confirmed', $rental->fresh()->status);
-            }
-        }
+        app(\App\Services\Mufise\MufiseRentalService::class)->assertReady($this->crewOnlyBundle());
+        Http::assertNothingSent();
     }
 
     public function test_stage_specific_errors_and_additional_warehouse_booking_rules(): void

@@ -1132,8 +1132,7 @@ class Rental extends Model
             }
         }
 
-        app(\App\Services\Mufise\MufiseRentalService::class)->verifyPickup($this);
-
+        // Physical handover must remain independent of the borrower's Mufise connection.
         $this->update(['status' => self::STATUS_ACTIVE]);
 
         // Update product unit statuses to Rented

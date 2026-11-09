@@ -1649,7 +1649,7 @@ class RentalEditor extends Component
         if ($this->record?->mufise_required
             && in_array($this->record->status, [Rental::STATUS_QUOTATION, Rental::STATUS_CONFIRMED, Rental::STATUS_LATE_PICKUP], true)
             && in_array($this->status, [Rental::STATUS_ACTIVE, Rental::STATUS_PARTIAL_RETURN, Rental::STATUS_LATE_RETURN, Rental::STATUS_COMPLETED], true)) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['status' => 'Gunakan proses pengambilan untuk memeriksa proyek dan call sheet Mufise sebelum mengaktifkan rental.']);
+            throw \Illuminate\Validation\ValidationException::withMessages(['status' => 'Gunakan proses pengambilan untuk memeriksa unit dan menyelesaikan checklist sebelum mengaktifkan rental.']);
         }
         $totals = $this->totals;
 
